@@ -2264,7 +2264,9 @@ if (USE_ANGLE_EGL)
     )
 elseif (USE_LIBEPOXY)
     list(APPEND WebCore_LIBRARIES Epoxy::Epoxy)
-else ()
+elseif (USE_TEXTURE_MAPPER OR USE_EGL)
+    # 只有在实际启用 GPU/合成后端时才需要系统 GL(ES)/EGL。ShotKit 纯软件光栅端口
+    # 两者皆关，跳过此分支，避免要求不存在的 OpenGL::GLES 目标。
     list(APPEND WebCore_LIBRARIES OpenGL::GLES)
 
     list(APPEND WebCore_SYSTEM_INCLUDE_DIRECTORIES

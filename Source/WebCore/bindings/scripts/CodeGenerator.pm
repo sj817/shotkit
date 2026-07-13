@@ -588,7 +588,7 @@ sub IDLFileForInterface
         open my $fh, "<", $idlFileNamesList or die "cannot open $idlFileNamesList for reading";
         $idlFiles = { };
         while (<$fh>) {
-            chomp $_;
+            $_ =~ s/[\r\n]+$//; # tolerate CRLF list files (Windows) — plain chomp leaves \r and corrupts the interface-name key
             my $name = fileparse($_, ".idl");
             $idlFiles->{$name} = $_;
         }

@@ -78,6 +78,7 @@ if (NOT HAS_RUN_WEBKIT_COMMON)
         JSCOnly
         Mac
         PlayStation
+        Shot
         WPE
         Win
     )

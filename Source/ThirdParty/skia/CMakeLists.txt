@@ -854,7 +854,7 @@ endif ()
 if (USE_LIBEPOXY)
     target_sources(Skia PRIVATE src/gpu/ganesh/gl/epoxy/GrGLMakeEpoxyEGLInterface.cpp)
     target_link_libraries(Skia PRIVATE Epoxy::Epoxy)
-else ()
+elseif (USE_ANGLE_EGL OR EGL_LIBRARIES)
     target_sources(Skia PRIVATE src/gpu/ganesh/gl/egl/GrGLMakeNativeInterface_egl.cpp)
     target_sources(Skia PRIVATE src/gpu/ganesh/gl/egl/GrGLMakeEGLInterface.cpp)
     if (USE_ANGLE_EGL)
@@ -863,6 +863,7 @@ else ()
         target_link_libraries(Skia PRIVATE ${EGL_LIBRARIES})
     endif ()
 endif ()
+# ShotKit 纯软件光栅端口无 EGL/ANGLE：不编译 EGL 原生接口工厂（运行期从不创建 GL 上下文）。
 
 if (USE_SKIA_ENCODERS)
     target_sources(Skia PRIVATE
