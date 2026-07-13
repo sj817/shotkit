@@ -84,12 +84,14 @@ static Ref<Page> createShotPage(const RenderOptions& options, RefPtr<LocalFrame>
     return page;
 }
 
-// ---- 泵 RunLoop 直到加载完成（frame 完成 + 无在途 curl 子资源 + 200ms 安静窗口）或硬超时 ----
+// ---- 泵 RunLoop 直到加载完成（frame 完成 + 无在途 curl 子资源 + 10ms 收尾窗口）或硬超时 ----
 static void pumpUntilLoaded(LocalFrame& frame, const RenderOptions& options)
 {
     auto start = MonotonicTime::now();
     Seconds timeout = Seconds::fromMilliseconds(std::max(1, options.timeoutMs));
-    Seconds quietWindow = Seconds::fromMilliseconds(200);
+    // 所有主/子资源都由同步计数约束；只留一个很短的事件收尾窗口，避免每张图固定
+    // 浪费 200ms。图片解码在快照绘制时同步完成。
+    Seconds quietWindow = Seconds::fromMilliseconds(10);
     std::optional<MonotonicTime> quietStart;
     auto* strategy = activeShotLoaderStrategy();
 
@@ -116,7 +118,7 @@ static void pumpUntilLoaded(LocalFrame& frame, const RenderOptions& options)
 }
 
 // ---- 把已备好的文档字节喂进 frame、等加载、截图、编码 PNG ----
-static bool writeAndSnapshot(Page& page, LocalFrame& frame, const URL& baseURL, const String& mimeType, Ref<SharedBuffer>&& data, const RenderOptions& options, WTF::Vector<uint8_t>& outPng)
+static bool writeAndSnapshot(LocalFrame& frame, const URL& baseURL, const String& mimeType, Ref<SharedBuffer>&& data, const RenderOptions& options, WTF::Vector<uint8_t>& outImage)
 {
     Ref loader = frame.loader();
     RefPtr activeDocumentLoader = loader->activeDocumentLoader();
@@ -159,12 +161,28 @@ static bool writeAndSnapshot(Page& page, LocalFrame& frame, const URL& baseURL, 
     if (!imageBuffer)
         return false;
 
-    outPng = encodeData(WTF::move(imageBuffer), "image/png"_s);
-    return !outPng.isEmpty();
+    String outputMIMEType = "image/png"_s;
+    std::optional<double> outputQuality;
+    switch (options.outputFormat) {
+    case OutputFormat::PNG:
+        break;
+    case OutputFormat::WebPLossy:
+        outputMIMEType = "image/webp"_s;
+        outputQuality = std::clamp(options.outputQuality, 0.0, 0.99);
+        break;
+    case OutputFormat::WebPLossless:
+        outputMIMEType = "image/webp"_s;
+        outputQuality = 1.0;
+        break;
+    }
+
+    outImage = encodeData(WTF::move(imageBuffer), outputMIMEType, outputQuality);
+    return !outImage.isEmpty();
 }
 
-bool renderHTMLToPNG(std::span<const uint8_t> html, const RenderOptions& options, WTF::Vector<uint8_t>& outPng)
+bool renderMarkupToImage(std::span<const uint8_t> markup, const RenderOptions& options, WTF::Vector<uint8_t>& outImage)
 {
+    beginRenderSession();
     RefPtr<LocalFrame> mainFrame;
     Ref<Page> page = createShotPage(options, mainFrame);
     if (!mainFrame)
@@ -174,7 +192,7 @@ bool renderHTMLToPNG(std::span<const uint8_t> html, const RenderOptions& options
     if (!options.baseURL.isEmpty())
         baseURL = URL(URL(), options.baseURL);
 
-    return writeAndSnapshot(page.get(), *mainFrame, baseURL, "text/html"_s, SharedBuffer::create(html), options, outPng);
+    return writeAndSnapshot(*mainFrame, baseURL, options.inputMIMEType.isEmpty() ? "text/html"_s : options.inputMIMEType, SharedBuffer::create(markup), options, outImage);
 }
 
 // ---- 主资源抓取器：独立 CurlRequest，缓冲整个响应、跟随重定向、读写 cookie ----
@@ -290,8 +308,9 @@ private:
 
 } // anonymous namespace
 
-bool renderURLToPNG(const WTF::String& urlString, const RenderOptions& options, WTF::Vector<uint8_t>& outPng)
+bool renderURLToImage(const WTF::String& urlString, const RenderOptions& options, WTF::Vector<uint8_t>& outImage)
 {
+    beginRenderSession();
     URL url(URL(), urlString);
     if (!url.isValid())
         return false;
@@ -320,7 +339,7 @@ bool renderURLToPNG(const WTF::String& urlString, const RenderOptions& options, 
     if (!mainFrame)
         return false;
 
-    return writeAndSnapshot(page.get(), *mainFrame, fetcher->finalURL(), fetcher->mimeType(), fetcher->takeData(), options, outPng);
+    return writeAndSnapshot(*mainFrame, fetcher->finalURL(), fetcher->mimeType(), fetcher->takeData(), options, outImage);
 }
 
 } // namespace ShotKit

@@ -1,9 +1,10 @@
 /*
  * shotcli — libshot C ABI 的薄命令行封装。
  *
- *   shotcli (--html <file> | --stdin | --url <url>) --out <png>
+ *   shotcli (--html <file> | --stdin | --url <url>) --out <image>
  *           [--width W] [--height H] [--scale S] [--full-page]
- *           [--timeout MS] [--base-url URL] [--ua STRING] [--allow-file-urls]
+ *           [--format png|webp|webp-lossless] [--quality 0..100]
+ *           [--mime-type TYPE] [--timeout MS] [--base-url URL] [--ua STRING]
  *
  * 见仓库根 AGENTS.md。
  */
@@ -22,9 +23,11 @@
 static void usage()
 {
     std::fprintf(stderr,
-        "usage: shotcli (--html <file> | --stdin | --url <url>) --out <png>\n"
+        "usage: shotcli (--html <file> | --stdin | --url <url>) --out <image>\n"
         "               [--width W] [--height H] [--scale S] [--full-page]\n"
-        "               [--timeout MS] [--base-url URL] [--ua STRING] [--allow-file-urls]\n");
+        "               [--format png|webp|webp-lossless] [--quality 0..100]\n"
+        "               [--mime-type TYPE] [--timeout MS] [--base-url URL]\n"
+        "               [--ua STRING] [--allow-file-urls]\n");
 }
 
 int main(int argc, char** argv)
@@ -34,6 +37,7 @@ int main(int argc, char** argv)
     std::string outPath;
     std::string baseURLStore;
     std::string uaStore;
+    std::string mimeTypeStore;
     bool useStdin = false;
 
     shot_render_options options;
@@ -66,6 +70,29 @@ int main(int argc, char** argv)
             options.full_page = 1;
         else if (arg == "--timeout")
             options.timeout_ms = std::stoi(next("--timeout"));
+        else if (arg == "--format") {
+            auto format = next("--format");
+            if (format == "png")
+                options.output_format = SHOT_FORMAT_PNG;
+            else if (format == "webp")
+                options.output_format = SHOT_FORMAT_WEBP;
+            else if (format == "webp-lossless")
+                options.output_format = SHOT_FORMAT_WEBP_LOSSLESS;
+            else {
+                std::fprintf(stderr, "error: unsupported format %s\n", format.c_str());
+                return 2;
+            }
+        } else if (arg == "--quality") {
+            auto quality = std::stod(next("--quality"));
+            if (quality < 0 || quality > 100) {
+                std::fprintf(stderr, "error: --quality must be between 0 and 100\n");
+                return 2;
+            }
+            options.output_quality = quality / 100.0;
+        } else if (arg == "--mime-type") {
+            mimeTypeStore = next("--mime-type");
+            options.input_mime_type = mimeTypeStore.c_str();
+        }
         else if (arg == "--base-url") {
             baseURLStore = next("--base-url");
             options.base_url = baseURLStore.c_str();
@@ -110,10 +137,10 @@ int main(int argc, char** argv)
     }
 
     shot_renderer* renderer = shot_renderer_create();
-    shot_png png = { nullptr, 0 };
+    shot_image image = { nullptr, 0 };
     shot_status status = useURL
-        ? shot_render_url(renderer, urlArg.c_str(), &options, &png)
-        : shot_render_html(renderer, html.data(), html.size(), &options, &png);
+        ? shot_render_url(renderer, urlArg.c_str(), &options, &image)
+        : shot_render_html(renderer, html.data(), html.size(), &options, &image);
 
     if (status != SHOT_OK) {
         std::fprintf(stderr, "error: render failed (status %d): %s\n", status, shot_last_error(renderer));
@@ -126,11 +153,11 @@ int main(int argc, char** argv)
             std::fprintf(stderr, "error: cannot write %s\n", outPath.c_str());
             return 1;
         }
-        out.write(reinterpret_cast<const char*>(png.data), png.size);
+        out.write(reinterpret_cast<const char*>(image.data), image.size);
         out.flush();
     }
-    std::fprintf(stderr, "wrote %s (%zu bytes)\n", outPath.c_str(), png.size);
-    shot_png_free(&png);
+    std::fprintf(stderr, "wrote %s (%zu bytes)\n", outPath.c_str(), image.size);
+    shot_image_free(&image);
 
     // WebCore 线程级单例设计为进程退出时泄漏，正常退出会在静态析构中崩溃。截图已落盘，
     // 直接硬退出跳过一切静态析构/atexit（CLI 一次性场景专用；库形态见 shot_shutdown 注释）。

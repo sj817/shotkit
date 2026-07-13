@@ -14,6 +14,12 @@
 
 namespace ShotKit {
 
+enum class OutputFormat : uint8_t {
+    PNG,
+    WebPLossy,
+    WebPLossless,
+};
+
 struct RenderOptions {
     int width { 1280 };
     int height { 800 };
@@ -24,13 +30,16 @@ struct RenderOptions {
     bool allowFileURLs { false };   // 是否允许 file:// 子资源/导航
     WTF::String baseURL;            // HTML 模式的 base URL（解析外链子资源）
     WTF::String userAgent;          // 空=默认 UA
+    WTF::String inputMIMEType;       // 空=text/html；也可显式传 XML/XHTML
+    OutputFormat outputFormat { OutputFormat::PNG };
+    double outputQuality { 0.8 };    // WebP 有损质量，范围 0..1；无损模式忽略
 };
 
-// 渲染一段 UTF-8 HTML（base URL 见 options.baseURL），成功写 PNG 到 outPng 返回 true。
+// 渲染一段 UTF-8 标记（base URL/MIME 见 options），成功写编码图像到 outImage 返回 true。
 // 必须在 ShotKit::initialize() 绑定的主线程上调用。
-bool renderHTMLToPNG(std::span<const uint8_t> html, const RenderOptions&, WTF::Vector<uint8_t>& outPng);
+bool renderMarkupToImage(std::span<const uint8_t> markup, const RenderOptions&, WTF::Vector<uint8_t>& outImage);
 
 // 渲染一个远程/本地 URL（curl 抓主资源 + 子资源自动加载）。
-bool renderURLToPNG(const WTF::String& url, const RenderOptions&, WTF::Vector<uint8_t>& outPng);
+bool renderURLToImage(const WTF::String& url, const RenderOptions&, WTF::Vector<uint8_t>& outImage);
 
 } // namespace ShotKit

@@ -28,7 +28,6 @@ set(libshot_SOURCES
     ${SHOTKIT_DIR}/ShotCurlResourceLoader.cpp
     ${SHOTKIT_DIR}/ShotGlobal.cpp
     ${SHOTKIT_DIR}/ShotLoaderStrategy.cpp
-    ${SHOTKIT_DIR}/ShotNetworkingContext.cpp
     ${SHOTKIT_DIR}/ShotPage.cpp
     ${SHOTKIT_DIR}/ShotPlatformStrategies.cpp
     ${SHOTKIT_DIR}/ShotSession.cpp

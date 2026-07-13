@@ -38,6 +38,12 @@ typedef enum {
 
 typedef struct shot_renderer shot_renderer;  /* 不透明，非线程安全 */
 
+typedef enum {
+    SHOT_FORMAT_PNG = 0,
+    SHOT_FORMAT_WEBP = 1,
+    SHOT_FORMAT_WEBP_LOSSLESS = 2,
+} shot_output_format;
+
 typedef struct {
     const char* ca_bundle_path;   /* NULL=平台默认 */
     const char* extra_font_dir;   /* 可选私有字体目录（暂未接线） */
@@ -52,11 +58,15 @@ typedef struct {
     int best_effort_on_timeout;   /* 超时仍尽力出图 */
     const char* user_agent;       /* NULL=默认 */
     const char* base_url;         /* 仅 HTML 模式：解析外链子资源 */
+    const char* input_mime_type;  /* 默认 text/html；XML/XHTML 可显式指定 */
     int allow_file_urls;          /* 是否允许 file:// */
     uint32_t background_rgba;     /* 0=透明（暂未接线，页面自带背景优先） */
+    shot_output_format output_format; /* PNG / WebP 有损 / WebP 无损 */
+    double output_quality;        /* WebP 有损质量 0..1，默认 0.8 */
 } shot_render_options;
 
-typedef struct { uint8_t* data; size_t size; } shot_png;
+typedef struct { uint8_t* data; size_t size; } shot_image;
+typedef shot_image shot_png; /* 源码兼容旧调用方；内容格式由 output_format 决定。 */
 
 /* 进程内仅一次；绑定当前线程为主线程。 */
 SHOT_API shot_status shot_init(const shot_init_options*);
@@ -69,9 +79,10 @@ SHOT_API shot_renderer* shot_renderer_create(void);
 SHOT_API void           shot_renderer_destroy(shot_renderer*);
 
 SHOT_API shot_status shot_render_html(shot_renderer*, const char* html_utf8, size_t len,
-                                      const shot_render_options*, shot_png* out);
+                                      const shot_render_options*, shot_image* out);
 SHOT_API shot_status shot_render_url(shot_renderer*, const char* url,
-                                     const shot_render_options*, shot_png* out);
+                                     const shot_render_options*, shot_image* out);
+SHOT_API void        shot_image_free(shot_image*);
 SHOT_API void        shot_png_free(shot_png*);
 SHOT_API const char* shot_last_error(shot_renderer*);
 

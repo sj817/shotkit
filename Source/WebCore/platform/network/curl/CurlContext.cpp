@@ -130,7 +130,7 @@ CurlContext::CurlContext()
     m_isAltSvcEnabled = info->features & CURL_VERSION_ALTSVC;
     m_isHttp2Enabled = info->features & CURL_VERSION_HTTP2;
     // HTTP/3 backend is supported in cURL since 8.5.0
-#if LIBCURL_VERSION_NUM >= 0x080500
+#if LIBCURL_VERSION_NUM >= 0x080500 && !defined(SHOT_DISABLE_HTTP3)
     m_isHttp3Enabled = (info->features & CURL_VERSION_HTTP3) && m_isAltSvcEnabled;
 #endif
 

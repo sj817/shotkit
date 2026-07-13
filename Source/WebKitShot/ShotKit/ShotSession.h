@@ -1,23 +1,21 @@
 /*
- * ShotSession.h — 进程级 ephemeral 网络会话（内存 cookie 库）。
+ * ShotSession.h — 单次渲染生命周期的内存 CookieJar。
  *
- * ephemeral SessionID 会让 curl 的 NetworkStorageSession 自动用 :memory: cookie 库
- *（NetworkStorageSessionCurl.cpp:90），不落盘。整个进程共享一个会话。
- * 见 Source/WebKitShot/docs/network-integration-map.md 第 5 节。
+ * 不落盘、不使用 SQLite；每次公开 render 调用开始时清空，页面主请求、重定向和
+ * 子资源之间仍共享 cookie，下一次截图绝不会继承状态。
  */
 
 #pragma once
 
 namespace WebCore {
 class CurlResponse;
-class NetworkStorageSession;
 class ResourceRequest;
 }
 
 namespace ShotKit {
 
-// 进程级单例（惰性创建、故意泄漏，随进程退出）。首次调用须在主线程、ShotKit::initialize 之后。
-WebCore::NetworkStorageSession& networkStorageSession();
+// 开始一次新的渲染，清空上一次截图留下的全部 cookie。
+void beginRenderSession();
 
 // 请求发出前，把匹配的 cookie 追加到 Cookie 头。
 void appendRequestCookies(WebCore::ResourceRequest&);
