@@ -5,7 +5,7 @@
 #   -Configure            全量重配（改了任何 *.cmake，或 ninja 自动重配擦了 CMake 缓存后必用）
 #   -Configure -Build     先重配再构建
 #
-# 背景（见仓库根 CLAUDE.md「实施进度 M0/M1」）：编辑任何 *.cmake 触发 ninja 自动重配时，
+# 背景（见仓库根 AGENTS.md「实施进度 M0/M1」）：编辑任何 *.cmake 触发 ninja 自动重配时，
 # CMake 因编译器缓存项是短名 clang-cl 判定"编译器变了" → 擦掉整个 CMake 缓存（PORT/vcpkg
 # 前缀/Ruby/全部编译链接 flag 尽失）。-Configure 用完整 -D 一次性补齐所有被擦变量，避免手工
 # 逐个补参数。缺 /DNDEBUG 会开断言，触发 C_LOOP 下 JSDOMGlobalObject 编译中断，故

@@ -6,7 +6,7 @@
  *     若触达会在此崩溃，正好定位 M2 网络栈的接入点）。
  *   - BlobRegistry 用 WebCore 自带的进程内 BlobRegistryImpl。
  *   - MediaStrategy 为桩（媒体特性已关）。
- * 见仓库根 CLAUDE.md 第 5.3 节。
+ * 见仓库根 AGENTS.md 第 5.3 节。
  */
 
 #pragma once

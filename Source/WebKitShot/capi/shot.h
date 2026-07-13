@@ -2,7 +2,7 @@
  * shot.h — ShotKit C ABI（libshot 导出的唯一表面）。
  *
  * 线程模型：shot_init 把当前线程绑定为主线程，此后所有调用须同线程。
- * 见仓库根 CLAUDE.md 第 6 节。
+ * 见仓库根 AGENTS.md 第 6 节。
  */
 
 #ifndef SHOTKIT_SHOT_H

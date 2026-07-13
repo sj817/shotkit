@@ -5,7 +5,7 @@
  * LocalFrameView → frame->init() → DocumentWriter(begin/addData/end) → 泵 RunLoop 等加载完成 →
  * updateLayout → snapshotFrameRect → encodeData("image/png")。
  * URL 模式：先用独立 CurlRequest 抓主资源字节（跟随重定向），再喂 DocumentWriter；
- * 子资源经 ShotLoaderStrategy 自动加载。见 docs/network-integration-map.md 与仓库根 CLAUDE.md。
+ * 子资源经 ShotLoaderStrategy 自动加载。见 docs/network-integration-map.md 与仓库根 AGENTS.md。
  */
 
 #include "config.h"

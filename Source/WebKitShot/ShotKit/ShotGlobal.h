@@ -3,7 +3,7 @@
  *
  * 把当前调用线程绑定为 WebCore 主线程，初始化 WTF/JSC 与平台策略。
  * 进程内只应调用一次；此后所有渲染必须在同一线程进行。
- * 见仓库根 CLAUDE.md。
+ * 见仓库根 AGENTS.md。
  */
 
 #pragma once

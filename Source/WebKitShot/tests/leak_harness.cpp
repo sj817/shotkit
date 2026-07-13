@@ -1,7 +1,7 @@
 /*
  * leak_harness — 在单进程内反复调用 shot_render_html，观察 RSS 是否平稳。
  *
- * CLAUDE.md M5 鲁棒性/泄漏验收：重复 render 1000 次，RSS 平稳即通过。
+ * AGENTS.md M5 鲁棒性/泄漏验收：重复 render 1000 次，RSS 平稳即通过。
  * shotcli 每次渲染后 _Exit(0)，无法在进程内跨渲染验证泄漏，故用此独立 harness。
  *
  * 构建（build 完成后，链接 libshot 导入库）：

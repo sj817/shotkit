@@ -3,7 +3,7 @@
  *
  * 第一阶段：本地 HTML 字符串（含 data: 子资源），走 SVGImage 式的
  * DocumentWriter 直喂路径，不需要网络栈。远程 URL / 外链子资源是后续阶段。
- * 见仓库根 CLAUDE.md。
+ * 见仓库根 AGENTS.md。
  */
 
 #pragma once

@@ -2,7 +2,7 @@
 #
 # libshot：SHARED 动态库，静态汇入 WebCore(OBJECT) 等，只导出 C ABI（shot_*）。
 # shotcli：libshot 的薄命令行封装。
-# 见仓库根 CLAUDE.md。
+# 见仓库根 AGENTS.md。
 
 set(SHOTKIT_DIR "${CMAKE_CURRENT_SOURCE_DIR}/ShotKit")
 

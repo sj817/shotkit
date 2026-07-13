@@ -1,6 +1,6 @@
 # slim-icu.ps1 — 把 ICU 数据 DLL（icudtNN.dll）裁成截图内核只需的最小集。
 #
-# 背景（CLAUDE.md 4.5③「ICU data filter 是单项最大体积杠杆」）：完整 icudt 数据 ≈ 30 MB，
+# 背景（AGENTS.md 4.5③「ICU data filter 是单项最大体积杠杆」）：完整 icudt 数据 ≈ 30 MB，
 # 内含 currency/timezone/region/lang/unit/collation/rbnf/transliteration + 上千 locale bundle，
 # 纯静态截图渲染一律用不到。渲染只需：brkitr(断行/断词，含 CJK/Thai 词典)、normalization、
 # 字符属性(BiDi/case/props)、conversion(非 UTF 页面解码)、root/pool/supplemental 少量 misc。

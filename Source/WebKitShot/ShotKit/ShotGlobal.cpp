@@ -1,6 +1,6 @@
 /*
  * ShotGlobal.cpp — ShotKit 进程级初始化实现。
- * 见仓库根 CLAUDE.md。
+ * 见仓库根 AGENTS.md。
  */
 
 #include "config.h"

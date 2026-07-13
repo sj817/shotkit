@@ -1,7 +1,7 @@
 # OptionsShot.cmake — ShotKit 纯静态截图内核端口
 #
 # 目标：单进程直嵌 WebCore，把 HTML/CSS 渲染成 PNG，无头、页面 JS 永不执行、二进制极小。
-# 见仓库根 CLAUDE.md。此端口在 Windows 上以 clang-cl + vcpkg + Skia 软光栅构建。
+# 见仓库根 AGENTS.md。此端口在 Windows 上以 clang-cl + vcpkg + Skia 软光栅构建。
 #
 # 依赖来源：vcpkg（CMAKE_TOOLCHAIN_FILE 指向 vcpkg.cmake，vcpkg.json 的 web/skia/woff2 特性）。
 # 库形态：bmalloc/WTF/JSC/PAL/WebCore 全部 OBJECT，静态汇入最终 libshot（仿 PlayStation 端口）。
@@ -111,7 +111,7 @@ WEBKIT_OPTION_END()
 # CSS 选择器 JIT 无 CMake 变量，用编译定义覆盖 PlatformEnable.h 默认（回退解释执行）。
 add_definitions(-DENABLE_CSS_SELECTOR_JIT=0)
 
-# ---- 体积极致化（CLAUDE.md 4.5①）：死代码消除三件套 ----
+# ---- 体积极致化（AGENTS.md 4.5①）：死代码消除三件套 ----
 # ① 关掉层间 dllexport：bmalloc/WTF/JSC/PAL/WebCore 全是 OBJECT 静态汇入 libshot，层间无
 #    DLL 边界。上游 *_EXPORT 宏默认展开为 __declspec(dllexport)，会把上万个内部符号钉在
 #    libshot 导出表里，链接器无法当死代码删除。SHOT_NO_DLLEXPORT 让 WTF/bmalloc 的
@@ -134,7 +134,7 @@ SET_AND_EXPOSE_TO_BUILD(USE_CURL ON)
 SET_AND_EXPOSE_TO_BUILD(USE_OPENSSL ON)
 SET_AND_EXPOSE_TO_BUILD(USE_HARFBUZZ ON)
 SET_AND_EXPOSE_TO_BUILD(USE_SKIA ON)
-# 阶段说明（CLAUDE.md 风险 R2 / 4.6 体积）：WinCairo 的 WebCore 图形栈把 EGL/ANGLE
+# 阶段说明（AGENTS.md 风险 R2 / 4.6 体积）：WinCairo 的 WebCore 图形栈把 EGL/ANGLE
 # 显示抽象（PlatformDisplay→GLDisplay）硬编码进来，彻底解耦是大手术。为"先能截图"，
 # 此处沿用 WinCairo 图形栈：启用 ANGLE(仅作 EGL 显示抽象，运行期不做 GPU 合成——
 # 加速合成在 ShotPage 里被关闭，ImageBuffer 走 Skia CPU 后端)。移除 ANGLE 以减体积

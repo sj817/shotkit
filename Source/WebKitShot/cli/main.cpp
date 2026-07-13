@@ -5,7 +5,7 @@
  *           [--width W] [--height H] [--scale S] [--full-page]
  *           [--timeout MS] [--base-url URL] [--ua STRING] [--allow-file-urls]
  *
- * 见仓库根 CLAUDE.md。
+ * 见仓库根 AGENTS.md。
  */
 
 #include "shot.h"
