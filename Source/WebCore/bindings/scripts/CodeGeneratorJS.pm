@@ -5908,18 +5908,25 @@ sub GenerateAttributeGetterBodyDefinition
         # Strip off any trailing "Constructor" or "LegacyFactoryFunctionConstructor" to get the real type.
         $constructorType =~ s/Constructor$//;
 
-        # $constructorType ~= /LegacyFactoryFunction$/ indicates that it is LegacyFactoryFunction.
-        # We do not generate the header file for LegacyFactoryFunction of class X,
-        # since we generate the LegacyFactoryFunction declaration into the header file of class X.
-        if ($constructorType ne "any" and $constructorType !~ /LegacyFactoryFunction$/) {
-            AddToImplIncludes("JS" . $constructorType . ".h", $conditional);
-        }
-
-        $constructorType =~ s/LegacyFactoryFunction$//;
-
         if (IsDOMGlobalObject($interface)) {
-            push(@$outputArray, "    return JS" . $constructorType . "::${constructorGetter}(JSC::getVM(&lexicalGlobalObject), &thisObject);\n");
+            # ShotKit 体积裁剪:纯静态截图内核 JS 永不执行,全局对象(window/worker)上的构造器
+            # 属性(window.HTMLDivElement 等 ~1000 个)永无 JS 读取。让其 getter 直接返回 undefined
+            # 且不 #include/引用 JS<X> wrapper —— 切断 "window 构造器静态表 → 全部 wrapper" 的引用边,
+            # 使仅被此表锚定的 wrapper 被链接器 /OPT:REF 回收(实测省 0.85 MB)。仍被 C++ toJS(X)
+            # 引用的基础 wrapper(Node/Event 等)不受影响。见仓库根 AGENTS.md 体积裁剪一节。
+            push(@$outputArray, "    UNUSED_PARAM(lexicalGlobalObject);\n");
+            push(@$outputArray, "    UNUSED_PARAM(thisObject);\n");
+            push(@$outputArray, "    return jsUndefined();\n");
         } else {
+            # $constructorType ~= /LegacyFactoryFunction$/ indicates that it is LegacyFactoryFunction.
+            # We do not generate the header file for LegacyFactoryFunction of class X,
+            # since we generate the LegacyFactoryFunction declaration into the header file of class X.
+            if ($constructorType ne "any" and $constructorType !~ /LegacyFactoryFunction$/) {
+                AddToImplIncludes("JS" . $constructorType . ".h", $conditional);
+            }
+
+            $constructorType =~ s/LegacyFactoryFunction$//;
+
             push(@$outputArray, "    return JS" . $constructorType . "::${constructorGetter}(JSC::getVM(&lexicalGlobalObject), thisObject.realm());\n");
         }
     } else {

@@ -27,7 +27,11 @@
 
 #include "BPlatform.h"
 
-#if BUSE(DECLSPEC_ATTRIBUTE)
+#if defined(SHOT_NO_DLLEXPORT)
+// ShotKit 端口：bmalloc OBJECT 静态汇入 libshot，无需导出。见 WTF/ExportMacros.h 同名分支。
+#define BEXPORT_DECLARATION
+#define BIMPORT_DECLARATION
+#elif BUSE(DECLSPEC_ATTRIBUTE)
 #define BEXPORT_DECLARATION __declspec(dllexport)
 #define BIMPORT_DECLARATION __declspec(dllimport)
 #elif BUSE(VISIBILITY_ATTRIBUTE)

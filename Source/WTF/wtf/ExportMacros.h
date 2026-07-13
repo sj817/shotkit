@@ -47,7 +47,13 @@
 #define WTF_INTERNAL
 #endif
 
-#if USE(DECLSPEC_ATTRIBUTE)
+#if defined(SHOT_NO_DLLEXPORT)
+// ShotKit 端口：bmalloc/WTF/JSC/PAL/WebCore 全部 OBJECT 静态汇入 libshot，层间无 DLL 边界，
+// 不需要任何 __declspec(dllexport)。清空全部 *_EXPORT 宏，只剩 libshot 自己的 shot_*（SHOT_API）
+// 导出，从而让链接器 /OPT:REF 对巨量未引用符号做死代码消除。见仓库根 AGENTS.md 4.5①。
+#define WTF_EXPORT_DECLARATION
+#define WTF_IMPORT_DECLARATION
+#elif USE(DECLSPEC_ATTRIBUTE)
 #define WTF_EXPORT_DECLARATION __declspec(dllexport)
 #define WTF_IMPORT_DECLARATION __declspec(dllimport)
 #elif USE(VISIBILITY_ATTRIBUTE)
