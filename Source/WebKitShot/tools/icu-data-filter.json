@@ -1,0 +1,21 @@
+{
+  "//": "ShotKit ICU 数据裁剪过滤器（ICU_DATA_FILTER_FILE 格式，subtractive）。",
+  "//howto": "clean 重装 ICU 时用：在构建 ICU 前 set ICU_DATA_FILTER_FILE=<本文件绝对路径>，ICU 只打包未被 exclude 的类别，产出 icudtNN.dll 直接就是精简版（≈10 MB，原 30 MB）。vcpkg 场景：在 ports/icu/portfile.cmake 的 vcpkg_make_configure 之前加 set(ENV{ICU_DATA_FILTER_FILE} \"...\")。已构建好的树用同目录 slim-icu.ps1（icupkg 后处理，等价效果，无需重装）。",
+  "//keep": "保留渲染必需：brkitr(断行/断词,含CJK/Thai词典)、normalization(nfc/nfkc)、字符属性(BiDi/case/props/unames)、conversion_mappings(非UTF页面解码)、root/pool/supplemental。",
+  "//verified": "中/日/阿拉伯RTL/泰/emoji 渲染像素不变（i18n 压力页验证通过）。",
+  "strategy": "subtractive",
+  "featureFilters": {
+    "coll_tree": "exclude",
+    "coll_ucadata": "exclude",
+    "curr_tree": "exclude",
+    "curr_supplemental": "exclude",
+    "zone_tree": "exclude",
+    "zone_supplemental": "exclude",
+    "region_tree": "exclude",
+    "lang_tree": "exclude",
+    "unit_tree": "exclude",
+    "rbnf_tree": "exclude",
+    "translit": "exclude",
+    "locales_tree": "exclude"
+  }
+}
