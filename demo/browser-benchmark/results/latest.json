@@ -1,11 +1,10 @@
 {
-  "generated_at": "2026-07-14T02:10:08.189Z",
+  "schema_version": 2,
+  "generated_at": "2026-07-14T03:50:04.381Z",
   "options": {
-    "coldIterations": 5,
-    "warmup": 3,
-    "iterations": 20
+    "trials": 3
   },
-  "fixture": {
+  "capture": {
     "viewport": "1280x800",
     "dpr": 1,
     "full_page": true,
@@ -13,7 +12,9 @@
   },
   "frameworks": {
     "puppeteer": "25.3.0",
-    "playwright": "1.61.1"
+    "playwright": "1.61.1",
+    "tsx": "4.23.1",
+    "typescript": "7.0.2"
   },
   "system": {
     "platform": "win32",
@@ -22,6 +23,26 @@
     "memory_gb": 63.8,
     "node": "v22.22.2"
   },
+  "scenarios": [
+    {
+      "id": "fixture-http",
+      "label": "场景一：本机 HTTP 静态页",
+      "url": "http://127.0.0.1:51341/",
+      "kind": "http-fixture"
+    },
+    {
+      "id": "example-com",
+      "label": "场景二：公网 example.com",
+      "url": "https://example.com/",
+      "kind": "remote-https"
+    },
+    {
+      "id": "local-file",
+      "label": "场景三：本地 file:// 页面",
+      "url": "file:///D:/Github/webkit/demo/browser-benchmark/fixtures/local.html",
+      "kind": "local-file"
+    }
+  ],
   "results": [
     {
       "id": "puppeteer-chrome",
@@ -31,51 +52,192 @@
       "executable": "D:\\Github\\webkit\\demo\\browser-benchmark\\.browsers\\puppeteer\\chrome\\win64-150.0.7871.24\\chrome-win64\\chrome.exe",
       "install_path": "D:\\Github\\webkit\\demo\\browser-benchmark\\.browsers\\puppeteer\\chrome",
       "install_mb": 418.6866617202759,
-      "output_bytes": 386057,
-      "resident_rss_mb": 444.01171875,
-      "cold_samples_ms": [
-        2039.3372,
-        1188.6672000000003,
-        1179.7780999999995,
-        1178.7191999999995,
-        1172.6898
-      ],
-      "warm_samples_ms": [
-        260.04010000000017,
-        318.616399999999,
-        273.96199999999953,
-        271.6948000000011,
-        308.5627999999997,
-        333.5701000000008,
-        300.34710000000086,
-        348.7937000000002,
-        299.5407000000014,
-        332.45250000000124,
-        274.4267,
-        302.2078999999994,
-        280.59500000000116,
-        283.58870000000024,
-        265.3816000000006,
-        296.8855999999996,
-        288.3842999999997,
-        260.6134000000002,
-        277.1862000000001,
-        251.91940000000068
-      ],
-      "cold": {
-        "mean_ms": 1351.8383,
-        "median_ms": 1179.7780999999995,
-        "p95_ms": 2039.3372,
-        "min_ms": 1172.6898,
-        "max_ms": 2039.3372
-      },
-      "warm": {
-        "mean_ms": 291.4384500000003,
-        "median_ms": 283.58870000000024,
-        "p95_ms": 333.5701000000008,
-        "min_ms": 251.91940000000068,
-        "max_ms": 348.7937000000002
-      }
+      "resident_rss_mb": 428.02734375,
+      "scenarios": [
+        {
+          "scenario_id": "fixture-http",
+          "cold": {
+            "samples": [
+              {
+                "trial": 1,
+                "ok": true,
+                "duration_ms": 2011.1895999999997,
+                "output": "D:\\Github\\webkit\\demo\\browser-benchmark\\output\\puppeteer-chrome-fixture-http-cold-1.png",
+                "output_bytes": 391510
+              },
+              {
+                "trial": 2,
+                "ok": true,
+                "duration_ms": 1200.0793999999996,
+                "output": "D:\\Github\\webkit\\demo\\browser-benchmark\\output\\puppeteer-chrome-fixture-http-cold-2.png",
+                "output_bytes": 391510
+              },
+              {
+                "trial": 3,
+                "ok": true,
+                "duration_ms": 1220.3042,
+                "output": "D:\\Github\\webkit\\demo\\browser-benchmark\\output\\puppeteer-chrome-fixture-http-cold-3.png",
+                "output_bytes": 391510
+              }
+            ],
+            "fastest_ms": 1200.0793999999996,
+            "fastest_trial": 2,
+            "fastest_output": "D:\\Github\\webkit\\demo\\browser-benchmark\\output\\puppeteer-chrome-fixture-http-cold-fastest.png",
+            "output_bytes": 391510
+          },
+          "warm": {
+            "samples": [
+              {
+                "trial": 1,
+                "ok": true,
+                "duration_ms": 693.9098999999987,
+                "output": "D:\\Github\\webkit\\demo\\browser-benchmark\\output\\puppeteer-chrome-fixture-http-warm-1.png",
+                "output_bytes": 391510
+              },
+              {
+                "trial": 2,
+                "ok": true,
+                "duration_ms": 287.45700000000033,
+                "output": "D:\\Github\\webkit\\demo\\browser-benchmark\\output\\puppeteer-chrome-fixture-http-warm-2.png",
+                "output_bytes": 391510
+              },
+              {
+                "trial": 3,
+                "ok": true,
+                "duration_ms": 284.28150000000096,
+                "output": "D:\\Github\\webkit\\demo\\browser-benchmark\\output\\puppeteer-chrome-fixture-http-warm-3.png",
+                "output_bytes": 391510
+              }
+            ],
+            "fastest_ms": 284.28150000000096,
+            "fastest_trial": 3,
+            "fastest_output": "D:\\Github\\webkit\\demo\\browser-benchmark\\output\\puppeteer-chrome-fixture-http-warm-fastest.png",
+            "output_bytes": 391510
+          }
+        },
+        {
+          "scenario_id": "example-com",
+          "cold": {
+            "samples": [
+              {
+                "trial": 1,
+                "ok": true,
+                "duration_ms": 1317.2601000000004,
+                "output": "D:\\Github\\webkit\\demo\\browser-benchmark\\output\\puppeteer-chrome-example-com-cold-1.png",
+                "output_bytes": 13941
+              },
+              {
+                "trial": 2,
+                "ok": true,
+                "duration_ms": 1248.2551000000003,
+                "output": "D:\\Github\\webkit\\demo\\browser-benchmark\\output\\puppeteer-chrome-example-com-cold-2.png",
+                "output_bytes": 13941
+              },
+              {
+                "trial": 3,
+                "ok": true,
+                "duration_ms": 1255.2348000000002,
+                "output": "D:\\Github\\webkit\\demo\\browser-benchmark\\output\\puppeteer-chrome-example-com-cold-3.png",
+                "output_bytes": 13941
+              }
+            ],
+            "fastest_ms": 1248.2551000000003,
+            "fastest_trial": 2,
+            "fastest_output": "D:\\Github\\webkit\\demo\\browser-benchmark\\output\\puppeteer-chrome-example-com-cold-fastest.png",
+            "output_bytes": 13941
+          },
+          "warm": {
+            "samples": [
+              {
+                "trial": 1,
+                "ok": true,
+                "duration_ms": 596.6700000000001,
+                "output": "D:\\Github\\webkit\\demo\\browser-benchmark\\output\\puppeteer-chrome-example-com-warm-1.png",
+                "output_bytes": 13941
+              },
+              {
+                "trial": 2,
+                "ok": true,
+                "duration_ms": 504.9150000000009,
+                "output": "D:\\Github\\webkit\\demo\\browser-benchmark\\output\\puppeteer-chrome-example-com-warm-2.png",
+                "output_bytes": 13941
+              },
+              {
+                "trial": 3,
+                "ok": true,
+                "duration_ms": 503.4984999999997,
+                "output": "D:\\Github\\webkit\\demo\\browser-benchmark\\output\\puppeteer-chrome-example-com-warm-3.png",
+                "output_bytes": 13941
+              }
+            ],
+            "fastest_ms": 503.4984999999997,
+            "fastest_trial": 3,
+            "fastest_output": "D:\\Github\\webkit\\demo\\browser-benchmark\\output\\puppeteer-chrome-example-com-warm-fastest.png",
+            "output_bytes": 13941
+          }
+        },
+        {
+          "scenario_id": "local-file",
+          "cold": {
+            "samples": [
+              {
+                "trial": 1,
+                "ok": true,
+                "duration_ms": 1112.8091999999997,
+                "output": "D:\\Github\\webkit\\demo\\browser-benchmark\\output\\puppeteer-chrome-local-file-cold-1.png",
+                "output_bytes": 273304
+              },
+              {
+                "trial": 2,
+                "ok": true,
+                "duration_ms": 1088.8055999999997,
+                "output": "D:\\Github\\webkit\\demo\\browser-benchmark\\output\\puppeteer-chrome-local-file-cold-2.png",
+                "output_bytes": 273304
+              },
+              {
+                "trial": 3,
+                "ok": true,
+                "duration_ms": 1137.832699999999,
+                "output": "D:\\Github\\webkit\\demo\\browser-benchmark\\output\\puppeteer-chrome-local-file-cold-3.png",
+                "output_bytes": 273304
+              }
+            ],
+            "fastest_ms": 1088.8055999999997,
+            "fastest_trial": 2,
+            "fastest_output": "D:\\Github\\webkit\\demo\\browser-benchmark\\output\\puppeteer-chrome-local-file-cold-fastest.png",
+            "output_bytes": 273304
+          },
+          "warm": {
+            "samples": [
+              {
+                "trial": 1,
+                "ok": true,
+                "duration_ms": 314.94680000000153,
+                "output": "D:\\Github\\webkit\\demo\\browser-benchmark\\output\\puppeteer-chrome-local-file-warm-1.png",
+                "output_bytes": 273304
+              },
+              {
+                "trial": 2,
+                "ok": true,
+                "duration_ms": 280.52610000000277,
+                "output": "D:\\Github\\webkit\\demo\\browser-benchmark\\output\\puppeteer-chrome-local-file-warm-2.png",
+                "output_bytes": 273304
+              },
+              {
+                "trial": 3,
+                "ok": true,
+                "duration_ms": 389.91549999999916,
+                "output": "D:\\Github\\webkit\\demo\\browser-benchmark\\output\\puppeteer-chrome-local-file-warm-3.png",
+                "output_bytes": 273304
+              }
+            ],
+            "fastest_ms": 280.52610000000277,
+            "fastest_trial": 2,
+            "fastest_output": "D:\\Github\\webkit\\demo\\browser-benchmark\\output\\puppeteer-chrome-local-file-warm-fastest.png",
+            "output_bytes": 273304
+          }
+        }
+      ]
     },
     {
       "id": "puppeteer-firefox",
@@ -85,51 +247,192 @@
       "executable": "D:\\Github\\webkit\\demo\\browser-benchmark\\.browsers\\puppeteer\\firefox\\win64-stable_152.0.4\\core\\firefox.exe",
       "install_path": "D:\\Github\\webkit\\demo\\browser-benchmark\\.browsers\\puppeteer\\firefox",
       "install_mb": 335.4815740585327,
-      "output_bytes": 206839,
-      "resident_rss_mb": 872,
-      "cold_samples_ms": [
-        2260.2677000000003,
-        1927.2871999999988,
-        2289.9952999999987,
-        6472.907600000002,
-        2114.750200000002
-      ],
-      "warm_samples_ms": [
-        121.0685999999987,
-        122.31940000000031,
-        114.42569999999978,
-        138.9219000000012,
-        191.3755999999994,
-        138.38789999999426,
-        256.2724999999991,
-        180.84279999999853,
-        179.16739999999845,
-        292.19950000000244,
-        171.4155000000028,
-        210.68239999999787,
-        142.96190000000206,
-        178.21080000000075,
-        156.83610000000044,
-        137.7433000000019,
-        145.80839999999444,
-        130.24599999999919,
-        171.07300000000396,
-        210.80720000000292
-      ],
-      "cold": {
-        "mean_ms": 3013.0416000000005,
-        "median_ms": 2260.2677000000003,
-        "p95_ms": 6472.907600000002,
-        "min_ms": 1927.2871999999988,
-        "max_ms": 6472.907600000002
-      },
-      "warm": {
-        "mean_ms": 169.53829499999992,
-        "median_ms": 156.83610000000044,
-        "p95_ms": 256.2724999999991,
-        "min_ms": 114.42569999999978,
-        "max_ms": 292.19950000000244
-      }
+      "resident_rss_mb": 809.02734375,
+      "scenarios": [
+        {
+          "scenario_id": "fixture-http",
+          "cold": {
+            "samples": [
+              {
+                "trial": 1,
+                "ok": true,
+                "duration_ms": 2492.307499999999,
+                "output": "D:\\Github\\webkit\\demo\\browser-benchmark\\output\\puppeteer-firefox-fixture-http-cold-1.png",
+                "output_bytes": 206596
+              },
+              {
+                "trial": 2,
+                "ok": true,
+                "duration_ms": 2201.660499999998,
+                "output": "D:\\Github\\webkit\\demo\\browser-benchmark\\output\\puppeteer-firefox-fixture-http-cold-2.png",
+                "output_bytes": 206596
+              },
+              {
+                "trial": 3,
+                "ok": true,
+                "duration_ms": 2192.482799999998,
+                "output": "D:\\Github\\webkit\\demo\\browser-benchmark\\output\\puppeteer-firefox-fixture-http-cold-3.png",
+                "output_bytes": 206596
+              }
+            ],
+            "fastest_ms": 2192.482799999998,
+            "fastest_trial": 3,
+            "fastest_output": "D:\\Github\\webkit\\demo\\browser-benchmark\\output\\puppeteer-firefox-fixture-http-cold-fastest.png",
+            "output_bytes": 206596
+          },
+          "warm": {
+            "samples": [
+              {
+                "trial": 1,
+                "ok": true,
+                "duration_ms": 185.99109999999928,
+                "output": "D:\\Github\\webkit\\demo\\browser-benchmark\\output\\puppeteer-firefox-fixture-http-warm-1.png",
+                "output_bytes": 206596
+              },
+              {
+                "trial": 2,
+                "ok": true,
+                "duration_ms": 174.11789999999746,
+                "output": "D:\\Github\\webkit\\demo\\browser-benchmark\\output\\puppeteer-firefox-fixture-http-warm-2.png",
+                "output_bytes": 206596
+              },
+              {
+                "trial": 3,
+                "ok": true,
+                "duration_ms": 118.79940000000352,
+                "output": "D:\\Github\\webkit\\demo\\browser-benchmark\\output\\puppeteer-firefox-fixture-http-warm-3.png",
+                "output_bytes": 206596
+              }
+            ],
+            "fastest_ms": 118.79940000000352,
+            "fastest_trial": 3,
+            "fastest_output": "D:\\Github\\webkit\\demo\\browser-benchmark\\output\\puppeteer-firefox-fixture-http-warm-fastest.png",
+            "output_bytes": 206596
+          }
+        },
+        {
+          "scenario_id": "example-com",
+          "cold": {
+            "samples": [
+              {
+                "trial": 1,
+                "ok": true,
+                "duration_ms": 2168.255399999998,
+                "output": "D:\\Github\\webkit\\demo\\browser-benchmark\\output\\puppeteer-firefox-example-com-cold-1.png",
+                "output_bytes": 13356
+              },
+              {
+                "trial": 2,
+                "ok": true,
+                "duration_ms": 2205.3444999999992,
+                "output": "D:\\Github\\webkit\\demo\\browser-benchmark\\output\\puppeteer-firefox-example-com-cold-2.png",
+                "output_bytes": 13356
+              },
+              {
+                "trial": 3,
+                "ok": true,
+                "duration_ms": 2199.4120999999977,
+                "output": "D:\\Github\\webkit\\demo\\browser-benchmark\\output\\puppeteer-firefox-example-com-cold-3.png",
+                "output_bytes": 13356
+              }
+            ],
+            "fastest_ms": 2168.255399999998,
+            "fastest_trial": 1,
+            "fastest_output": "D:\\Github\\webkit\\demo\\browser-benchmark\\output\\puppeteer-firefox-example-com-cold-fastest.png",
+            "output_bytes": 13356
+          },
+          "warm": {
+            "samples": [
+              {
+                "trial": 1,
+                "ok": true,
+                "duration_ms": 562.4339000000036,
+                "output": "D:\\Github\\webkit\\demo\\browser-benchmark\\output\\puppeteer-firefox-example-com-warm-1.png",
+                "output_bytes": 13356
+              },
+              {
+                "trial": 2,
+                "ok": true,
+                "duration_ms": 453.4106000000029,
+                "output": "D:\\Github\\webkit\\demo\\browser-benchmark\\output\\puppeteer-firefox-example-com-warm-2.png",
+                "output_bytes": 13356
+              },
+              {
+                "trial": 3,
+                "ok": true,
+                "duration_ms": 453.04790000000503,
+                "output": "D:\\Github\\webkit\\demo\\browser-benchmark\\output\\puppeteer-firefox-example-com-warm-3.png",
+                "output_bytes": 13356
+              }
+            ],
+            "fastest_ms": 453.04790000000503,
+            "fastest_trial": 3,
+            "fastest_output": "D:\\Github\\webkit\\demo\\browser-benchmark\\output\\puppeteer-firefox-example-com-warm-fastest.png",
+            "output_bytes": 13356
+          }
+        },
+        {
+          "scenario_id": "local-file",
+          "cold": {
+            "samples": [
+              {
+                "trial": 1,
+                "ok": true,
+                "duration_ms": 1729.8637000000017,
+                "output": "D:\\Github\\webkit\\demo\\browser-benchmark\\output\\puppeteer-firefox-local-file-cold-1.png",
+                "output_bytes": 153458
+              },
+              {
+                "trial": 2,
+                "ok": true,
+                "duration_ms": 2424.2041000000027,
+                "output": "D:\\Github\\webkit\\demo\\browser-benchmark\\output\\puppeteer-firefox-local-file-cold-2.png",
+                "output_bytes": 153458
+              },
+              {
+                "trial": 3,
+                "ok": true,
+                "duration_ms": 2323.7393999999986,
+                "output": "D:\\Github\\webkit\\demo\\browser-benchmark\\output\\puppeteer-firefox-local-file-cold-3.png",
+                "output_bytes": 153458
+              }
+            ],
+            "fastest_ms": 1729.8637000000017,
+            "fastest_trial": 1,
+            "fastest_output": "D:\\Github\\webkit\\demo\\browser-benchmark\\output\\puppeteer-firefox-local-file-cold-fastest.png",
+            "output_bytes": 153458
+          },
+          "warm": {
+            "samples": [
+              {
+                "trial": 1,
+                "ok": true,
+                "duration_ms": 169.78690000000643,
+                "output": "D:\\Github\\webkit\\demo\\browser-benchmark\\output\\puppeteer-firefox-local-file-warm-1.png",
+                "output_bytes": 153458
+              },
+              {
+                "trial": 2,
+                "ok": true,
+                "duration_ms": 172.4644999999946,
+                "output": "D:\\Github\\webkit\\demo\\browser-benchmark\\output\\puppeteer-firefox-local-file-warm-2.png",
+                "output_bytes": 153458
+              },
+              {
+                "trial": 3,
+                "ok": true,
+                "duration_ms": 177.77269999999407,
+                "output": "D:\\Github\\webkit\\demo\\browser-benchmark\\output\\puppeteer-firefox-local-file-warm-3.png",
+                "output_bytes": 153458
+              }
+            ],
+            "fastest_ms": 169.78690000000643,
+            "fastest_trial": 1,
+            "fastest_output": "D:\\Github\\webkit\\demo\\browser-benchmark\\output\\puppeteer-firefox-local-file-warm-fastest.png",
+            "output_bytes": 153458
+          }
+        }
+      ]
     },
     {
       "id": "playwright-chromium",
@@ -139,51 +442,192 @@
       "executable": "D:\\Github\\webkit\\demo\\browser-benchmark\\.browsers\\playwright\\chromium-1228\\chrome-win64\\chrome.exe",
       "install_path": "D:\\Github\\webkit\\demo\\browser-benchmark\\.browsers\\playwright\\chromium-1228",
       "install_mb": 415.39606761932373,
-      "output_bytes": 303788,
-      "resident_rss_mb": 166.8984375,
-      "cold_samples_ms": [
-        865.7632999999987,
-        448.88299999999435,
-        461.3454000000056,
-        448.0095999999976,
-        410.3706999999995
-      ],
-      "warm_samples_ms": [
-        216.54000000000087,
-        199.92239999999583,
-        217.84889999999723,
-        213.9531999999963,
-        202.15879999999743,
-        220.81749999999738,
-        210.62309999999707,
-        202.53050000000076,
-        215.99949999999808,
-        214.66879999999946,
-        215.9175000000032,
-        218.29149999999936,
-        218.0524000000005,
-        215.06939999999304,
-        221.2525999999998,
-        229.74169999999867,
-        216.19860000000335,
-        198.50290000000678,
-        201.11189999999624,
-        217.68419999999605
-      ],
-      "cold": {
-        "mean_ms": 526.8743999999991,
-        "median_ms": 448.88299999999435,
-        "p95_ms": 865.7632999999987,
-        "min_ms": 410.3706999999995,
-        "max_ms": 865.7632999999987
-      },
-      "warm": {
-        "mean_ms": 213.34426999999886,
-        "median_ms": 215.9175000000032,
-        "p95_ms": 221.2525999999998,
-        "min_ms": 198.50290000000678,
-        "max_ms": 229.74169999999867
-      }
+      "resident_rss_mb": 163.5546875,
+      "scenarios": [
+        {
+          "scenario_id": "fixture-http",
+          "cold": {
+            "samples": [
+              {
+                "trial": 1,
+                "ok": true,
+                "duration_ms": 848.420100000003,
+                "output": "D:\\Github\\webkit\\demo\\browser-benchmark\\output\\playwright-chromium-fixture-http-cold-1.png",
+                "output_bytes": 307399
+              },
+              {
+                "trial": 2,
+                "ok": true,
+                "duration_ms": 431.2485000000015,
+                "output": "D:\\Github\\webkit\\demo\\browser-benchmark\\output\\playwright-chromium-fixture-http-cold-2.png",
+                "output_bytes": 307399
+              },
+              {
+                "trial": 3,
+                "ok": true,
+                "duration_ms": 444.2479999999996,
+                "output": "D:\\Github\\webkit\\demo\\browser-benchmark\\output\\playwright-chromium-fixture-http-cold-3.png",
+                "output_bytes": 307399
+              }
+            ],
+            "fastest_ms": 431.2485000000015,
+            "fastest_trial": 2,
+            "fastest_output": "D:\\Github\\webkit\\demo\\browser-benchmark\\output\\playwright-chromium-fixture-http-cold-fastest.png",
+            "output_bytes": 307399
+          },
+          "warm": {
+            "samples": [
+              {
+                "trial": 1,
+                "ok": true,
+                "duration_ms": 270.5097999999998,
+                "output": "D:\\Github\\webkit\\demo\\browser-benchmark\\output\\playwright-chromium-fixture-http-warm-1.png",
+                "output_bytes": 307399
+              },
+              {
+                "trial": 2,
+                "ok": true,
+                "duration_ms": 212.60450000000128,
+                "output": "D:\\Github\\webkit\\demo\\browser-benchmark\\output\\playwright-chromium-fixture-http-warm-2.png",
+                "output_bytes": 307399
+              },
+              {
+                "trial": 3,
+                "ok": true,
+                "duration_ms": 219.25020000000222,
+                "output": "D:\\Github\\webkit\\demo\\browser-benchmark\\output\\playwright-chromium-fixture-http-warm-3.png",
+                "output_bytes": 307399
+              }
+            ],
+            "fastest_ms": 212.60450000000128,
+            "fastest_trial": 2,
+            "fastest_output": "D:\\Github\\webkit\\demo\\browser-benchmark\\output\\playwright-chromium-fixture-http-warm-fastest.png",
+            "output_bytes": 307399
+          }
+        },
+        {
+          "scenario_id": "example-com",
+          "cold": {
+            "samples": [
+              {
+                "trial": 1,
+                "ok": true,
+                "duration_ms": 672.4184999999998,
+                "output": "D:\\Github\\webkit\\demo\\browser-benchmark\\output\\playwright-chromium-example-com-cold-1.png",
+                "output_bytes": 12099
+              },
+              {
+                "trial": 2,
+                "ok": true,
+                "duration_ms": 687.3764999999985,
+                "output": "D:\\Github\\webkit\\demo\\browser-benchmark\\output\\playwright-chromium-example-com-cold-2.png",
+                "output_bytes": 12099
+              },
+              {
+                "trial": 3,
+                "ok": true,
+                "duration_ms": 797.9512000000032,
+                "output": "D:\\Github\\webkit\\demo\\browser-benchmark\\output\\playwright-chromium-example-com-cold-3.png",
+                "output_bytes": 12099
+              }
+            ],
+            "fastest_ms": 672.4184999999998,
+            "fastest_trial": 1,
+            "fastest_output": "D:\\Github\\webkit\\demo\\browser-benchmark\\output\\playwright-chromium-example-com-cold-fastest.png",
+            "output_bytes": 12099
+          },
+          "warm": {
+            "samples": [
+              {
+                "trial": 1,
+                "ok": true,
+                "duration_ms": 448.21229999999923,
+                "output": "D:\\Github\\webkit\\demo\\browser-benchmark\\output\\playwright-chromium-example-com-warm-1.png",
+                "output_bytes": 12099
+              },
+              {
+                "trial": 2,
+                "ok": true,
+                "duration_ms": 467.61129999999685,
+                "output": "D:\\Github\\webkit\\demo\\browser-benchmark\\output\\playwright-chromium-example-com-warm-2.png",
+                "output_bytes": 12099
+              },
+              {
+                "trial": 3,
+                "ok": true,
+                "duration_ms": 517.1854000000021,
+                "output": "D:\\Github\\webkit\\demo\\browser-benchmark\\output\\playwright-chromium-example-com-warm-3.png",
+                "output_bytes": 12099
+              }
+            ],
+            "fastest_ms": 448.21229999999923,
+            "fastest_trial": 1,
+            "fastest_output": "D:\\Github\\webkit\\demo\\browser-benchmark\\output\\playwright-chromium-example-com-warm-fastest.png",
+            "output_bytes": 12099
+          }
+        },
+        {
+          "scenario_id": "local-file",
+          "cold": {
+            "samples": [
+              {
+                "trial": 1,
+                "ok": true,
+                "duration_ms": 454.30259999999544,
+                "output": "D:\\Github\\webkit\\demo\\browser-benchmark\\output\\playwright-chromium-local-file-cold-1.png",
+                "output_bytes": 228731
+              },
+              {
+                "trial": 2,
+                "ok": true,
+                "duration_ms": 400.4323000000004,
+                "output": "D:\\Github\\webkit\\demo\\browser-benchmark\\output\\playwright-chromium-local-file-cold-2.png",
+                "output_bytes": 228731
+              },
+              {
+                "trial": 3,
+                "ok": true,
+                "duration_ms": 413.8017000000036,
+                "output": "D:\\Github\\webkit\\demo\\browser-benchmark\\output\\playwright-chromium-local-file-cold-3.png",
+                "output_bytes": 228731
+              }
+            ],
+            "fastest_ms": 400.4323000000004,
+            "fastest_trial": 2,
+            "fastest_output": "D:\\Github\\webkit\\demo\\browser-benchmark\\output\\playwright-chromium-local-file-cold-fastest.png",
+            "output_bytes": 228731
+          },
+          "warm": {
+            "samples": [
+              {
+                "trial": 1,
+                "ok": true,
+                "duration_ms": 192.96860000000015,
+                "output": "D:\\Github\\webkit\\demo\\browser-benchmark\\output\\playwright-chromium-local-file-warm-1.png",
+                "output_bytes": 228731
+              },
+              {
+                "trial": 2,
+                "ok": true,
+                "duration_ms": 202.06900000000314,
+                "output": "D:\\Github\\webkit\\demo\\browser-benchmark\\output\\playwright-chromium-local-file-warm-2.png",
+                "output_bytes": 228731
+              },
+              {
+                "trial": 3,
+                "ok": true,
+                "duration_ms": 200.40989999999874,
+                "output": "D:\\Github\\webkit\\demo\\browser-benchmark\\output\\playwright-chromium-local-file-warm-3.png",
+                "output_bytes": 228731
+              }
+            ],
+            "fastest_ms": 192.96860000000015,
+            "fastest_trial": 1,
+            "fastest_output": "D:\\Github\\webkit\\demo\\browser-benchmark\\output\\playwright-chromium-local-file-warm-fastest.png",
+            "output_bytes": 228731
+          }
+        }
+      ]
     },
     {
       "id": "playwright-firefox",
@@ -193,51 +637,192 @@
       "executable": "D:\\Github\\webkit\\demo\\browser-benchmark\\.browsers\\playwright\\firefox-1532\\firefox\\firefox.exe",
       "install_path": "D:\\Github\\webkit\\demo\\browser-benchmark\\.browsers\\playwright\\firefox-1532",
       "install_mb": 327.3114128112793,
-      "output_bytes": 206916,
-      "resident_rss_mb": 544.875,
-      "cold_samples_ms": [
-        2018.6537000000026,
-        1542.0607000000018,
-        1439.2251000000033,
-        1438.1960000000036,
-        1438.482299999996
-      ],
-      "warm_samples_ms": [
-        240.9242000000013,
-        236.4447,
-        274.6710000000021,
-        245.8894999999975,
-        237.61970000000292,
-        260.74909999999363,
-        916.3035000000018,
-        316.1782000000021,
-        388.3689000000013,
-        275.51459999999497,
-        290.4459999999963,
-        259.31009999999515,
-        271.59249999999884,
-        288.32280000000173,
-        272.46659999999974,
-        253.1143000000011,
-        1223.313900000001,
-        264.84859999999753,
-        300.04349999999977,
-        259.9180000000051
-      ],
-      "cold": {
-        "mean_ms": 1575.3235600000014,
-        "median_ms": 1439.2251000000033,
-        "p95_ms": 2018.6537000000026,
-        "min_ms": 1438.1960000000036,
-        "max_ms": 2018.6537000000026
-      },
-      "warm": {
-        "mean_ms": 353.8019849999997,
-        "median_ms": 271.59249999999884,
-        "p95_ms": 916.3035000000018,
-        "min_ms": 236.4447,
-        "max_ms": 1223.313900000001
-      }
+      "resident_rss_mb": 535.671875,
+      "scenarios": [
+        {
+          "scenario_id": "fixture-http",
+          "cold": {
+            "samples": [
+              {
+                "trial": 1,
+                "ok": true,
+                "duration_ms": 2025.8724000000002,
+                "output": "D:\\Github\\webkit\\demo\\browser-benchmark\\output\\playwright-firefox-fixture-http-cold-1.png",
+                "output_bytes": 206596
+              },
+              {
+                "trial": 2,
+                "ok": true,
+                "duration_ms": 1398.8425999999963,
+                "output": "D:\\Github\\webkit\\demo\\browser-benchmark\\output\\playwright-firefox-fixture-http-cold-2.png",
+                "output_bytes": 206596
+              },
+              {
+                "trial": 3,
+                "ok": true,
+                "duration_ms": 1469.648500000003,
+                "output": "D:\\Github\\webkit\\demo\\browser-benchmark\\output\\playwright-firefox-fixture-http-cold-3.png",
+                "output_bytes": 206596
+              }
+            ],
+            "fastest_ms": 1398.8425999999963,
+            "fastest_trial": 2,
+            "fastest_output": "D:\\Github\\webkit\\demo\\browser-benchmark\\output\\playwright-firefox-fixture-http-cold-fastest.png",
+            "output_bytes": 206596
+          },
+          "warm": {
+            "samples": [
+              {
+                "trial": 1,
+                "ok": true,
+                "duration_ms": 778.6935999999987,
+                "output": "D:\\Github\\webkit\\demo\\browser-benchmark\\output\\playwright-firefox-fixture-http-warm-1.png",
+                "output_bytes": 206596
+              },
+              {
+                "trial": 2,
+                "ok": true,
+                "duration_ms": 294.4502000000066,
+                "output": "D:\\Github\\webkit\\demo\\browser-benchmark\\output\\playwright-firefox-fixture-http-warm-2.png",
+                "output_bytes": 206596
+              },
+              {
+                "trial": 3,
+                "ok": true,
+                "duration_ms": 263.03880000000936,
+                "output": "D:\\Github\\webkit\\demo\\browser-benchmark\\output\\playwright-firefox-fixture-http-warm-3.png",
+                "output_bytes": 206596
+              }
+            ],
+            "fastest_ms": 263.03880000000936,
+            "fastest_trial": 3,
+            "fastest_output": "D:\\Github\\webkit\\demo\\browser-benchmark\\output\\playwright-firefox-fixture-http-warm-fastest.png",
+            "output_bytes": 206596
+          }
+        },
+        {
+          "scenario_id": "example-com",
+          "cold": {
+            "samples": [
+              {
+                "trial": 1,
+                "ok": true,
+                "duration_ms": 1739.4858999999997,
+                "output": "D:\\Github\\webkit\\demo\\browser-benchmark\\output\\playwright-firefox-example-com-cold-1.png",
+                "output_bytes": 13356
+              },
+              {
+                "trial": 2,
+                "ok": true,
+                "duration_ms": 1800.328300000001,
+                "output": "D:\\Github\\webkit\\demo\\browser-benchmark\\output\\playwright-firefox-example-com-cold-2.png",
+                "output_bytes": 13356
+              },
+              {
+                "trial": 3,
+                "ok": true,
+                "duration_ms": 1675.3157999999967,
+                "output": "D:\\Github\\webkit\\demo\\browser-benchmark\\output\\playwright-firefox-example-com-cold-3.png",
+                "output_bytes": 13356
+              }
+            ],
+            "fastest_ms": 1675.3157999999967,
+            "fastest_trial": 3,
+            "fastest_output": "D:\\Github\\webkit\\demo\\browser-benchmark\\output\\playwright-firefox-example-com-cold-fastest.png",
+            "output_bytes": 13356
+          },
+          "warm": {
+            "samples": [
+              {
+                "trial": 1,
+                "ok": true,
+                "duration_ms": 849.3191999999981,
+                "output": "D:\\Github\\webkit\\demo\\browser-benchmark\\output\\playwright-firefox-example-com-warm-1.png",
+                "output_bytes": 13356
+              },
+              {
+                "trial": 2,
+                "ok": true,
+                "duration_ms": 499.4802000000054,
+                "output": "D:\\Github\\webkit\\demo\\browser-benchmark\\output\\playwright-firefox-example-com-warm-2.png",
+                "output_bytes": 13356
+              },
+              {
+                "trial": 3,
+                "ok": true,
+                "duration_ms": 424.00130000000354,
+                "output": "D:\\Github\\webkit\\demo\\browser-benchmark\\output\\playwright-firefox-example-com-warm-3.png",
+                "output_bytes": 13356
+              }
+            ],
+            "fastest_ms": 424.00130000000354,
+            "fastest_trial": 3,
+            "fastest_output": "D:\\Github\\webkit\\demo\\browser-benchmark\\output\\playwright-firefox-example-com-warm-fastest.png",
+            "output_bytes": 13356
+          }
+        },
+        {
+          "scenario_id": "local-file",
+          "cold": {
+            "samples": [
+              {
+                "trial": 1,
+                "ok": true,
+                "duration_ms": 1426.2099000000017,
+                "output": "D:\\Github\\webkit\\demo\\browser-benchmark\\output\\playwright-firefox-local-file-cold-1.png",
+                "output_bytes": 153458
+              },
+              {
+                "trial": 2,
+                "ok": true,
+                "duration_ms": 1374.3320000000022,
+                "output": "D:\\Github\\webkit\\demo\\browser-benchmark\\output\\playwright-firefox-local-file-cold-2.png",
+                "output_bytes": 153458
+              },
+              {
+                "trial": 3,
+                "ok": true,
+                "duration_ms": 1402.7992999999988,
+                "output": "D:\\Github\\webkit\\demo\\browser-benchmark\\output\\playwright-firefox-local-file-cold-3.png",
+                "output_bytes": 153458
+              }
+            ],
+            "fastest_ms": 1374.3320000000022,
+            "fastest_trial": 2,
+            "fastest_output": "D:\\Github\\webkit\\demo\\browser-benchmark\\output\\playwright-firefox-local-file-cold-fastest.png",
+            "output_bytes": 153458
+          },
+          "warm": {
+            "samples": [
+              {
+                "trial": 1,
+                "ok": true,
+                "duration_ms": 323.0168999999878,
+                "output": "D:\\Github\\webkit\\demo\\browser-benchmark\\output\\playwright-firefox-local-file-warm-1.png",
+                "output_bytes": 153458
+              },
+              {
+                "trial": 2,
+                "ok": true,
+                "duration_ms": 306.49179999998887,
+                "output": "D:\\Github\\webkit\\demo\\browser-benchmark\\output\\playwright-firefox-local-file-warm-2.png",
+                "output_bytes": 153458
+              },
+              {
+                "trial": 3,
+                "ok": true,
+                "duration_ms": 321.66219999999157,
+                "output": "D:\\Github\\webkit\\demo\\browser-benchmark\\output\\playwright-firefox-local-file-warm-3.png",
+                "output_bytes": 153458
+              }
+            ],
+            "fastest_ms": 306.49179999998887,
+            "fastest_trial": 2,
+            "fastest_output": "D:\\Github\\webkit\\demo\\browser-benchmark\\output\\playwright-firefox-local-file-warm-fastest.png",
+            "output_bytes": 153458
+          }
+        }
+      ]
     },
     {
       "id": "playwright-webkit",
@@ -247,51 +832,192 @@
       "executable": "D:\\Github\\webkit\\demo\\browser-benchmark\\.browsers\\playwright\\webkit-2311\\Playwright.exe",
       "install_path": "D:\\Github\\webkit\\demo\\browser-benchmark\\.browsers\\playwright\\webkit-2311",
       "install_mb": 166.45391464233398,
-      "output_bytes": 220915,
-      "resident_rss_mb": 75.1484375,
-      "cold_samples_ms": [
-        3447.9389000000083,
-        3281.2612999999983,
-        3387.902000000002,
-        3408.2634000000107,
-        3404.6793999999936
-      ],
-      "warm_samples_ms": [
-        3266.830799999996,
-        3200.4569000000047,
-        3242.5973999999987,
-        3230.474700000006,
-        3558.4042000000045,
-        3353.5813999999955,
-        3451.5053999999946,
-        3262.46130000001,
-        3221.543399999995,
-        3173.2100999999966,
-        3316.9811000000045,
-        3483.5251000000135,
-        3260.484700000001,
-        3302.2955000000075,
-        3223.5143999999855,
-        3192.352500000008,
-        3354.008600000001,
-        3210.433000000019,
-        3291.592799999984,
-        3185.6110000000044
-      ],
-      "cold": {
-        "mean_ms": 3386.0090000000027,
-        "median_ms": 3404.6793999999936,
-        "p95_ms": 3447.9389000000083,
-        "min_ms": 3281.2612999999983,
-        "max_ms": 3447.9389000000083
-      },
-      "warm": {
-        "mean_ms": 3289.0932150000017,
-        "median_ms": 3260.484700000001,
-        "p95_ms": 3483.5251000000135,
-        "min_ms": 3173.2100999999966,
-        "max_ms": 3558.4042000000045
-      }
+      "resident_rss_mb": 68.86328125,
+      "scenarios": [
+        {
+          "scenario_id": "fixture-http",
+          "cold": {
+            "samples": [
+              {
+                "trial": 1,
+                "ok": true,
+                "duration_ms": 3344.7913999999873,
+                "output": "D:\\Github\\webkit\\demo\\browser-benchmark\\output\\playwright-webkit-fixture-http-cold-1.png",
+                "output_bytes": 223002
+              },
+              {
+                "trial": 2,
+                "ok": true,
+                "duration_ms": 3171.4539000000077,
+                "output": "D:\\Github\\webkit\\demo\\browser-benchmark\\output\\playwright-webkit-fixture-http-cold-2.png",
+                "output_bytes": 223002
+              },
+              {
+                "trial": 3,
+                "ok": true,
+                "duration_ms": 3218.9088000000047,
+                "output": "D:\\Github\\webkit\\demo\\browser-benchmark\\output\\playwright-webkit-fixture-http-cold-3.png",
+                "output_bytes": 223002
+              }
+            ],
+            "fastest_ms": 3171.4539000000077,
+            "fastest_trial": 2,
+            "fastest_output": "D:\\Github\\webkit\\demo\\browser-benchmark\\output\\playwright-webkit-fixture-http-cold-fastest.png",
+            "output_bytes": 223002
+          },
+          "warm": {
+            "samples": [
+              {
+                "trial": 1,
+                "ok": true,
+                "duration_ms": 3172.4511000000057,
+                "output": "D:\\Github\\webkit\\demo\\browser-benchmark\\output\\playwright-webkit-fixture-http-warm-1.png",
+                "output_bytes": 223002
+              },
+              {
+                "trial": 2,
+                "ok": true,
+                "duration_ms": 3172.170100000003,
+                "output": "D:\\Github\\webkit\\demo\\browser-benchmark\\output\\playwright-webkit-fixture-http-warm-2.png",
+                "output_bytes": 223002
+              },
+              {
+                "trial": 3,
+                "ok": true,
+                "duration_ms": 3085.6373999999923,
+                "output": "D:\\Github\\webkit\\demo\\browser-benchmark\\output\\playwright-webkit-fixture-http-warm-3.png",
+                "output_bytes": 223002
+              }
+            ],
+            "fastest_ms": 3085.6373999999923,
+            "fastest_trial": 3,
+            "fastest_output": "D:\\Github\\webkit\\demo\\browser-benchmark\\output\\playwright-webkit-fixture-http-warm-fastest.png",
+            "output_bytes": 223002
+          }
+        },
+        {
+          "scenario_id": "example-com",
+          "cold": {
+            "samples": [
+              {
+                "trial": 1,
+                "ok": true,
+                "duration_ms": 14951.993800000011,
+                "output": "D:\\Github\\webkit\\demo\\browser-benchmark\\output\\playwright-webkit-example-com-cold-1.png",
+                "output_bytes": 11943
+              },
+              {
+                "trial": 2,
+                "ok": true,
+                "duration_ms": 3694.689400000003,
+                "output": "D:\\Github\\webkit\\demo\\browser-benchmark\\output\\playwright-webkit-example-com-cold-2.png",
+                "output_bytes": 11943
+              },
+              {
+                "trial": 3,
+                "ok": true,
+                "duration_ms": 3377.451000000001,
+                "output": "D:\\Github\\webkit\\demo\\browser-benchmark\\output\\playwright-webkit-example-com-cold-3.png",
+                "output_bytes": 11943
+              }
+            ],
+            "fastest_ms": 3377.451000000001,
+            "fastest_trial": 3,
+            "fastest_output": "D:\\Github\\webkit\\demo\\browser-benchmark\\output\\playwright-webkit-example-com-cold-fastest.png",
+            "output_bytes": 11943
+          },
+          "warm": {
+            "samples": [
+              {
+                "trial": 1,
+                "ok": true,
+                "duration_ms": 3339.162200000006,
+                "output": "D:\\Github\\webkit\\demo\\browser-benchmark\\output\\playwright-webkit-example-com-warm-1.png",
+                "output_bytes": 11943
+              },
+              {
+                "trial": 2,
+                "ok": true,
+                "duration_ms": 3242.161500000002,
+                "output": "D:\\Github\\webkit\\demo\\browser-benchmark\\output\\playwright-webkit-example-com-warm-2.png",
+                "output_bytes": 11943
+              },
+              {
+                "trial": 3,
+                "ok": true,
+                "duration_ms": 3118.4628000000084,
+                "output": "D:\\Github\\webkit\\demo\\browser-benchmark\\output\\playwright-webkit-example-com-warm-3.png",
+                "output_bytes": 11943
+              }
+            ],
+            "fastest_ms": 3118.4628000000084,
+            "fastest_trial": 3,
+            "fastest_output": "D:\\Github\\webkit\\demo\\browser-benchmark\\output\\playwright-webkit-example-com-warm-fastest.png",
+            "output_bytes": 11943
+          }
+        },
+        {
+          "scenario_id": "local-file",
+          "cold": {
+            "samples": [
+              {
+                "trial": 1,
+                "ok": true,
+                "duration_ms": 3248.8819000000076,
+                "output": "D:\\Github\\webkit\\demo\\browser-benchmark\\output\\playwright-webkit-local-file-cold-1.png",
+                "output_bytes": 158198
+              },
+              {
+                "trial": 2,
+                "ok": true,
+                "duration_ms": 3155.5743000000075,
+                "output": "D:\\Github\\webkit\\demo\\browser-benchmark\\output\\playwright-webkit-local-file-cold-2.png",
+                "output_bytes": 158198
+              },
+              {
+                "trial": 3,
+                "ok": true,
+                "duration_ms": 3169.3369999999995,
+                "output": "D:\\Github\\webkit\\demo\\browser-benchmark\\output\\playwright-webkit-local-file-cold-3.png",
+                "output_bytes": 158198
+              }
+            ],
+            "fastest_ms": 3155.5743000000075,
+            "fastest_trial": 2,
+            "fastest_output": "D:\\Github\\webkit\\demo\\browser-benchmark\\output\\playwright-webkit-local-file-cold-fastest.png",
+            "output_bytes": 158198
+          },
+          "warm": {
+            "samples": [
+              {
+                "trial": 1,
+                "ok": true,
+                "duration_ms": 3152.9328999999852,
+                "output": "D:\\Github\\webkit\\demo\\browser-benchmark\\output\\playwright-webkit-local-file-warm-1.png",
+                "output_bytes": 158198
+              },
+              {
+                "trial": 2,
+                "ok": true,
+                "duration_ms": 3096.4952999999805,
+                "output": "D:\\Github\\webkit\\demo\\browser-benchmark\\output\\playwright-webkit-local-file-warm-2.png",
+                "output_bytes": 158198
+              },
+              {
+                "trial": 3,
+                "ok": true,
+                "duration_ms": 3058.597699999984,
+                "output": "D:\\Github\\webkit\\demo\\browser-benchmark\\output\\playwright-webkit-local-file-warm-3.png",
+                "output_bytes": 158198
+              }
+            ],
+            "fastest_ms": 3058.597699999984,
+            "fastest_trial": 3,
+            "fastest_output": "D:\\Github\\webkit\\demo\\browser-benchmark\\output\\playwright-webkit-local-file-warm-fastest.png",
+            "output_bytes": 158198
+          }
+        }
+      ]
     },
     {
       "id": "shotkit",
@@ -301,51 +1027,192 @@
       "executable": "D:\\Github\\webkit\\WebKitBuild\\shot-dist\\shotcli.exe",
       "install_path": "D:\\Github\\webkit\\WebKitBuild\\shot-dist",
       "install_mb": 64.1044921875,
-      "output_bytes": 222367,
-      "resident_rss_mb": 40.2109375,
-      "cold_samples_ms": [
-        280.67049999997835,
-        186.38000000000466,
-        186.71220000000903,
-        186.45300000000861,
-        177.95489999998244
-      ],
-      "warm_samples_ms": [
-        93.62950000001001,
-        91.84179999999469,
-        92.50050000002375,
-        94.18229999998584,
-        94.46100000001024,
-        92.08360000001267,
-        98.04409999999916,
-        94.56409999998868,
-        92.15119999999297,
-        92.71940000000177,
-        93.79760000001988,
-        90.17280000000028,
-        91.55439999999362,
-        91.13529999999446,
-        93.58539999998175,
-        90.78039999998873,
-        93.72550000000047,
-        93.14340000000084,
-        91.6765000000014,
-        89.50029999998515
-      ],
-      "cold": {
-        "mean_ms": 203.6341199999966,
-        "median_ms": 186.45300000000861,
-        "p95_ms": 280.67049999997835,
-        "min_ms": 177.95489999998244,
-        "max_ms": 280.67049999997835
-      },
-      "warm": {
-        "mean_ms": 92.76245499999932,
-        "median_ms": 92.50050000002375,
-        "p95_ms": 94.56409999998868,
-        "min_ms": 89.50029999998515,
-        "max_ms": 98.04409999999916
-      }
+      "resident_rss_mb": 45.0390625,
+      "scenarios": [
+        {
+          "scenario_id": "fixture-http",
+          "cold": {
+            "samples": [
+              {
+                "trial": 1,
+                "ok": true,
+                "duration_ms": 276.15909999998985,
+                "output": "D:\\Github\\webkit\\demo\\browser-benchmark\\output\\shotkit-fixture-http-cold-1.png",
+                "output_bytes": 223907
+              },
+              {
+                "trial": 2,
+                "ok": true,
+                "duration_ms": 204.20670000000973,
+                "output": "D:\\Github\\webkit\\demo\\browser-benchmark\\output\\shotkit-fixture-http-cold-2.png",
+                "output_bytes": 223907
+              },
+              {
+                "trial": 3,
+                "ok": true,
+                "duration_ms": 186.38879999998608,
+                "output": "D:\\Github\\webkit\\demo\\browser-benchmark\\output\\shotkit-fixture-http-cold-3.png",
+                "output_bytes": 223907
+              }
+            ],
+            "fastest_ms": 186.38879999998608,
+            "fastest_trial": 3,
+            "fastest_output": "D:\\Github\\webkit\\demo\\browser-benchmark\\output\\shotkit-fixture-http-cold-fastest.png",
+            "output_bytes": 223907
+          },
+          "warm": {
+            "samples": [
+              {
+                "trial": 1,
+                "ok": true,
+                "duration_ms": 159.37870000000112,
+                "output": "D:\\Github\\webkit\\demo\\browser-benchmark\\output\\shotkit-fixture-http-warm-1.png",
+                "output_bytes": 223907
+              },
+              {
+                "trial": 2,
+                "ok": true,
+                "duration_ms": 91.28130000000237,
+                "output": "D:\\Github\\webkit\\demo\\browser-benchmark\\output\\shotkit-fixture-http-warm-2.png",
+                "output_bytes": 223907
+              },
+              {
+                "trial": 3,
+                "ok": true,
+                "duration_ms": 91.10670000000391,
+                "output": "D:\\Github\\webkit\\demo\\browser-benchmark\\output\\shotkit-fixture-http-warm-3.png",
+                "output_bytes": 223907
+              }
+            ],
+            "fastest_ms": 91.10670000000391,
+            "fastest_trial": 3,
+            "fastest_output": "D:\\Github\\webkit\\demo\\browser-benchmark\\output\\shotkit-fixture-http-warm-fastest.png",
+            "output_bytes": 223907
+          }
+        },
+        {
+          "scenario_id": "example-com",
+          "cold": {
+            "samples": [
+              {
+                "trial": 1,
+                "ok": true,
+                "duration_ms": 345.8886999999813,
+                "output": "D:\\Github\\webkit\\demo\\browser-benchmark\\output\\shotkit-example-com-cold-1.png",
+                "output_bytes": 11049
+              },
+              {
+                "trial": 2,
+                "ok": true,
+                "duration_ms": 348.4915000000037,
+                "output": "D:\\Github\\webkit\\demo\\browser-benchmark\\output\\shotkit-example-com-cold-2.png",
+                "output_bytes": 11049
+              },
+              {
+                "trial": 3,
+                "ok": true,
+                "duration_ms": 358.81609999999637,
+                "output": "D:\\Github\\webkit\\demo\\browser-benchmark\\output\\shotkit-example-com-cold-3.png",
+                "output_bytes": 11049
+              }
+            ],
+            "fastest_ms": 345.8886999999813,
+            "fastest_trial": 1,
+            "fastest_output": "D:\\Github\\webkit\\demo\\browser-benchmark\\output\\shotkit-example-com-cold-fastest.png",
+            "output_bytes": 11049
+          },
+          "warm": {
+            "samples": [
+              {
+                "trial": 1,
+                "ok": true,
+                "duration_ms": 311.48520000002463,
+                "output": "D:\\Github\\webkit\\demo\\browser-benchmark\\output\\shotkit-example-com-warm-1.png",
+                "output_bytes": 11049
+              },
+              {
+                "trial": 2,
+                "ok": true,
+                "duration_ms": 128.06399999998393,
+                "output": "D:\\Github\\webkit\\demo\\browser-benchmark\\output\\shotkit-example-com-warm-2.png",
+                "output_bytes": 11049
+              },
+              {
+                "trial": 3,
+                "ok": true,
+                "duration_ms": 128.4658000000054,
+                "output": "D:\\Github\\webkit\\demo\\browser-benchmark\\output\\shotkit-example-com-warm-3.png",
+                "output_bytes": 11049
+              }
+            ],
+            "fastest_ms": 128.06399999998393,
+            "fastest_trial": 2,
+            "fastest_output": "D:\\Github\\webkit\\demo\\browser-benchmark\\output\\shotkit-example-com-warm-fastest.png",
+            "output_bytes": 11049
+          }
+        },
+        {
+          "scenario_id": "local-file",
+          "cold": {
+            "samples": [
+              {
+                "trial": 1,
+                "ok": true,
+                "duration_ms": 166.31429999999818,
+                "output": "D:\\Github\\webkit\\demo\\browser-benchmark\\output\\shotkit-local-file-cold-1.png",
+                "output_bytes": 159280
+              },
+              {
+                "trial": 2,
+                "ok": true,
+                "duration_ms": 158.14810000002035,
+                "output": "D:\\Github\\webkit\\demo\\browser-benchmark\\output\\shotkit-local-file-cold-2.png",
+                "output_bytes": 159280
+              },
+              {
+                "trial": 3,
+                "ok": true,
+                "duration_ms": 158.96950000000652,
+                "output": "D:\\Github\\webkit\\demo\\browser-benchmark\\output\\shotkit-local-file-cold-3.png",
+                "output_bytes": 159280
+              }
+            ],
+            "fastest_ms": 158.14810000002035,
+            "fastest_trial": 2,
+            "fastest_output": "D:\\Github\\webkit\\demo\\browser-benchmark\\output\\shotkit-local-file-cold-fastest.png",
+            "output_bytes": 159280
+          },
+          "warm": {
+            "samples": [
+              {
+                "trial": 1,
+                "ok": true,
+                "duration_ms": 72.58150000000023,
+                "output": "D:\\Github\\webkit\\demo\\browser-benchmark\\output\\shotkit-local-file-warm-1.png",
+                "output_bytes": 159280
+              },
+              {
+                "trial": 2,
+                "ok": true,
+                "duration_ms": 69.01459999999497,
+                "output": "D:\\Github\\webkit\\demo\\browser-benchmark\\output\\shotkit-local-file-warm-2.png",
+                "output_bytes": 159280
+              },
+              {
+                "trial": 3,
+                "ok": true,
+                "duration_ms": 66.4140999999945,
+                "output": "D:\\Github\\webkit\\demo\\browser-benchmark\\output\\shotkit-local-file-warm-3.png",
+                "output_bytes": 159280
+              }
+            ],
+            "fastest_ms": 66.4140999999945,
+            "fastest_trial": 3,
+            "fastest_output": "D:\\Github\\webkit\\demo\\browser-benchmark\\output\\shotkit-local-file-warm-fastest.png",
+            "output_bytes": 159280
+          }
+        }
+      ]
     }
   ]
 }
