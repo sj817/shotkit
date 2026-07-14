@@ -9,7 +9,8 @@
 # CMake 因编译器缓存项是短名 clang-cl 判定"编译器变了" → 擦掉整个 CMake 缓存（PORT/vcpkg
 # 前缀/Ruby/全部编译链接 flag 尽失）。-Configure 用完整 -D 一次性补齐所有被擦变量，避免手工
 # 逐个补参数。缺 /DNDEBUG 会开断言，触发 C_LOOP 下 JSDOMGlobalObject 编译中断，故
-# *_FLAGS_RELEASE 必含 /DNDEBUG。运行 shotcli 前把 vcpkg_installed/.../bin 加进 PATH。
+# 发布构建固定 MinSizeRel + full LTO；*_FLAGS_MINSIZEREL 必含 /DNDEBUG。
+# 运行 shotcli 前把 vcpkg_installed/.../bin 加进 PATH。
 
 param(
     [switch]$Configure,
@@ -30,7 +31,7 @@ if ($Clean) {
 }
 
 # 单行 cmake 配置（cmd /c 里的 ^ 续行不可靠，务必单行）。含 cache-wipe 后需回填的全部变量。
-$cfg = 'cmake -S "' + $Root + '" -B "' + $BuildDir + '" -G Ninja -DPORT=Shot -DCMAKE_C_COMPILER="' + $LlvmBin + '/clang-cl.exe" -DCMAKE_CXX_COMPILER="' + $LlvmBin + '/clang-cl.exe" -DCMAKE_RC_COMPILER="' + $LlvmBin + '/llvm-rc.exe" -DCMAKE_BUILD_TYPE=Release -DCMAKE_TOOLCHAIN_FILE="' + $Root + '/WebKitLibraries/windows/vcpkg/scripts/buildsystems/vcpkg.cmake" -DVCPKG_TARGET_TRIPLET=x64-windows-webkit -DVCPKG_OVERLAY_TRIPLETS="' + $Root + '/WebKitLibraries/triplets" -DVCPKG_INSTALLED_DIR="' + $Root + '/WebKitBuild/vcpkg_installed" -DVCPKG_MANIFEST_INSTALL=OFF -DCMAKE_PREFIX_PATH="' + $Prefix + '" -DCMAKE_C_FLAGS_RELEASE="/MD /O1 /DNDEBUG" -DCMAKE_CXX_FLAGS_RELEASE="/MD /O1 /DNDEBUG" -DCMAKE_EXE_LINKER_FLAGS=/INCREMENTAL:NO -DCMAKE_EXE_LINKER_FLAGS_DEBUG=/debug -DCMAKE_EXE_LINKER_FLAGS_RELWITHDEBINFO=/debug -DCMAKE_SHARED_LINKER_FLAGS=/INCREMENTAL:NO -DCMAKE_SHARED_LINKER_FLAGS_DEBUG=/debug -DCMAKE_SHARED_LINKER_FLAGS_RELWITHDEBINFO=/debug'
+$cfg = 'cmake -S "' + $Root + '" -B "' + $BuildDir + '" -G Ninja -DPORT=Shot -DCMAKE_C_COMPILER="' + $LlvmBin + '/clang-cl.exe" -DCMAKE_CXX_COMPILER="' + $LlvmBin + '/clang-cl.exe" -DCMAKE_RC_COMPILER="' + $LlvmBin + '/llvm-rc.exe" -DCMAKE_BUILD_TYPE=MinSizeRel -DLTO_MODE=full -DCMAKE_TOOLCHAIN_FILE="' + $Root + '/WebKitLibraries/windows/vcpkg/scripts/buildsystems/vcpkg.cmake" -DVCPKG_TARGET_TRIPLET=x64-windows-webkit -DVCPKG_OVERLAY_TRIPLETS="' + $Root + '/WebKitLibraries/triplets" -DVCPKG_INSTALLED_DIR="' + $Root + '/WebKitBuild/vcpkg_installed" -DVCPKG_MANIFEST_INSTALL=OFF -DCMAKE_PREFIX_PATH="' + $Prefix + '" -DCMAKE_C_FLAGS_MINSIZEREL="/MD /O1 /DNDEBUG" -DCMAKE_CXX_FLAGS_MINSIZEREL="/MD /O1 /DNDEBUG" -DCMAKE_EXE_LINKER_FLAGS=/INCREMENTAL:NO -DCMAKE_SHARED_LINKER_FLAGS=/INCREMENTAL:NO'
 
 # vcvarsall 提供 Windows SDK/CRT；LLVM(clang-cl) + Ruby 塞进 PATH。
 $cmd = "call `"$vs\VC\Auxiliary\Build\vcvarsall.bat`" x64 && set `"PATH=C:\Program Files\LLVM\bin;C:\Ruby33-x64\bin;%PATH%`" && set `"CC=C:\Program Files\LLVM\bin\clang-cl.exe`" && "

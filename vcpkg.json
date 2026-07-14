@@ -52,8 +52,8 @@
         "brotli",
         {
           "name": "curl",
+          "default-features": false,
           "features": [
-            "http3",
             "ipv6",
             "libressl"
           ]
@@ -72,20 +72,9 @@
         },
         "libxslt",
         "nghttp2",
-        "nghttp3",
-        {
-          "name": "ngtcp2",
-          "features": [
-            "openssl"
-          ]
-        },
         {
           "name": "sqlite3",
-          "features": [
-            "fts3",
-            "json1",
-            "rtree"
-          ]
+          "default-features": false
         },
         "zlib"
       ]
@@ -96,11 +85,5 @@
         "woff2"
       ]
     }
-  },
-  "overrides": [
-    {
-      "name": "ngtcp2",
-      "version": "1.12.0"
-    }
-  ]
+  }
 }

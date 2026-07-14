@@ -68,7 +68,11 @@ MSVC_ADD_COMPILE_OPTIONS(/Zi /GS)
 
 # Disable ICF (identical code folding) optimization,
 # as it makes it unsafe to pointer-compare functions with identical definitions.
-add_link_options(/DEBUG /OPT:NOICF /OPT:REF)
+if (PORT STREQUAL "Shot")
+    add_link_options(/OPT:REF /OPT:ICF)
+else ()
+    add_link_options(/DEBUG /OPT:NOICF /OPT:REF)
+endif ()
 
 # We do not use exceptions
 add_definitions(-D_HAS_EXCEPTIONS=0)
