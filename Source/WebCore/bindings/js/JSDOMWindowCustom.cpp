@@ -32,16 +32,18 @@
 #include "JSDOMConvertNumbers.h"
 #include "JSDOMConvertStrings.h"
 #include "JSDOMGlobalObjectInlines.h"
+#if !ENABLE(SHOTKIT_STATIC_RENDERER)
 #include "JSDatabase.h"
 #include "JSDatabaseCallback.h"
+#include "JSIDBFactory.h"
+#include "LocalDOMWindowWebDatabase.h"
+#endif
 #include "JSEvent.h"
 #include "JSEventListener.h"
 #include "JSHTMLAudioElement.h"
 #include "JSHTMLOptionElement.h"
-#include "JSIDBFactory.h"
 #include "JSWindowProxy.h"
 #include "JSWorker.h"
-#include "LocalDOMWindowWebDatabase.h"
 #include "LocalFrame.h"
 #include "Location.h"
 #include "ScheduledAction.h"
@@ -72,7 +74,9 @@
 namespace WebCore {
 using namespace JSC;
 
+#if !ENABLE(SHOTKIT_STATIC_RENDERER)
 static JSC_DECLARE_HOST_FUNCTION(jsDOMWindowInstanceFunction_openDatabase);
+#endif
 #if ENABLE(USER_MESSAGE_HANDLERS)
 static JSC_DECLARE_CUSTOM_GETTER(jsDOMWindow_webkit);
 #endif
@@ -655,6 +659,7 @@ JSValue NODELETE JSDOMWindow::frames(JSC::JSGlobalObject&) const
     return globalThis();
 }
 
+#if !ENABLE(SHOTKIT_STATIC_RENDERER)
 static inline JSC::EncodedJSValue jsDOMWindowInstanceFunctionOpenDatabaseBody(JSC::JSGlobalObject* lexicalGlobalObject, CallFrame* callFrame, typename IDLOperation<JSDOMWindow>::ClassParameter castedThis)
 {
     auto& vm = lexicalGlobalObject->vm();
@@ -718,6 +723,7 @@ void JSDOMWindow::setOpenDatabase(JSC::JSGlobalObject& lexicalGlobalObject, JSC:
     bool shouldThrow = true;
     createDataProperty(&lexicalGlobalObject, builtinNames(lexicalGlobalObject.vm()).openDatabasePublicName(), value, shouldThrow);
 }
+#endif
 
 JSDOMWindow& mainWorldGlobalObject(LocalFrame& frame)
 {

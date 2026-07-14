@@ -34,6 +34,7 @@ BEGIN { eval { require JSON::XS; JSON::XS->import(); 1 } or do { require JSON::P
 use Data::Dumper;
 
 use IDLParser;
+use preprocessor;
 
 my $defines;
 my $idlFileNamesList;
@@ -598,12 +599,10 @@ sub processIDL
     my $primaryDeclarationName = fileparse(basename($fileName), ".idl");
     $idlFile->primaryDeclarationName($primaryDeclarationName);
 
-    open my $file, "<", $filePath or die "Could not open $filePath for reading: $!";
-    my @lines = <$file>;
-    close $file;
-
-    # Filter out preprocessor lines.
-    @lines = grep(!/^\s*#/, @lines);
+    # Keep the fast regex parser, but feed it the same preprocessed input as
+    # IDLParser. Merely deleting #if/#else/#endif lines leaves both branches
+    # active and makes port-specific interface pruning impossible.
+    my @lines = applyPreprocessor($filePath, $defines, 0, 1);
 
     # Remove comments from fileContents before processing.
     # FIX: Preference to use Regex::Common::comment, however it is not available on

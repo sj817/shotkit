@@ -131,5 +131,7 @@ DOMWindow includes GlobalEventHandlers;
 DOMWindow includes WindowEventHandlers;
 DOMWindow includes WindowOrWorkerGlobalScope;
 DOMWindow includes WindowLocalStorage;
+#if !(defined(ENABLE_SHOTKIT_STATIC_RENDERER) && ENABLE_SHOTKIT_STATIC_RENDERER)
 DOMWindow includes WindowPush;
+#endif
 DOMWindow includes WindowSessionStorage;

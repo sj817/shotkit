@@ -62,6 +62,8 @@ WEBKIT_OPTION_DEFAULT_PORT_VALUE(ENABLE_SAMPLING_PROFILER PRIVATE OFF)
 
 # 非共享 JSC，随 OBJECT 库静态汇入
 WEBKIT_OPTION_DEFINE(ENABLE_STATIC_JSC "Control whether to build a non-shared JSC" PUBLIC ON)
+# 供 IDL 预处理器识别 Shot 的静态渲染裁剪，其他端口不受影响。
+WEBKIT_OPTION_DEFINE(ENABLE_SHOTKIT_STATIC_RENDERER "Build only the static rendering surface" PRIVATE ON)
 
 # ---- 图形/字体后端：Skia 纯 CPU 软光栅 + HarfBuzz ----
 WEBKIT_OPTION_DEFAULT_PORT_VALUE(USE_SKIA PRIVATE ON)

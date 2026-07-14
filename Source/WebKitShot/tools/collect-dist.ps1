@@ -19,9 +19,11 @@ if (-not $Out) { $Out = "$Root\WebKitBuild\shot-dist" }
 $vs = & "${env:ProgramFiles(x86)}\Microsoft Visual Studio\Installer\vswhere.exe" -latest -property installationPath
 $dumpbin = (Get-ChildItem "$vs\VC\Tools\MSVC\*\bin\Hostx64\x64\dumpbin.exe" | Select-Object -First 1).FullName
 
-# 依赖池:vcpkg bin 里所有 DLL 名(小写→真实路径),排除 *.orig.dll
+# 依赖池:vcpkg DLL + 构建产出的 ANGLE DLL（小写→真实路径），排除
+# shot.dll 自身与 *.orig.dll。
 $pool = @{}
 Get-ChildItem "$binDeps\*.dll" | Where-Object { $_.Name -notmatch '\.orig\.dll$' } | ForEach-Object { $pool[$_.Name.ToLower()] = $_.FullName }
+Get-ChildItem "$binShot\*.dll" | Where-Object { $_.Name -ne 'shot.dll' } | ForEach-Object { $pool[$_.Name.ToLower()] = $_.FullName }
 
 $need = [System.Collections.Generic.HashSet[string]]::new()
 $queue = [System.Collections.Generic.Queue[string]]::new()

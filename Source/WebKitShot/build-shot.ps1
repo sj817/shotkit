@@ -21,6 +21,7 @@ $ErrorActionPreference = 'Stop'
 $Root = 'D:\Github\webkit'
 $BuildDir = "$Root\WebKitBuild\shot"
 $Prefix = "$Root/WebKitBuild/vcpkg_installed/x64-windows-webkit"
+$LlvmBin = 'C:/Program Files/LLVM/bin'
 $vs = & "${env:ProgramFiles(x86)}\Microsoft Visual Studio\Installer\vswhere.exe" -latest -property installationPath
 
 if ($Clean) {
@@ -29,10 +30,10 @@ if ($Clean) {
 }
 
 # 单行 cmake 配置（cmd /c 里的 ^ 续行不可靠，务必单行）。含 cache-wipe 后需回填的全部变量。
-$cfg = 'cmake -S "' + $Root + '" -B "' + $BuildDir + '" -G Ninja -DPORT=Shot -DCMAKE_C_COMPILER=clang-cl -DCMAKE_CXX_COMPILER=clang-cl -DCMAKE_BUILD_TYPE=Release -DCMAKE_TOOLCHAIN_FILE="' + $Root + '/WebKitLibraries/windows/vcpkg/scripts/buildsystems/vcpkg.cmake" -DVCPKG_TARGET_TRIPLET=x64-windows-webkit -DVCPKG_OVERLAY_TRIPLETS="' + $Root + '/WebKitLibraries/triplets" -DVCPKG_INSTALLED_DIR="' + $Root + '/WebKitBuild/vcpkg_installed" -DVCPKG_MANIFEST_INSTALL=OFF -DCMAKE_PREFIX_PATH="' + $Prefix + '" -DCMAKE_C_FLAGS_RELEASE="/MD /O1 /DNDEBUG" -DCMAKE_CXX_FLAGS_RELEASE="/MD /O1 /DNDEBUG" -DCMAKE_EXE_LINKER_FLAGS=/INCREMENTAL:NO -DCMAKE_EXE_LINKER_FLAGS_DEBUG=/debug -DCMAKE_EXE_LINKER_FLAGS_RELWITHDEBINFO=/debug -DCMAKE_SHARED_LINKER_FLAGS=/INCREMENTAL:NO -DCMAKE_SHARED_LINKER_FLAGS_DEBUG=/debug -DCMAKE_SHARED_LINKER_FLAGS_RELWITHDEBINFO=/debug'
+$cfg = 'cmake -S "' + $Root + '" -B "' + $BuildDir + '" -G Ninja -DPORT=Shot -DCMAKE_C_COMPILER="' + $LlvmBin + '/clang-cl.exe" -DCMAKE_CXX_COMPILER="' + $LlvmBin + '/clang-cl.exe" -DCMAKE_RC_COMPILER="' + $LlvmBin + '/llvm-rc.exe" -DCMAKE_BUILD_TYPE=Release -DCMAKE_TOOLCHAIN_FILE="' + $Root + '/WebKitLibraries/windows/vcpkg/scripts/buildsystems/vcpkg.cmake" -DVCPKG_TARGET_TRIPLET=x64-windows-webkit -DVCPKG_OVERLAY_TRIPLETS="' + $Root + '/WebKitLibraries/triplets" -DVCPKG_INSTALLED_DIR="' + $Root + '/WebKitBuild/vcpkg_installed" -DVCPKG_MANIFEST_INSTALL=OFF -DCMAKE_PREFIX_PATH="' + $Prefix + '" -DCMAKE_C_FLAGS_RELEASE="/MD /O1 /DNDEBUG" -DCMAKE_CXX_FLAGS_RELEASE="/MD /O1 /DNDEBUG" -DCMAKE_EXE_LINKER_FLAGS=/INCREMENTAL:NO -DCMAKE_EXE_LINKER_FLAGS_DEBUG=/debug -DCMAKE_EXE_LINKER_FLAGS_RELWITHDEBINFO=/debug -DCMAKE_SHARED_LINKER_FLAGS=/INCREMENTAL:NO -DCMAKE_SHARED_LINKER_FLAGS_DEBUG=/debug -DCMAKE_SHARED_LINKER_FLAGS_RELWITHDEBINFO=/debug'
 
 # vcvarsall 提供 Windows SDK/CRT；LLVM(clang-cl) + Ruby 塞进 PATH。
-$cmd = "`"$vs\VC\Auxiliary\Build\vcvarsall.bat`" x64 && set `"PATH=C:\Program Files\LLVM\bin;C:\Ruby33-x64\bin;%PATH%`" && "
+$cmd = "call `"$vs\VC\Auxiliary\Build\vcvarsall.bat`" x64 && set `"PATH=C:\Program Files\LLVM\bin;C:\Ruby33-x64\bin;%PATH%`" && set `"CC=C:\Program Files\LLVM\bin\clang-cl.exe`" && "
 if ($Configure) { $cmd += "$cfg && " }
 if ($Build -or $Configure) { $cmd += "ninja -C `"$BuildDir`" shotcli" }
 else { $cmd = $null }
