@@ -62,6 +62,8 @@ using namespace WebCore;
 static Ref<Page> createShotPage(const RenderOptions& options, RefPtr<LocalFrame>& outMainFrame)
 {
     auto pageConfiguration = pageConfigurationWithEmptyClients(std::nullopt, PAL::SessionID::defaultSessionID());
+    if (auto* mainFrameParameters = std::get_if<PageConfiguration::LocalMainFrameCreationParameters>(&pageConfiguration.mainFrameCreationParameters))
+        mainFrameParameters->effectiveSandboxFlags = { };
     Ref<Page> page = Page::create(WTF::move(pageConfiguration));
 
     page->settings().setScriptEnabled(false);
@@ -136,6 +138,20 @@ static bool writeAndSnapshot(LocalFrame& frame, const URL& baseURL, const String
     RefPtr document = frame.document();
     if (!document)
         return false;
+#if ENABLE(XSLT)
+    if (document->isXMLDocument()) {
+        // The XML parser may schedule the zero-delay XSLT application while
+        // the document is still marked as parsing. Browser ports get another
+        // loader turn after that point; ShotKit's short quiet window can
+        // otherwise take the snapshot first. Keep this extra turn off the hot
+        // HTML path.
+        document->applyPendingXSLTransformsNowIfScheduled();
+        pumpUntilLoaded(frame, options);
+        document = frame.document();
+        if (!document)
+            return false;
+    }
+#endif
     document->updateLayoutIgnorePendingStylesheets();
 
     RefPtr frameView = frame.view();

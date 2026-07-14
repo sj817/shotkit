@@ -8,7 +8,7 @@
 本仓库是 WebKit 的 fork。目标产物 **ShotKit**：一个裁切到极限的纯静态截图内核——
 
 - **输入**：HTML 字符串 / 本地 HTML 文件 / 远程 URL
-- **输出**：PNG 字节
+- **输出**：PNG / WebP（有损或无损）字节
 - **形态**：无头（headless）、单进程、跨平台（Windows / Linux / macOS）
 - **交付**：C ABI 动态库 `libshot` + 命令行工具 `shotcli`，供 Node / Python / Go 绑定
 - **体积是一等目标**：产物追求极致小。任何新增依赖/特性都要回答"值多少 KB"；体积化清单见第 4.5 节，每个里程碑都要记录体积基线（第 7 节）
@@ -127,7 +127,7 @@ ENABLE_WEBXR=OFF  ENABLE_MEDIA_STREAM=OFF  ENABLE_WEB_RTC=OFF  ENABLE_MEDIA_SOUR
 ENABLE_MEDIA_RECORDER=OFF  ENABLE_REMOTE_INSPECTOR=OFF  ENABLE_WEBDRIVER=OFF
 ENABLE_NOTIFICATIONS=OFF  ENABLE_GEOLOCATION=OFF  ENABLE_FULLSCREEN_API=OFF
 ENABLE_CONTEXT_MENUS=OFF  ENABLE_GAMEPAD=OFF  ENABLE_DRAG_SUPPORT=OFF
-ENABLE_SPEECH_SYNTHESIS=OFF  ENABLE_OFFSCREEN_CANVAS=OFF  ENABLE_XSLT=OFF（省 libxslt）
+ENABLE_SPEECH_SYNTHESIS=OFF  ENABLE_OFFSCREEN_CANVAS=OFF  ENABLE_XSLT=ON（静态 XML/XSLT 截图必须）
 ENABLE_SMOOTH_SCROLLING=OFF  ENABLE_ASYNC_SCROLLING=OFF  ENABLE_GPU_PROCESS=OFF
 ENABLE_PERIODIC_MEMORY_MONITOR=OFF
 ENABLE_MATHML=ON   # 纯渲染特性、零额外依赖，留下增强还原度；可随时关
@@ -183,12 +183,12 @@ include(platform/TextureMapper.cmake)
 **③ 依赖裁剪层（随里程碑做）**
 | 依赖 | 做法 | 预期收益 |
 |---|---|---|
-| 图像解码器 | 最小集 = PNG + JPEG + GIF（GIF/BMP/ICO 自带无外部库）；WebP 按需；AVIF/JXL/LCMS 已关 | 少链 libavif/libjxl/lcms |
-| Skia | 裁到纯 CPU 光栅：不编 GPU 后端（Ganesh/Graphite）及 Epoxy/ANGLE 依赖（ThirdParty/skia/CMakeLists.txt 的 GPU 段仅在 WEBGL/加速路径需要，我们 WEBGL=OFF）；编码器只留 PNG（JPEG/WebP 编码用不到——我们只输出 PNG） | Skia 是仅次于 WebCore 的体积大户，GPU 段占比高 |
+| 图像解码器/编码器 | 保留网站常用 PNG/JPEG/GIF/BMP/ICO/WebP 解码；截图输出保留 PNG、WebP 有损和 WebP 无损；AVIF/JXL/LCMS 关闭 | WebP 是产品必需能力，不作为可选裁点 |
+| Skia / GPU 胶水 | 截图默认 CPU 软光栅；Windows 暂保留 ANGLE/EGL/TextureMapper 编译路径以兼容本地 GPU 环境，WebGL 仍关闭 | ANGLE 是现有 Win 图形层的编译依赖；后续若拆成 CPU-only/GPU 两种 profile 再分别计量 |
 | ICU | 自定义 data filter 构建（`ICU_DATA_FILTER_FILE`）：只留 UTF-8/16 转换、常用 locale、断行/BiDi 必需数据；Windows 的 WebKitRequirements 预构建 ICU 换成自构建 | ICU 完整 data ≈ 30MB，裁剪后可到 5MB 以下，是**单项最大的体积杠杆**（自分发场景） |
 | SQLite | 编译期去可选模块（`SQLITE_OMIT_*`、FTS/JSON/RTREE 不需要）；仅 curl 的 CookieJarDB 和少量存储路径用到 | 中等 |
 | curl | 自构建：`--disable-ftp --disable-ldap --disable-smtp ...` 只留 HTTP(S)；TLS 只链 OpenSSL | 中等 |
-| libxml2 | 关 XSLT 后按需裁（--with-minimum 风格） | 小 |
+| libxml2/libxslt | XML、XHTML、XSLT 为产品必需能力，保留解析与变换所需部分；仅裁 CLI、调试、插件等外围 | 小 |
 | Brotli/WOFF2 | webfont 解码需要，保留；PSL 保留（cookie 安全必需） | — |
 
 **④ 度量制度（从 M1 起强制）**
@@ -333,29 +333,30 @@ void        shot_png_free(shot_png*);
 const char* shot_last_error(shot_renderer*);
 ```
 
-CLI（`shotcli`）是 ABI 的薄封装：`shotcli --url <u> | --html <f> | --stdin`，参数 `--out --width --height --scale --full-page --timeout --ua --ca-bundle --allow-file-urls --base-url`，退出码映射 shot_status。CLI 同时是三平台 CI 的验收载体。
+CLI（`shotcli`）是 ABI 的薄封装：`shotcli --url <u> | --html <f> | --stdin`，参数 `--out --format --quality --mime-type --width --height --scale --full-page --timeout --ua --ca-bundle --allow-file-urls --base-url`，退出码映射 shot_status。CLI 同时是三平台 CI 的验收载体。
 
 ## 7. 路线图与当前状态
 
 **当前进度：M0 + M1 + M2 + libshot C ABI + 体积 DCE 层 + 硬化 已完成（2026-07-14）。Windows 端口功能完整。**
-- **M1**：本地 HTML → PNG（CJK/emoji/渐变，DirectWrite），退出码 0。
+- **M1**：本地 HTML/XHTML/XML → PNG 或 WebP（有损/无损）；CJK/emoji/渐变/MathML 正常，退出码 0。
 - **M2 网络栈**：curl 直驱 LoaderStrategy 跑通 —— 外链 CSS / 外链图 / 302 子资源重定向 / cookie 写-读往返，全部 fixture 验证通过（`shotcli --url http://…`）。`ShotSession`(ephemeral 内存 cookie) + `ShotLoaderStrategy` + `ShotCurlResourceLoader`(CurlRequestClient 泵 ResourceLoader) + `ShotURLFetcher`(主资源抓取) + RunLoop 泵送完成状态机（安静窗口 + 硬超时）。
-- **libshot C ABI**：`bin/shot.dll` 只导出 9 个 `shot_*` 函数；`shotcli` 改为其薄封装。CLI 全参数：`--html/--stdin/--url/--out/--width/--height/--scale/--full-page/--timeout/--base-url/--ua/--allow-file-urls`。
-- **体积 DCE 层**（2026-07-14）：`SHOT_NO_DLLEXPORT`（清空 WTF/bmalloc dllexport）+ `JS_NO_EXPORT`（清空 JSC C API 导出）+ `/Gy /Gw /OPT:REF /OPT:ICF` + `/O2→/O1`（MSVC 体积优化）。**导出符号 13000→9（仅 shot_*），shot.dll 67.4→46.9 MB（−30%）**，`.text` 50.7→39.3 MB。截图/网络回归全绿。
-- **硬化**（2026-07-14）：**泄漏** = 单进程连续 1000 次 render，RSS 增长 2.3 MB（抖动量级）PASS，无 teardown 崩溃；**鲁棒性** = 重定向环（20 次上限，主/子资源两路都有）→干净失败、慢服务器→精确按 timeout_ms 退出、坏主机→干净失败，均无挂起/崩溃。测试载体 `tests/leak_harness.cpp` + `tests/fixture_server.py`（含 /redirect-loop、/slow、/loop-page）。
+- **libshot C ABI**：`bin/shot.dll` 只导出 10 个 `shot_*` 函数；`shotcli` 改为其薄封装。CLI 全参数：`--html/--stdin/--url/--out/--format/--quality/--mime-type/--width/--height/--scale/--full-page/--timeout/--base-url/--ua/--allow-file-urls`。
+- **体积 DCE 层**（2026-07-14）：`SHOT_NO_DLLEXPORT`（清空 WTF/bmalloc dllexport）+ `JS_NO_EXPORT`（清空 JSC C API 导出）+ `/Gy /Gw /OPT:REF /OPT:ICF` + `/O2→/O1`（MSVC 体积优化）。**导出符号 13000→10（仅 shot_*），shot.dll 67.4→46.9 MB（−30%）**，`.text` 50.7→39.3 MB。截图/网络回归全绿。
+- **硬化**（2026-07-14）：**泄漏/速度** = MinSizeRel+full LTO 产物单进程连续 1000 次 480×320 PNG render，14.97 秒（66.8 张/秒，14.97 ms/张），预热后 RSS 28.2→峰值 30.3 MB、增长 2.1 MB（抖动量级）PASS，无 teardown 崩溃；**鲁棒性** = 重定向环（20 次上限，主/子资源两路都有）→干净失败、慢服务器→精确按 timeout_ms 退出、坏主机→干净失败，均无挂起/崩溃。测试载体 `tests/leak_harness.cpp` + `tests/fixture_server.py`（含 WebP、XML/XSLT、JS 禁用、/redirect-loop、/slow、/loop-page）。
 - **ICU 数据裁剪**（2026-07-14，4.5③ 单项最大杠杆）：`icudt77.dll` **30.4→10.3 MB（−66%）**。移除 currency/timezone/region/lang/unit/collation/rbnf/transliteration + 上千 locale bundle（渲染永不用），保留 brkitr(断行/断词,含CJK/Thai词典)/normalization/字符属性(BiDi)/conversion/root。中/日/阿拉伯RTL/泰/emoji 压力页渲染**像素不变**（R14 通过）。可复现工具 `tools/slim-icu.ps1`（icupkg 后处理已构建树）+ `tools/icu-data-filter.json`（ICU_DATA_FILTER_FILE，clean 重装 ICU 用）。原始 DLL 备份为 `icudt77.orig.dll`（不分发）。
+- **格式/网络/发布优化**（2026-07-14）：WebP 解码 + PNG/WebP 有损/WebP 无损输出；XML/XHTML/XSLT/MathML 保留；每次 render 使用独立内存 Cookie 状态。curl 从依赖层移除 HTTP/3（`nghttp3`/`ngtcp2`），保留 HTTP/2；SQLite 去 FTS/JSON/RTREE。发布构建固定 **MinSizeRel + full LTO + `/OPT:REF /OPT:ICF`**，实测 full LTO 链接峰值约 29.3 GB RSS。
 - **体积裁剪第二轮**（2026-07-14，四路子agent 全树调研后执行）：**最终 shot.dll 46.1 MB，解压分发集 69.6 MB（27 文件），zip 下载 28.6 MB**（起点 shot.dll 67.4 + 全量 deps 46.8 ≈ 114 MB → −39%）。
   - **已做**：死重 DLL 不分发（`collect-dist.ps1` 递归 import 闭包自动排除 9 个未被 import 的 DLL，−3.2 MB）；JS 绑定 L2（`CodeGeneratorJS.pm` 切 window 构造器表，**实测仅 −0.85 MB**——见下"教训"）。
-  - **关键教训（实测推翻调研预估）**：JS 绑定 8.1 MB 的真正锚**不是** window 构造器表，而是**兄弟绑定间稠密的 `toJS()` 交叉引用网**（JSDocument→JSElement→JSNode…）。切 window 表只释放真叶子（0.85 MB）；砍那 ~7 MB 必须切整个引用网 + 事件胶水（Level 3，数天、高风险，会伤基础对象模型）——**用户决定不做**。规律:靠"删引用"无效,靠"**不编译**"(从 Sources.txt/IDL 移除)才有效。
-  - **调研已摸清、但用户决定不做的中等裁点**（留档,未来要更小时按此动手）：inspector 桩化（清 `createLazyAgents()`+`*Impl` 体,~0.6 MB,低风险,`FAST_RETURN_IF_NO_FRONTENDS` 保证运行期已死）；accessibility 空壳（`accessibilityEnabled()` 恒 false 已休眠,~0.4 MB）；JSC 关 Intl（39 个 `Intl*.cpp` 无编译开关需自加 `#if`,~0.6-1.2 MB）；StyleExtractorGenerated（getComputedStyle 后端,渲染路径零引用,中-大）；Modules 摘除（indexeddb 等无门控死码,~1-2 MB,IDL/supplement 手术 break 风险高、ROI 存疑）；deps 重编（curl 去 HTTP/3 −0.44、libxml2 --with-minimum −0.5、sqlite OMIT −0.5）。硬下限:icuin/sqlite/harfbuzz/crypto 删不掉。
+  - **关键教训（实测推翻调研预估）**：JS 绑定 8.1 MB 的真正锚**不是** window 构造器表，而是**兄弟绑定间稠密的 `toJS()` 交叉引用网**（JSDocument→JSElement→JSNode…）。切 window 表只释放真叶子（0.85 MB）；砍那 ~7 MB 必须切整个引用网 + 事件胶水（Level 3，数天、高风险，会伤基础对象模型）。规律:靠"删引用"无效,靠"**不编译**"(从 Sources.txt/IDL 移除)才有效。
+  - **尚未物理摘除的高风险裁点**（运行能力已通过开关/设置禁用，留档供后续专项）：inspector 桩化；accessibility 主体；JSC Intl；StyleExtractorGenerated；IndexedDB/WebSocket/Push 等模块的完整 IDL+事件工厂+supplement 闭包。WebSQL 绑定已先行摘除。依赖侧已完成 curl 去 HTTP/3 与 SQLite 去 FTS/JSON/RTREE；libxml2/libxslt 因产品明确要求 XML/XSLT 不按 minimum 模式冒进。硬下限:icuin/sqlite/harfbuzz/crypto 删不掉。
   - **分发**：用 zip（69.6→28.6 MB 下载,零运行期代价,不用 UPX——UPX 会触发杀软误报+涨 RSS+慢启动）。工具 `tools/collect-dist.ps1`。
-- **待办（非核心，可后置）**：iframe（本版 `EmptyFrameLoaderClient` 方法全 `final`，需从零手写约 100 个方法的 `LocalFrameLoaderClient`，**列为已知限制**，见风险 R6 同级）；上面"调研已摸清未做"的中等裁点；Linux/macOS 端口（M3/M4）。
+- **待办（非核心，可后置）**：iframe（本版 `EmptyFrameLoaderClient` 方法全 `final`，需从零手写约 100 个方法的 `LocalFrameLoaderClient`，**列为已知限制**，见风险 R6 同级）；上面尚未物理摘除的高风险裁点；Linux/macOS 端口（M3/M4）。
 
 | 里程碑 | 内容 | 验证标准 | 体积基线（strip 后，实测填写） |
 |---|---|---|---|
 | **M0** Windows 端口骨架 | ALL_PORTS 注册、OptionsShot.cmake（Win 段）、各 PlatformShot.cmake，编译到 WebCore OBJECT 汇总；**体积化编译/链接层全部打开**（MinSizeRel/LTO/gc-sections/visibility，见 4.5①） | 链接出空 main 可执行文件；`jsc` shell（CLoop）能算 `1+1` | — |
 | **M1** Win 最小 HTML→PNG ✅ | ShotGlobal/ShotPage + EmptyClients 替换件 + writer 直喂 + snapshotFrameRect + encodeData；子资源仅 data:；Skia 裁到纯 CPU（4.5③） | ✅ `shotcli --html` 截出 640×400 RGBA PNG，退出码 0，CJK/emoji 正常 | 67.4 MB（未优化 Release） |
-| **M2** Win 网络化 + 体积 DCE + 硬化 ✅ | Strategies/CurlResourceLoader/NetworkingContext/Session、完成状态机、超时；DCE 三件套（SHOT_NO_DLLEXPORT/JS_NO_EXPORT/OPT:REF+ICF）+ /O1；ICU 数据裁剪；泄漏+鲁棒性 harness（iframe 后置为已知限制） | ✅ 外链 CSS/图/302/cookie 回写、`shotcli --url`；导出 13000→9；1000×render RSS 平稳；重定向环/超时/坏主机干净失败；多语言像素不变 | **shot.dll 46.1 MB**（/O1+DCE+JS绑定L2；`.text`≈38.5MB；PDB 独立不分发）；**分发集(collect-dist 去死重)69.6 MB / zip 下载 28.6 MB**（起点 114 → −39%）。归因：ANGLE/Skia-GPU 已 DCE 清零;JS 绑定 8.1MB 靠 toJS 交叉引用网锚定(切 window 表仅 −0.85MB,full 需 Level 3 数天高风险,用户止步)。**桌上未做**:inspector/a11y 桩(~1MB)、JSC 关 Intl(~1MB)、deps 重编(~1MB)——见"实施进度"详录 |
+| **M2** Win 网络化 + 体积 DCE + 硬化 ✅ | Strategies/CurlResourceLoader/NetworkingContext/Session、完成状态机、超时；DCE 三件套（SHOT_NO_DLLEXPORT/JS_NO_EXPORT/OPT:REF+ICF）+ /O1；ICU 数据裁剪；泄漏+鲁棒性 harness（iframe 后置为已知限制） | ✅ 外链 CSS/PNG/WebP/302/cookie 回写、XML+外部/内嵌 XSLT、`shotcli --url`；导出 13000→10；1000×render RSS 平稳；重定向环/超时/坏主机干净失败；多语言像素不变 | **shot.dll 37.7 MB**（39,564,288 bytes，MinSizeRel+full LTO）；**分发集 64.1 MB / 26 文件**（shot.dll 37.7 + deps 26.3）。HTTP/3 物理依赖已移除；GPU/ANGLE 路径按产品决定保留。JS 绑定稠密引用网、inspector/a11y/JSC Intl 的进一步物理摘除仍是高风险专项，不在稳定裁剪档冒进 |
 | **M3** Linux | OptionsShot Linux 段（Fontconfig/FreeType/Generic RunLoop）；Docker CI 固定字体包；ICU data filter 自构建（4.5③，最大杠杆） | 与 Windows 产物容差像素比对（同 Skia，理论仅字体栅格差异） | 待填 |
 | **M4** macOS | mac 段（CG/CT/CFNetwork/ResourceHandle 路径）；LoaderStrategy 的 mac 分支 | 同 fixture，容差放宽 | 待填 |
 | **M5** 交付硬化 | ABI 冻结、Node/Python/Go smoke 绑定、三平台 CI、鲁棒性（大页面/循环重定向）、泄漏（重复 render 1000 次 RSS 平稳）、**CI 体积预算门槛**（4.5④） | CI 全绿，体积不超预算 | 预算冻结 |
@@ -415,7 +416,11 @@ CLI（`shotcli`）是 ABI 的薄封装：`shotcli --url <u> | --html <f> | --std
 | `Source/WTF/wtf/ExportMacros.h` | 在 `WTF_EXPORT_DECLARATION` 定义前加 `#if defined(SHOT_NO_DLLEXPORT)` 分支，把 `WTF_EXPORT_DECLARATION`/`WTF_IMPORT_DECLARATION` 清空 | **体积头号杠杆（DCE 使能）**：所有 `WEBCORE_EXPORT`/`JS_EXPORT_PRIVATE`/`PAL_EXPORT` 都经 `WTF_EXPORT_DECLARATION` 展开为 `__declspec(dllexport)`。OBJECT 库层间无 DLL 边界却带 dllexport，会把上万内部符号钉进 libshot 导出表，链接器 `/OPT:REF` 无法当死代码删除。清空后仅 libshot 的 `shot_*`（SHOT_API）导出。改前 shot.dll=67.4MB | M2/体积 ✅ 已改 |
 | `Source/bmalloc/bmalloc/BExport.h` | 同上，加 `#if defined(SHOT_NO_DLLEXPORT)` 分支清空 `BEXPORT_DECLARATION`/`BIMPORT_DECLARATION` | bmalloc 也是 OBJECT 静态汇入，同款 dllexport 泄漏 | M2/体积 ✅ 已改 |
 | `Source/WebCore/bindings/scripts/CodeGeneratorJS.pm` | `$isConstructor` 分支:全局对象(window/worker)的构造器属性 getter 改为 `UNUSED_PARAM+return jsUndefined()` 且不 `AddToImplIncludes("JSX.h")`（原为 `return JSX::getConstructor(...)`） | 体积:切断 window 构造器静态表→全部 wrapper 的引用边。JS 永不执行,window.HTMLDivElement 变 undefined 无副作用。**实测只省 0.85MB**(wrapper 主要被兄弟绑定 toJS 交叉引用锚定,非 window 表;full 8MB 需 Level 3 数周) | 体积/推荐档 ✅ 已改 |
+| `Source/WebCore/bindings/scripts/preprocess-idls.pl` | 快速预处理路径改为实际调用 `applyPreprocessor` | 让 Shot 条件能可靠过滤 WebSQL IDL，而不是只扫描未预处理文本 | 体积/静态绑定 ✅ 已改 |
+| `Source/WebCore/{PlatformShot.cmake,ShotPruning.cmake,bindings/js/JSDOMWindowCustom.cpp,page/DOMWindow.idl}` | Shot 端口移除 WebSQL IDL/生成绑定并守卫对应 Window 自定义入口 | JS 永不执行；先用最低耦合模块打通可逆的 IDL+绑定裁剪流程 | 体积/静态绑定 ✅ 已改 |
 | `Source/cmake/OptionsShot.cmake` | 加 `add_definitions(-DSHOT_NO_DLLEXPORT=1 -DJS_NO_EXPORT=1)` + `add_compile_options(/Gy /Gw)` + `string(APPEND CMAKE_{EXE,SHARED}_LINKER_FLAGS " /OPT:REF /OPT:ICF")` | 全局点亮 SHOT_NO_DLLEXPORT 分支（清空 WTF/bmalloc dllexport）；`JS_NO_EXPORT` 用上游 JSBase.h:82 钩子清空 JSC C API 的 `JS_EXPORT`（去 165 个 JS* 导出锚点）；`/Gy /Gw` 函数/数据级 COMDAT 分段；`/OPT:REF` 去未引用段、`/OPT:ICF` 折叠相同段 —— DCE 三件套 | M2/体积 ✅ 已改 |
+| `Source/cmake/OptionsMSVC.cmake` | Shot 端口不用全局 `/DEBUG /OPT:NOICF`，改为 `/OPT:REF /OPT:ICF` | 上游默认标志在命令行后部覆盖 Shot 的 ICF，阻止相同函数折叠并生成不分发的巨大 PDB | 发布体积 ✅ 已改 |
+| （新增）`Source/WebKitShot/ShotKit/ShotPage.cpp` | 主 frame 从 `SandboxFlags::all()` 改为空；截图前显式收敛待处理 XSLT 变换 | 保持 JS 设置层禁用，同时恢复同源外部 XSLT；避免短安静窗口早于替换文档 | XML/XSLT ✅ 已改 |
 
 > **图形栈决策修正（M0）**：最初尝试彻底切掉 GPU/GL（USE_TEXTURE_MAPPER OFF、无 ANGLE），但 WinCairo 的 WebCore 把 `PlatformDisplay→GLDisplay→EGL` 硬编码进图形栈（`PlatformDisplay.h` 无条件 `#include "GLDisplay.h"`），彻底解耦是大手术且级联报错。为"先能截图",改为**沿用 WinCairo 图形栈**：`USE_ANGLE_EGL/USE_TEXTURE_MAPPER ON`,ANGLE 在 `Source/ThirdParty/ANGLE` 内建仅作 EGL 显示抽象;运行期 ShotPage 关闭加速合成、ImageBuffer 走 Skia CPU 后端,GPU 从不实际使用。**移除 ANGLE/TextureMapper 以减体积 = 二期专项**(4.6)。`OptionsShot.cmake` / `WebCore/PlatformShot.cmake` 已相应改回复用 PlatformWin。
 | `Source/WebCore/Sources.txt`（+平台变体） | 删 `Modules/indexeddb/*`、`webdatabase/*`、`websockets/*` 等行 | 4.6-B 摘除 JS-facing 死代码模块 | 二期（待登记） |
@@ -450,9 +455,7 @@ cmd /c '"…\VC\Auxiliary\Build\vcvarsall.bat" x64 && ninja -C WebKitBuild\shot 
 
 **构建/重配（务必用脚本 `Source/WebKitShot/build-shot.ps1`，避免 cache-wipe 后手工补参数）**：
 - 增量编译（只改了 `Source/WebKitShot/` 源）：`build-shot.ps1 -Build`。
-- 改了任何 `*.cmake` 或 ninja 自动重配擦了缓存后：`build-shot.ps1 -Configure -Build`（内含全部 `-D`：PORT、vcpkg 工具链+triplet+overlay、`CMAKE_PREFIX_PATH` 指向 vcpkg installed、以及被 cache-wipe 清空需回填的 `CMAKE_C/CXX_FLAGS_RELEASE=/MD /O2 /Ob2 /DNDEBUG`（**缺 `/DNDEBUG` 会开断言，触发 C_LOOP 下 `JSDOMGlobalObject` 编译中断**）与 EXE/SHARED linker flags）。脚本自动 vcvarsall + 把 LLVM+Ruby 塞进 PATH。
+- 改了任何 `*.cmake` 或 ninja 自动重配擦了缓存后：`build-shot.ps1 -Configure -Build`（内含全部 `-D`：PORT、MinSizeRel+full LTO、vcpkg 工具链+triplet+overlay、`CMAKE_PREFIX_PATH` 指向 vcpkg installed、以及 `CMAKE_C/CXX_FLAGS_MINSIZEREL=/MD /O1 /DNDEBUG`；**缺 `/DNDEBUG` 会开断言，触发 C_LOOP 下 `JSDOMGlobalObject` 编译中断**）。脚本自动 vcvarsall + 把 LLVM+Ruby 塞进 PATH。
 - 运行需把 `WebKitBuild/vcpkg_installed/x64-windows-webkit/bin`（ICU/Skia/curl 等 DLL）加进 PATH。
 
-**待完成**：
-- 真·体积基线：4.5① 编译/链接层（MinSizeRel/LTO/gc-sections/visibility/strip）尚未全开，当前 67.4 MB 是未优化 Release，M2 前或 M2 时补测 + bloaty。
-- 外链子资源/远程 URL/cookie/超时状态机 = M2 网络栈（curl 直驱，见 5.3/5.4）。
+**已补齐**：发布构建已启用 MinSizeRel/full LTO/REF+ICF；远程 URL、外链资源、Cookie、超时状态机、WebP、XML/XSLT/MathML 回归均通过。当前基线见第 7 节 M2 行。

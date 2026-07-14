@@ -2,7 +2,7 @@
 """M2 网络栈本地验证 fixture（无第三方依赖，纯标准库）。
 
 启动：  python fixture_server.py [port]     # 默认 8987
-覆盖点：外链 CSS / 外链 PNG 图 / 302 重定向 / cookie 下发+回读 / 主文档。
+覆盖点：外链 CSS / PNG+WebP 图 / XML+XSLT / 302 重定向 / cookie 下发+回读 / 主文档。
 
 端点：
   GET /                主 HTML：外链 /style.css + <img src=/logo.png> + 通过 302 拿到的 /redirected.css
@@ -14,7 +14,9 @@
   GET /cookie.txt      回读 Cookie 头（证明 cookie 回写生效）
 所有响应带宽松 CORS/缓存头，尽量贴近真实站点。
 """
-import sys, struct, zlib, http.server
+import base64, sys, struct, zlib, http.server
+
+VERBOSE = "--verbose" in sys.argv
 
 def _png(w, h, rgba):
     def chunk(tag, data):
@@ -29,6 +31,37 @@ def _png(w, h, rgba):
 LOGO = _png(96, 96, (0x22, 0xff, 0x88, 0xff))  # 绿色块
 PIX_OK = _png(32, 32, (0x22, 0xff, 0x88, 0xff))   # 有 cookie=绿
 PIX_NO = _png(32, 32, (0xff, 0x33, 0x33, 0xff))   # 无 cookie=红
+WEBP_GREEN = base64.b64decode(
+    "UklGRgACAABXRUJQVlA4WAoAAAAgAAAADwAADwAASUNDUMgBAAAAAAHIAAAAAAQwAABtbnRyUkdCIFhZWiAH4AABAAEAAAAAAABhY3NwAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAQAA9tYAAQAAAADTLQAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAlkZXNjAAAA8AAAACRyWFlaAAABFAAAABRnWFlaAAABKAAAABRiWFlaAAABPAAAABR3dHB0AAABUAAAABRyVFJDAAABZAAAAChnVFJDAAABZAAAAChiVFJDAAABZAAAAChjcHJ0AAABjAAAADxtbHVjAAAAAAAAAAEAAAAMZW5VUwAAAAgAAAAcAHMAUgBHAEJYWVogAAAAAAAAb6IAADj1AAADkFhZWiAAAAAAAABimQAAt4UAABjaWFlaIAAAAAAAACSgAAAPhAAAts9YWVogAAAAAAAA9tYAAQAAAADTLXBhcmEAAAAAAAQAAAACZmYAAPKnAAANWQAAE9AAAApbAAAAAAAAAABtbHVjAAAAAAAAAAEAAAAMZW5VUwAAACAAAAAcAEcAbwBvAGcAbABlACAASQBuAGMALgAgADIAMAAxADZWUDhMEQAAAC8PwAMAB9D/ihSx/4GI6H8AAA==")
+
+XML = b'''<?xml version="1.0"?>
+<?xml-stylesheet type="text/xsl" href="/document.xsl"?>
+<items><item>XML + XSLT retained</item></items>'''
+
+XSL = b'''<?xml version="1.0"?>
+<xsl:stylesheet version="1.0" xmlns:xsl="http://www.w3.org/1999/XSL/Transform">
+<xsl:template match="/"><html><body style="background:#eef2f7;font-family:sans-serif">
+<h1><xsl:value-of select="items/item"/></h1>
+</body></html></xsl:template></xsl:stylesheet>'''
+
+INLINE_XSL = b'''<?xml version="1.0"?>
+<?xml-stylesheet type="text/xsl" href="#stylesheet"?>
+<!DOCTYPE doc [<!ELEMENT xsl:stylesheet ANY><!ATTLIST xsl:stylesheet id ID #REQUIRED>]>
+<doc><item>Inline XSLT retained</item>
+<xsl:stylesheet version="1.0" id="stylesheet" xmlns:xsl="http://www.w3.org/1999/XSL/Transform">
+<xsl:output method="html"/><xsl:template match="xsl:stylesheet"/>
+<xsl:template match="doc"><html><body style="background:#eef2f7;font-family:sans-serif">
+<h1><xsl:value-of select="item"/></h1></body></html></xsl:template>
+</xsl:stylesheet></doc>'''
+
+WEBP_PAGE = b'''<!doctype html><html><body style="margin:0;background:#123;color:white;font:24px sans-serif">
+<h1>WebP decoder</h1><img src="/green.webp" width="160" height="160">
+</body></html>'''
+
+SCRIPT_PAGE = b'''<!doctype html><html><body style="background:#eef2f7;font-family:sans-serif">
+<h1 id="result">Static content retained</h1>
+<script>document.getElementById('result').textContent='JS EXECUTED';</script>
+</body></html>'''
 
 INDEX = """<!DOCTYPE html><html><head><meta charset=utf-8>
 <link rel=stylesheet href="/style.css">
@@ -77,6 +110,18 @@ class H(http.server.BaseHTTPRequestHandler):
             self._send(b"", "text/plain", 302, {"Location": "/alt.css"})
         elif p == "/logo.png":
             self._send(LOGO, "image/png")
+        elif p == "/webp-page":
+            self._send(WEBP_PAGE, "text/html; charset=utf-8")
+        elif p == "/green.webp":
+            self._send(WEBP_GREEN, "image/webp")
+        elif p == "/script-disabled":
+            self._send(SCRIPT_PAGE, "text/html; charset=utf-8")
+        elif p == "/document.xml":
+            self._send(XML, "application/xml")
+        elif p == "/document.xsl":
+            self._send(XSL, "text/xsl")
+        elif p == "/inline-xsl.xml":
+            self._send(INLINE_XSL, "application/xml")
         elif p == "/set-cookie":
             self._send(b"", "text/plain", 302, {"Location": "/", "Set-Cookie": "shot=ok; Path=/"})
         elif p == "/cookie.txt":
@@ -98,10 +143,11 @@ class H(http.server.BaseHTTPRequestHandler):
 
     do_HEAD = do_GET
 
-    def log_message(self, *a):  # 静音
-        pass
+    def log_message(self, format, *args):
+        if VERBOSE:
+            print(format % args, flush=True)
 
 if __name__ == "__main__":
-    port = int(sys.argv[1]) if len(sys.argv) > 1 else 8987
+    port = next((int(arg) for arg in sys.argv[1:] if arg.isdigit()), 8987)
     print(f"fixture on http://127.0.0.1:{port}/  (Ctrl-C to stop)")
     http.server.ThreadingHTTPServer(("127.0.0.1", port), H).serve_forever()
