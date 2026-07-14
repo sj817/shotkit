@@ -333,23 +333,24 @@ void        shot_png_free(shot_png*);
 const char* shot_last_error(shot_renderer*);
 ```
 
-CLI（`shotcli`）是 ABI 的薄封装：`shotcli --url <u> | --html <f> | --stdin`，参数 `--out --format --quality --mime-type --width --height --scale --full-page --timeout --ua --ca-bundle --allow-file-urls --base-url`，退出码映射 shot_status。CLI 同时是三平台 CI 的验收载体。
+CLI（`shotcli`）是 ABI 的薄封装：一次性模式为 `shotcli --url <u> | --html <f> | --stdin`，参数 `--out --format --quality --mime-type --width --height --scale --full-page --timeout --ua --ca-bundle --allow-file-urls --base-url`，退出码映射 shot_status；`shotcli --serve` 提供 stdin/stdout JSONL 常驻协议，单次初始化后复用 renderer，逐请求返回 status/bytes/duration_ms。CLI 同时是三平台 CI 的验收载体。
 
 ## 7. 路线图与当前状态
 
 **当前进度：M0 + M1 + M2 + libshot C ABI + 体积 DCE 层 + 硬化 已完成（2026-07-14）。Windows 端口功能完整。**
 - **M1**：本地 HTML/XHTML/XML → PNG 或 WebP（有损/无损）；CJK/emoji/渐变/MathML 正常，退出码 0。
 - **M2 网络栈**：curl 直驱 LoaderStrategy 跑通 —— 外链 CSS / 外链图 / 302 子资源重定向 / cookie 写-读往返，全部 fixture 验证通过（`shotcli --url http://…`）。`ShotSession`(ephemeral 内存 cookie) + `ShotLoaderStrategy` + `ShotCurlResourceLoader`(CurlRequestClient 泵 ResourceLoader) + `ShotURLFetcher`(主资源抓取) + RunLoop 泵送完成状态机（安静窗口 + 硬超时）。
-- **libshot C ABI**：`bin/shot.dll` 只导出 10 个 `shot_*` 函数；`shotcli` 改为其薄封装。CLI 全参数：`--html/--stdin/--url/--out/--format/--quality/--mime-type/--width/--height/--scale/--full-page/--timeout/--base-url/--ua/--allow-file-urls`。
+- **libshot C ABI**：`bin/shot.dll` 只导出 10 个 `shot_*` 函数；`shotcli` 改为其薄封装。CLI 全参数：`--html/--stdin/--url/--out/--format/--quality/--mime-type/--width/--height/--scale/--full-page/--timeout/--base-url/--ua/--allow-file-urls`，另有 `--serve` JSONL 常驻多请求模式。
 - **体积 DCE 层**（2026-07-14）：`SHOT_NO_DLLEXPORT`（清空 WTF/bmalloc dllexport）+ `JS_NO_EXPORT`（清空 JSC C API 导出）+ `/Gy /Gw /OPT:REF /OPT:ICF` + `/O2→/O1`（MSVC 体积优化）。**导出符号 13000→10（仅 shot_*），shot.dll 67.4→46.9 MB（−30%）**，`.text` 50.7→39.3 MB。截图/网络回归全绿。
 - **硬化**（2026-07-14）：**泄漏/速度** = MinSizeRel+full LTO 产物单进程连续 1000 次 480×320 PNG render，14.97 秒（66.8 张/秒，14.97 ms/张），预热后 RSS 28.2→峰值 30.3 MB、增长 2.1 MB（抖动量级）PASS，无 teardown 崩溃；**鲁棒性** = 重定向环（20 次上限，主/子资源两路都有）→干净失败、慢服务器→精确按 timeout_ms 退出、坏主机→干净失败，均无挂起/崩溃。测试载体 `tests/leak_harness.cpp` + `tests/fixture_server.py`（含 WebP、XML/XSLT、JS 禁用、/redirect-loop、/slow、/loop-page）。
 - **ICU 数据裁剪**（2026-07-14，4.5③ 单项最大杠杆）：`icudt77.dll` **30.4→10.3 MB（−66%）**。移除 currency/timezone/region/lang/unit/collation/rbnf/transliteration + 上千 locale bundle（渲染永不用），保留 brkitr(断行/断词,含CJK/Thai词典)/normalization/字符属性(BiDi)/conversion/root。中/日/阿拉伯RTL/泰/emoji 压力页渲染**像素不变**（R14 通过）。可复现工具 `tools/slim-icu.ps1`（icupkg 后处理已构建树）+ `tools/icu-data-filter.json`（ICU_DATA_FILTER_FILE，clean 重装 ICU 用）。原始 DLL 备份为 `icudt77.orig.dll`（不分发）。
 - **格式/网络/发布优化**（2026-07-14）：WebP 解码 + PNG/WebP 有损/WebP 无损输出；XML/XHTML/XSLT/MathML 保留；每次 render 使用独立内存 Cookie 状态。curl 从依赖层移除 HTTP/3（`nghttp3`/`ngtcp2`），保留 HTTP/2；SQLite 去 FTS/JSON/RTREE。发布构建固定 **MinSizeRel + full LTO + `/OPT:REF /OPT:ICF`**，实测 full LTO 链接峰值约 29.3 GB RSS。
-- **体积裁剪第二轮**（2026-07-14，四路子agent 全树调研后执行）：**最终 shot.dll 46.1 MB，解压分发集 69.6 MB（27 文件），zip 下载 28.6 MB**（起点 shot.dll 67.4 + 全量 deps 46.8 ≈ 114 MB → −39%）。
+- **体积裁剪第二轮**（2026-07-14，全树调研后执行）：**最终 shot.dll 37.7 MB，解压分发集 64.1 MB（26 文件）**（起点 shot.dll 67.4 + 全量 deps 46.8 ≈ 114 MB → −44%）。
   - **已做**：死重 DLL 不分发（`collect-dist.ps1` 递归 import 闭包自动排除 9 个未被 import 的 DLL，−3.2 MB）；JS 绑定 L2（`CodeGeneratorJS.pm` 切 window 构造器表，**实测仅 −0.85 MB**——见下"教训"）。
   - **关键教训（实测推翻调研预估）**：JS 绑定 8.1 MB 的真正锚**不是** window 构造器表，而是**兄弟绑定间稠密的 `toJS()` 交叉引用网**（JSDocument→JSElement→JSNode…）。切 window 表只释放真叶子（0.85 MB）；砍那 ~7 MB 必须切整个引用网 + 事件胶水（Level 3，数天、高风险，会伤基础对象模型）。规律:靠"删引用"无效,靠"**不编译**"(从 Sources.txt/IDL 移除)才有效。
   - **尚未物理摘除的高风险裁点**（运行能力已通过开关/设置禁用，留档供后续专项）：inspector 桩化；accessibility 主体；JSC Intl；StyleExtractorGenerated；IndexedDB/WebSocket/Push 等模块的完整 IDL+事件工厂+supplement 闭包。WebSQL 绑定已先行摘除。依赖侧已完成 curl 去 HTTP/3 与 SQLite 去 FTS/JSON/RTREE；libxml2/libxslt 因产品明确要求 XML/XSLT 不按 minimum 模式冒进。硬下限:icuin/sqlite/harfbuzz/crypto 删不掉。
-  - **分发**：用 zip（69.6→28.6 MB 下载,零运行期代价,不用 UPX——UPX 会触发杀软误报+涨 RSS+慢启动）。工具 `tools/collect-dist.ps1`。
+  - **分发**：完整运行目录 64.1 MB / 26 文件；传输可用 zip（零运行期代价），不用 UPX——UPX 会触发杀软误报+涨 RSS+慢启动。工具 `tools/collect-dist.ps1`。
+- **跨浏览器基准**（2026-07-14）：`demo/browser-benchmark/` 固定静态 HTTP fixture，对比 Puppeteer Chrome/Firefox、Playwright Chromium/Firefox/WebKit 与 ShotKit 的进程冷启动和常驻热请求；均为 1280×800 DPR1 full-page PNG，每次隔离页面/网络状态。Windows i9-14900KF 正式样本中 ShotKit 冷启动中位数 186.5 ms、热请求中位数 92.5 ms/P95 94.6 ms、常驻 RSS 40.2 MB、完整分发 64.1 MB。原始样本与表格见 demo 的 `results/latest.json` / `results/latest.md`。
 - **待办（非核心，可后置）**：iframe（本版 `EmptyFrameLoaderClient` 方法全 `final`，需从零手写约 100 个方法的 `LocalFrameLoaderClient`，**列为已知限制**，见风险 R6 同级）；上面尚未物理摘除的高风险裁点；Linux/macOS 端口（M3/M4）。
 
 | 里程碑 | 内容 | 验证标准 | 体积基线（strip 后，实测填写） |

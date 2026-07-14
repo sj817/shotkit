@@ -24,7 +24,7 @@ const puppeteer = (await import('puppeteer')).default;
 const playwright = await import('playwright');
 
 function parseArguments(argv) {
-  const options = { coldIterations: 5, warmup: 3, iterations: 15 };
+  const options = { coldIterations: 5, warmup: 3, iterations: 20 };
   for (let index = 0; index < argv.length; ++index) {
     const value = argv[index];
     const nextInteger = () => {
@@ -72,6 +72,7 @@ function waitForExit(child) {
 class ShotServer {
   constructor(executable) {
     this.child = spawn(executable, ['--serve'], { cwd: path.dirname(executable), stdio: ['pipe', 'pipe', 'pipe'] });
+    this.exitPromise = waitForExit(this.child);
     this.lines = [];
     this.waiters = [];
     this.stderr = '';
@@ -113,7 +114,7 @@ class ShotServer {
   async close() {
     this.child.stdin.write(`${JSON.stringify({ op: 'shutdown' })}\n`);
     await this.nextLine();
-    await waitForExit(this.child);
+    await this.exitPromise;
   }
 }
 
@@ -153,23 +154,25 @@ function browserAdapter({ id, framework, engine, launch, render, executablePath 
 }
 
 async function renderPuppeteer(browser, url, output) {
-  const page = await browser.newPage();
+  const context = await browser.createBrowserContext();
+  const page = await context.newPage();
   try {
     await page.setViewport({ width: 1280, height: 800, deviceScaleFactor: 1 });
     await page.goto(url, { waitUntil: 'load' });
     await page.screenshot({ path: output, type: 'png', fullPage: true });
   } finally {
-    await page.close();
+    await context.close();
   }
 }
 
 async function renderPlaywright(browser, url, output) {
-  const page = await browser.newPage({ viewport: { width: 1280, height: 800 }, deviceScaleFactor: 1 });
+  const context = await browser.newContext({ viewport: { width: 1280, height: 800 }, deviceScaleFactor: 1 });
+  const page = await context.newPage();
   try {
     await page.goto(url, { waitUntil: 'load' });
     await page.screenshot({ path: output, type: 'png', fullPage: true });
   } finally {
-    await page.close();
+    await context.close();
   }
 }
 
@@ -260,8 +263,8 @@ ${rows.join('\n')}
 
 - 主机：${report.system.platform} ${report.system.release}，${report.system.cpu}，${report.system.memory_gb} GB RAM，Node ${report.system.node}。
 - 页面：本机 HTTP，1280×800、DPR 1、full-page PNG；静态 HTML/CSS/SVG/WebP/MathML，不含 JavaScript 和 iframe。
-- 冷启动：每张图启动并关闭一个全新浏览器/ShotKit 进程，共 ${report.options.coldIterations} 次。
-- 热启动：进程常驻；浏览器每次新建并关闭 Page，ShotKit 每次在同一 renderer 中创建独立页面，共 ${report.options.iterations} 次，另有 ${report.options.warmup} 次不计入预热。
+- 冷启动：每张图启动并关闭一个全新浏览器/ShotKit 进程，共 ${report.options.coldIterations} 次；操作系统文件缓存保持自然热态。
+- 热启动：进程常驻；浏览器每次新建并关闭隔离 Context + Page，ShotKit 每次在同一 renderer 中创建独立页面和网络状态，共 ${report.options.iterations} 次，另有 ${report.options.warmup} 次不计入预热。
 - 延迟包含页面加载、布局、光栅化、PNG 编码和磁盘写入。热启动不包含常驻进程的首次启动。
 - RSS 是热测试完成后、空闲状态下相对基准进程的整棵子进程树增量；内存采样不在计时区间内。
 - 体积为对应浏览器引擎安装目录；ShotKit 为完整 shot-dist。Puppeteer/Playwright 共享的 Node 依赖未分摊到单个引擎。

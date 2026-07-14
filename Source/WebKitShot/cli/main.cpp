@@ -20,6 +20,7 @@
 #include <fstream>
 #include <iostream>
 #include <iterator>
+#include <limits>
 #include <map>
 #include <sstream>
 #include <string>
@@ -228,7 +229,8 @@ static bool applyInteger(const std::map<std::string, JSONValue>& object, const c
     auto* field = findValue(object, key);
     if (!field)
         return true;
-    if (field->type != JSONValue::Type::Number || std::floor(field->number) != field->number) {
+    if (field->type != JSONValue::Type::Number || std::floor(field->number) != field->number
+        || field->number < std::numeric_limits<int>::min() || field->number > std::numeric_limits<int>::max()) {
         error = std::string("field '") + key + "' must be an integer";
         return false;
     }
@@ -353,12 +355,19 @@ static int runServer(const shot_render_options& defaults)
             writeErrorResponse(id, SHOT_ERR_INVALID_ARG, error);
             continue;
         }
-        int inputCount = !url.empty() + !html.empty() + !htmlFile.empty();
+        bool hasURL = findValue(request, "url");
+        bool hasHTML = findValue(request, "html");
+        bool hasHTMLFile = findValue(request, "html_file");
+        int inputCount = hasURL + hasHTML + hasHTMLFile;
         if (inputCount != 1) {
             writeErrorResponse(id, SHOT_ERR_INVALID_ARG, "provide exactly one of 'url', 'html', or 'html_file'");
             continue;
         }
-        if (!htmlFile.empty()) {
+        if ((hasURL && url.empty()) || (hasHTMLFile && htmlFile.empty())) {
+            writeErrorResponse(id, SHOT_ERR_INVALID_ARG, "fields 'url' and 'html_file' cannot be empty");
+            continue;
+        }
+        if (hasHTMLFile) {
             std::ifstream input(htmlFile, std::ios::binary);
             if (!input) {
                 writeErrorResponse(id, SHOT_ERR_INVALID_ARG, "cannot open " + htmlFile);
@@ -375,6 +384,10 @@ static int runServer(const shot_render_options& defaults)
             || !applyBoolean(request, "full_page", options.full_page, error)
             || !applyBoolean(request, "allow_file_urls", options.allow_file_urls, error)) {
             writeErrorResponse(id, SHOT_ERR_INVALID_ARG, error);
+            continue;
+        }
+        if (options.width <= 0 || options.height <= 0 || options.timeout_ms <= 0 || options.device_scale <= 0) {
+            writeErrorResponse(id, SHOT_ERR_INVALID_ARG, "width, height, timeout_ms, and scale must be positive");
             continue;
         }
         double quality = options.output_quality * 100.0;
@@ -410,7 +423,7 @@ static int runServer(const shot_render_options& defaults)
 
         auto start = std::chrono::steady_clock::now();
         shot_image image { nullptr, 0 };
-        shot_status status = !url.empty()
+        shot_status status = hasURL
             ? shot_render_url(renderer, url.c_str(), &options, &image)
             : shot_render_html(renderer, html.data(), html.size(), &options, &image);
         if (status == SHOT_OK && !writeImage(outputPath, image, error))

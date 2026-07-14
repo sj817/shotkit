@@ -6,7 +6,7 @@
 - Playwright：Chromium、Firefox、WebKit
 - ShotKit：`shotcli` 一次性进程和 `--serve` 常驻进程
 
-每一项都测冷启动与热启动。热启动时浏览器进程常驻、每次创建新 Page；ShotKit 进程和 renderer 常驻、每次创建独立页面。
+每一项都测冷启动与热启动。热启动时浏览器进程常驻、每次创建隔离 Context + Page；ShotKit 进程和 renderer 常驻、每次创建独立页面和网络状态。
 
 ## 安装
 
@@ -28,7 +28,7 @@ npm run install:browsers
 ## 运行
 
 ```powershell
-# 默认：冷启动 5 次、预热 3 次、热启动 15 次
+# 默认：冷启动 5 次、预热 3 次、热启动 20 次
 npm run benchmark
 
 # 快速冒烟：冷启动 2 次、预热 1 次、热启动 3 次
