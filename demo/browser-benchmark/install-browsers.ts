@@ -6,7 +6,7 @@ const demoDirectory = path.dirname(fileURLToPath(import.meta.url));
 const browserRoot = path.join(demoDirectory, '.browsers');
 const npx = 'npx';
 
-function run(command, args, extraEnvironment = {}) {
+function run(command: string, args: string[], extraEnvironment: NodeJS.ProcessEnv = {}): Promise<void> {
   return new Promise((resolve, reject) => {
     const child = spawn(command, args, {
       cwd: demoDirectory,

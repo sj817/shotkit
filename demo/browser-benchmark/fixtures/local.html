@@ -1,0 +1,37 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width">
+  <link rel="stylesheet" href="./local.css">
+  <title>ShotKit file URL benchmark</title>
+</head>
+<body>
+  <main>
+    <p class="eyebrow">FILE URL BENCHMARK</p>
+    <h1>本地 <code>file://</code> 截图</h1>
+    <p class="lead">主文档与外链 CSS 都从本地文件系统读取，不运行 JavaScript。</p>
+    <section class="grid">
+      <article>
+        <svg viewBox="0 0 100 100" aria-label="SVG fixture">
+          <defs><linearGradient id="g"><stop stop-color="#7596ff"/><stop offset="1" stop-color="#61d8bb"/></linearGradient></defs>
+          <circle cx="50" cy="50" r="46" fill="url(#g)"/>
+          <path d="M27 52l14 14 32-35" fill="none" stroke="white" stroke-width="9" stroke-linecap="round" stroke-linejoin="round"/>
+        </svg>
+        <h2>Local SVG</h2>
+        <p>矢量图形与 CSS 渐变直接参与光栅化。</p>
+      </article>
+      <article>
+        <div class="formula"><math><mrow><msup><mi>a</mi><mn>2</mn></msup><mo>+</mo><msup><mi>b</mi><mn>2</mn></msup><mo>=</mo><msup><mi>c</mi><mn>2</mn></msup></mrow></math></div>
+        <h2>MathML</h2>
+        <p>本地页面保持完整数学排版能力。</p>
+      </article>
+      <article>
+        <div class="bars"><i></i><i></i><i></i><i></i><i></i></div>
+        <h2>External CSS</h2>
+        <p>样式来自同目录的 <code>local.css</code>。</p>
+      </article>
+    </section>
+  </main>
+</body>
+</html>

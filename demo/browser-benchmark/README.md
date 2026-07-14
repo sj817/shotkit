@@ -1,12 +1,18 @@
 # ShotKit / Puppeteer / Playwright benchmark
 
-同一静态页面、同一输出参数下比较：
+TypeScript ESM + `tsx` 驱动的可重复浏览器基准，比较：
 
 - Puppeteer：Chrome、Firefox
 - Playwright：Chromium、Firefox、WebKit
 - ShotKit：`shotcli` 一次性进程和 `--serve` 常驻进程
 
-每一项都测冷启动与热启动。热启动时浏览器进程常驻、每次创建隔离 Context + Page；ShotKit 进程和 renderer 常驻、每次创建独立页面和网络状态。
+测试包含三个场景：
+
+- 本机 HTTP 静态 fixture（HTML/CSS/SVG/WebP/MathML）
+- 公网 `https://example.com/`
+- 本地 `file://` 页面与同目录外链 CSS
+
+每个“引擎 × 场景 × 冷/热”截图三次，报告取成功样本中的最快值，同时在 JSON 中保留全部原始数据。热启动时浏览器进程常驻、每次创建隔离 Context + Page；ShotKit 进程和 renderer 常驻、每次创建独立页面和网络状态。
 
 ## 安装
 
@@ -28,12 +34,20 @@ npm run install:browsers
 ## 运行
 
 ```powershell
-# 默认：冷启动 5 次、预热 3 次、热启动 20 次
+# 类型检查
+npm run typecheck
+
+# 默认：三个场景；每个冷/热组合各截图 3 次并取最快
 npm run benchmark
 
-# 快速冒烟：冷启动 2 次、预热 1 次、热启动 3 次
+# 快速冒烟：每个组合只跑 1 次
 npm run benchmark:quick
+
+# 只跑一个场景
+npx tsx benchmark.ts --scenario example-com --trials 3
 ```
+
+可选场景 ID：`fixture-http`、`example-com`、`local-file`。
 
 可用环境变量覆盖 ShotKit 路径：
 
@@ -45,7 +59,7 @@ npm run benchmark
 
 输出：
 
-- `output/`：每个引擎最后一次冷/热截图（git ignored）
+- `output/`：每次截图及每组最快截图（git ignored）
 - `results/latest.json`：逐次原始样本
 - `results/latest.md`：可直接阅读的表格报告
 
