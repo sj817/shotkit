@@ -1,0 +1,15 @@
+{
+  "name": "shotkit-browser-benchmark",
+  "version": "1.0.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "install:browsers": "node install-browsers.mjs",
+    "benchmark": "node benchmark.mjs",
+    "benchmark:quick": "node benchmark.mjs --cold-iterations 2 --warmup 1 --iterations 3"
+  },
+  "devDependencies": {
+    "playwright": "1.61.1",
+    "puppeteer": "25.3.0"
+  }
+}
