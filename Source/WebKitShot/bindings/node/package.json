@@ -2,7 +2,7 @@
   "name": "@shotkit/node",
   "version": "0.1.0",
   "description": "Fast static HTML/URL screenshots powered by ShotKit",
-  "license": "BSD-2-Clause",
+  "license": "UNLICENSED",
   "type": "module",
   "main": "./dist/index.cjs",
   "module": "./dist/index.js",

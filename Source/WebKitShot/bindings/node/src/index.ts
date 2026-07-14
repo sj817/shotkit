@@ -149,6 +149,7 @@ export class ShotKit {
 
     let resolveReady!: () => void;
     let rejectReady!: (error: Error) => void;
+    let readyReceived = false;
     this.readyPromise = new Promise((resolve, reject) => {
       resolveReady = resolve;
       rejectReady = reject;
@@ -163,6 +164,11 @@ export class ShotKit {
       this.child.once('exit', (code, signal) => {
         this.closed = true;
         if (code === 0) {
+          if (!readyReceived || this.pending.size) {
+            const error = new ShotKitError('shotcli exited before completing active requests');
+            rejectReady(error);
+            this.rejectPending(error);
+          }
           resolve();
           return;
         }
@@ -185,9 +191,10 @@ export class ShotKit {
         return;
       }
       if (response.ready !== undefined) {
-        if (response.ready)
+        if (response.ready) {
+          readyReceived = true;
           resolveReady();
-        else
+        } else
           rejectReady(new ShotKitError(response.error || 'shotcli initialization failed'));
         return;
       }
