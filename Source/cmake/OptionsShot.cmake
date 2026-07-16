@@ -1,23 +1,29 @@
 # OptionsShot.cmake — ShotKit 纯静态截图内核端口
 #
 # 目标：单进程直嵌 WebCore，把 HTML/CSS 渲染成 PNG，无头、页面 JS 永不执行、二进制极小。
-# 见仓库根 AGENTS.md。此端口在 Windows 上以 clang-cl + vcpkg + Skia 软光栅构建。
+# 见仓库根 AGENTS.md。Windows/Linux 使用 Skia 软光栅；macOS 使用 Cocoa 图形栈。
 #
 # 依赖来源：vcpkg（CMAKE_TOOLCHAIN_FILE 指向 vcpkg.cmake，vcpkg.json 的 web/skia/woff2 特性）。
 # 库形态：bmalloc/WTF/JSC/PAL/WebCore 全部 OBJECT，静态汇入最终 libshot（仿 PlayStation 端口）。
 
 if (MSVC)
     include(OptionsMSVC)
+else ()
+    set(CMAKE_C_VISIBILITY_PRESET hidden)
+    set(CMAKE_CXX_VISIBILITY_PRESET hidden)
+    set(CMAKE_VISIBILITY_INLINES_HIDDEN ON)
 endif ()
 
 # ---- Windows 平台基础定义（摘自 OptionsWin.cmake）----
-add_definitions(-D_WINDOWS -DNTDDI_VERSION=0x0A000006 -D_WIN32_WINNT=0x0A00)
-add_definitions(-DNOMINMAX)
-add_definitions(-DUNICODE -D_UNICODE)
-add_definitions(-DNOCRYPT)
-add_definitions(-D_CRT_NONSTDC_NO_DEPRECATE)
-add_definitions(-D_SILENCE_CXX23_DENORM_DEPRECATION_WARNING)
-add_definitions(-D_WINSOCKAPI_=)
+if (WIN32)
+    add_definitions(-D_WINDOWS -DNTDDI_VERSION=0x0A000006 -D_WIN32_WINNT=0x0A00)
+    add_definitions(-DNOMINMAX)
+    add_definitions(-DUNICODE -D_UNICODE)
+    add_definitions(-DNOCRYPT)
+    add_definitions(-D_CRT_NONSTDC_NO_DEPRECATE)
+    add_definitions(-D_SILENCE_CXX23_DENORM_DEPRECATION_WARNING)
+    add_definitions(-D_WINSOCKAPI_=)
+endif ()
 
 # 不构建 WebKit 双进程层与 WebKitLegacy —— 我们只要 WebCore + 自己的嵌入库。
 set(ENABLE_WEBKIT OFF)
@@ -44,6 +50,14 @@ find_package(LibPSL 0.20.2 REQUIRED)
 find_package(WebP REQUIRED COMPONENTS demux)
 find_package(WOFF2 1.0.2 COMPONENTS dec)
 find_package(Brotli REQUIRED COMPONENTS dec)
+find_package(Threads REQUIRED)
+
+if (CMAKE_SYSTEM_NAME MATCHES "Linux")
+    find_package(EGL REQUIRED)
+    find_package(Fontconfig REQUIRED)
+    find_package(Freetype REQUIRED)
+    find_package(OpenGLES2 REQUIRED)
+endif ()
 
 if (NOT TARGET SQLite3::SQLite3) # CMake < 4.3
     add_library(SQLite3::SQLite3 ALIAS SQLite::SQLite3)
@@ -130,12 +144,16 @@ add_definitions(-DJS_NO_EXPORT=1)
 # ShotKit is a static renderer: page scripts are neither executed nor fetched.
 # Upstream loader/parser seams use this to compile out script-only request paths.
 add_definitions(-DSHOT_NO_SCRIPT=1)
-# ② 函数级/数据级 COMDAT 分段，让链接器能按符号粒度回收。
-add_compile_options(/Gy /Gw)
-# ③ 链接期去未引用段(/OPT:REF) + 折叠完全相同的段(/OPT:ICF)。command-line 的
-#    /INCREMENTAL:NO 已由 build-shot.ps1 供给（增量链接与 /OPT:REF 互斥），此处追加优化开关。
-string(APPEND CMAKE_EXE_LINKER_FLAGS " /OPT:REF /OPT:ICF")
-string(APPEND CMAKE_SHARED_LINKER_FLAGS " /OPT:REF /OPT:ICF")
+# ② 函数级/数据级分段；③ 链接期回收未引用段。
+if (MSVC)
+    add_compile_options(/Gy /Gw)
+    string(APPEND CMAKE_EXE_LINKER_FLAGS " /OPT:REF /OPT:ICF")
+    string(APPEND CMAKE_SHARED_LINKER_FLAGS " /OPT:REF /OPT:ICF")
+else ()
+    add_compile_options(-ffunction-sections -fdata-sections)
+    string(APPEND CMAKE_EXE_LINKER_FLAGS " -Wl,--gc-sections")
+    string(APPEND CMAKE_SHARED_LINKER_FLAGS " -Wl,--gc-sections")
+endif ()
 
 # CI release profile: ThinLTO retains cross-module optimization without the
 # monolithic full-LTO memory peak. Bound backend parallelism explicitly on
@@ -173,10 +191,25 @@ SET_AND_EXPOSE_TO_BUILD(USE_HARFBUZZ ON)
 SET_AND_EXPOSE_TO_BUILD(USE_SKIA ON)
 # ANGLE/EGL/TextureMapper 保留为可选 GPU 接线；默认截图仍关闭加速合成并使用 Skia CPU，
 # 以保证无 GPU 环境可运行。发行依赖收集只复制 shot.dll 真正导入的库。
-set(USE_ANGLE_EGL ON)
-SET_AND_EXPOSE_TO_BUILD(USE_ANGLE ON)
+if (WIN32)
+    set(USE_ANGLE_EGL ON)
+    SET_AND_EXPOSE_TO_BUILD(USE_ANGLE ON)
+else ()
+    SET_AND_EXPOSE_TO_BUILD(USE_ANGLE OFF)
+endif ()
 SET_AND_EXPOSE_TO_BUILD(USE_TEXTURE_MAPPER ON)
 SET_AND_EXPOSE_TO_BUILD(USE_GRAPHICS_LAYER_TEXTURE_MAPPER ON)
+SET_AND_EXPOSE_TO_BUILD(USE_LIBWPE OFF)
+
+if (CMAKE_SYSTEM_NAME MATCHES "Linux")
+    SET_AND_EXPOSE_TO_BUILD(USE_FREETYPE ON)
+    SET_AND_EXPOSE_TO_BUILD(USE_FONTCONFIG ON)
+    SET_AND_EXPOSE_TO_BUILD(USE_COORDINATED_GRAPHICS ON)
+    SET_AND_EXPOSE_TO_BUILD(USE_EGL ON)
+    SET_AND_EXPOSE_TO_BUILD(USE_GENERIC_EVENT_LOOP ON)
+    SET_AND_EXPOSE_TO_BUILD(WTF_DEFAULT_EVENT_LOOP OFF)
+    set(LOWERCASE_EVENT_LOOP_TYPE "generic")
+endif ()
 
 # 主题/滚动条：Win 端口用 Adwaita 主题（RenderTheme/Theme/ScrollbarTheme::singleton
 # 的定义整体包在 #if USE(THEME_ADWAITA) 内，platform/Adwaita.cmake 已随 PlatformWin

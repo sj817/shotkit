@@ -45,18 +45,23 @@ set(libshot_FRAMEWORKS
 
 set(libshot_PRIVATE_INCLUDE_DIRECTORIES ${_shotkit_includes})
 
-# dwrite：FontCacheSkiaWin 用 DWriteCreateFactory。OBJECT 库的 PRIVATE 系统库依赖不传递，
-# 故此处显式补 Windows SDK 系统库。
 set(libshot_LIBRARIES
     ICU::data ICU::i18n ICU::uc
-    dwrite
-    delayimp
 )
+if (WIN32)
+    # FontCacheSkiaWin uses DirectWrite. OBJECT-library private dependencies do
+    # not propagate to the final shared library, so keep these explicit.
+    list(APPEND libshot_LIBRARIES dwrite delayimp)
+else ()
+    list(APPEND libshot_LIBRARIES Threads::Threads ${CMAKE_DL_LIBS})
+endif ()
 
 WEBKIT_LIBRARY_DECLARE(libshot)
 target_compile_definitions(libshot PRIVATE BUILDING_LIBSHOT=1)
 WEBKIT_LIBRARY(libshot)
-target_link_options(libshot PRIVATE "/DELAYLOAD:libEGL.dll" "/DELAYLOAD:libGLESv2.dll")
+if (WIN32)
+    target_link_options(libshot PRIVATE "/DELAYLOAD:libEGL.dll" "/DELAYLOAD:libGLESv2.dll")
+endif ()
 
 
 # ---- shotcli（薄 CLI，只用 C ABI，链接 libshot）----

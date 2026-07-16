@@ -1,2 +1,13 @@
-# PAL 平台层：复用 Win 的 PAL 平台配置（Windows 二进制）。
-include(${CMAKE_CURRENT_SOURCE_DIR}/PlatformWin.cmake)
+if (WIN32)
+    include(${CMAKE_CURRENT_SOURCE_DIR}/PlatformWin.cmake)
+elseif (APPLE)
+    include(${CMAKE_CURRENT_SOURCE_DIR}/PlatformMac.cmake)
+else ()
+    list(APPEND PAL_SOURCES
+        crypto/openssl/CryptoDigestOpenSSL.cpp
+        system/ClockGeneric.cpp
+        system/Sound.cpp
+        text/KillRing.cpp
+    )
+    list(APPEND PAL_LIBRARIES OpenSSL::Crypto)
+endif ()

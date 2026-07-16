@@ -1,5 +1,10 @@
-# JSC 平台层：复用 Win 的 JavaScriptCore 平台配置（Windows 二进制）。
-include(${CMAKE_CURRENT_SOURCE_DIR}/PlatformWin.cmake)
+if (WIN32)
+    include(${CMAKE_CURRENT_SOURCE_DIR}/PlatformWin.cmake)
+elseif (APPLE)
+    include(${CMAKE_CURRENT_SOURCE_DIR}/PlatformMac.cmake)
+else ()
+    include(${CMAKE_CURRENT_SOURCE_DIR}/PlatformJSCOnly.cmake)
+endif ()
 
 # ENABLE_C_LOOP 已把 WebAssembly/JIT 功能关掉，但上游 Sources.txt 仍会
 # 无条件生成并编译全部 wasm/ 与 B3 WASM 专用翻译单元。ShotKit 不执行
