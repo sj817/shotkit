@@ -1,59 +1,86 @@
-# collect-dist.ps1 — 收集 ShotKit 真实分发集(只含被实际依赖的 DLL,自动排除 vcpkg 死重)。
+# collect-dist.ps1 - collect the exact direct ShotKit runtime import closure.
 #
-# 背景:vcpkg bin 里有一批 shot.dll 根本不 import 的 DLL(harfbuzz-subset/turbojpeg/
-# brotlienc/tls-33/libwebpmux/libwebpdecoder/icu 工具库…约 4.4MB 死重)。本脚本从
-# shot.dll + shotcli.exe 出发,用 dumpbin 递归求 import 闭包,只拷真正需要的,死重自动落选。
-# ICU 数据 DLL(icudtNN)由 icuuc 运行期 dlopen、不在静态 import 表,单独补入。
-#
-# 用法:pwsh Source/WebKitShot/tools/collect-dist.ps1 [-Out <dist目录>]
+# shot.dll contains WebCore/JSC directly. ICU data is loaded by ICU at runtime
+# and is therefore added explicitly.
 
 param(
     [string]$Root = 'D:\Github\webkit',
-    [string]$Out  = ''
+    [string]$Out = ''
 )
+
 $ErrorActionPreference = 'Stop'
-$binShot = "$Root\WebKitBuild\shot\bin"
-$binDeps = "$Root\WebKitBuild\vcpkg_installed\x64-windows-webkit\bin"
-if (-not $Out) { $Out = "$Root\WebKitBuild\shot-dist" }
+$Root = [IO.Path]::GetFullPath($Root)
+$binShot = Join-Path $Root 'WebKitBuild\shot\bin'
+$binDeps = Join-Path $Root 'WebKitBuild\vcpkg_installed\x64-windows-webkit\bin'
+if (-not $Out) { $Out = Join-Path $Root 'WebKitBuild\shot-dist' }
+$Out = [IO.Path]::GetFullPath($Out)
+$allowedOutputRoot = [IO.Path]::GetFullPath((Join-Path $Root 'WebKitBuild'))
+if (-not $Out.StartsWith($allowedOutputRoot + [IO.Path]::DirectorySeparatorChar, [StringComparison]::OrdinalIgnoreCase)) {
+    throw "refusing to replace output outside $allowedOutputRoot`: $Out"
+}
+
+$shot = Join-Path $binShot 'shot.dll'
+$cli = Join-Path $binShot 'shotcli.exe'
+foreach ($required in $shot, $cli) {
+    if (-not (Test-Path -LiteralPath $required)) { throw "missing build output: $required" }
+}
 
 $vs = & "${env:ProgramFiles(x86)}\Microsoft Visual Studio\Installer\vswhere.exe" -latest -property installationPath
 $dumpbin = (Get-ChildItem "$vs\VC\Tools\MSVC\*\bin\Hostx64\x64\dumpbin.exe" | Select-Object -First 1).FullName
 
-# 依赖池:vcpkg DLL + 构建产出的 ANGLE DLL（小写→真实路径），排除
-# shot.dll 自身与 *.orig.dll。
 $pool = @{}
-Get-ChildItem "$binDeps\*.dll" | Where-Object { $_.Name -notmatch '\.orig\.dll$' } | ForEach-Object { $pool[$_.Name.ToLower()] = $_.FullName }
-Get-ChildItem "$binShot\*.dll" | Where-Object { $_.Name -ne 'shot.dll' } | ForEach-Object { $pool[$_.Name.ToLower()] = $_.FullName }
+Get-ChildItem "$binDeps\*.dll" | Where-Object { $_.Name -notmatch '\.orig\.dll$' } | ForEach-Object { $pool[$_.Name.ToLowerInvariant()] = $_.FullName }
+Get-ChildItem "$binShot\*.dll" | Where-Object { $_.Name -ne 'shot.dll' } | ForEach-Object { $pool[$_.Name.ToLowerInvariant()] = $_.FullName }
 
 $need = [System.Collections.Generic.HashSet[string]]::new()
 $queue = [System.Collections.Generic.Queue[string]]::new()
-# 种子:shot.dll + shotcli.exe
-"$binShot\shot.dll","$binShot\shotcli.exe" | ForEach-Object { $queue.Enqueue($_) }
+$shot, $cli | ForEach-Object { $queue.Enqueue($_) }
+
+# ShotKit disables accelerated compositing and renders through Skia CPU. These
+# two ANGLE imports are retained only to satisfy WebCore's WinCairo link ABI;
+# broad PNG/WebP/network/XSLT/Node tests pass without either DLL. Ignore them
+# only when they occur in the PE delay-load table.
+$unusedDelayLoads = @('libegl.dll', 'libglesv2.dll')
 
 while ($queue.Count) {
-    $f = $queue.Dequeue()
-    $deps = (& $dumpbin /DEPENDENTS $f) | Select-String '^\s+(\S+\.dll)\s*$' | ForEach-Object { $_.Matches[0].Groups[1].Value.ToLower() }
-    foreach ($d in $deps) {
-        if ($pool.ContainsKey($d) -and $need.Add($d)) { $queue.Enqueue($pool[$d]) }
+    $file = $queue.Dequeue()
+    $inDelayLoadTable = $false
+    foreach ($line in (& $dumpbin /DEPENDENTS $file)) {
+        if ($line -match '^\s*Image has the following dependencies:') {
+            $inDelayLoadTable = $false
+            continue
+        }
+        if ($line -match '^\s*Image has the following delay load dependencies:') {
+            $inDelayLoadTable = $true
+            continue
+        }
+        if ($line -notmatch '^\s+(\S+\.dll)\s*$') {
+            continue
+        }
+        $dependency = $Matches[1].ToLowerInvariant()
+        if ($inDelayLoadTable -and $dependency -in $unusedDelayLoads) {
+            continue
+        }
+        if ($pool.ContainsKey($dependency) -and $need.Add($dependency)) {
+            $queue.Enqueue($pool[$dependency])
+        }
     }
 }
-# ICU 数据 DLL:运行期由 icuuc dlopen,补入
-Get-ChildItem "$binDeps\icudt*.dll" | Where-Object { $_.Name -notmatch '\.orig\.dll$' } | ForEach-Object { [void]$need.Add($_.Name.ToLower()) }
 
-# 输出
+Get-ChildItem "$binDeps\icudt*.dll" | Where-Object { $_.Name -notmatch '\.orig\.dll$' } | ForEach-Object { [void]$need.Add($_.Name.ToLowerInvariant()) }
+
 Remove-Item $Out -Recurse -Force -ErrorAction SilentlyContinue
 New-Item -ItemType Directory -Force $Out | Out-Null
-Copy-Item "$binShot\shot.dll" $Out; Copy-Item "$binShot\shotcli.exe" $Out
-foreach ($d in $need) { Copy-Item $pool[$d] $Out }
+Copy-Item $shot, $cli -Destination $Out
+foreach ($dependency in $need) { Copy-Item $pool[$dependency] $Out }
 
-# 报告
 $distFiles = Get-ChildItem "$Out\*" -File
 $total = ($distFiles | Measure-Object Length -Sum).Sum
 $allDeps = ($pool.Values | ForEach-Object { (Get-Item $_).Length } | Measure-Object -Sum).Sum
 $shipped = ($need | ForEach-Object { (Get-Item $pool[$_]).Length } | Measure-Object -Sum).Sum
 $dead = $pool.Keys | Where-Object { -not $need.Contains($_) }
-Write-Host ("分发集: {0} 个文件, 合计 {1:N1} MB" -f $distFiles.Count, ($total/1MB))
-Write-Host ("  其中 shot.dll {0:N1} MB + 依赖 {1:N1} MB" -f ((Get-Item "$Out\shot.dll").Length/1MB), ($shipped/1MB))
-Write-Host ("排除的死重 {0} 个, 省 {1:N1} MB:" -f $dead.Count, (($allDeps-$shipped)/1MB))
-$dead | Sort-Object | ForEach-Object { Write-Host ("    - {0} ({1:N2} MB)" -f $_, ((Get-Item $pool[$_]).Length/1MB)) }
+Write-Host ("runtime: {0} files, {1:N1} MiB" -f $distFiles.Count, ($total / 1MB))
+Write-Host ("  shot.dll {0:N1} MiB + dependencies {1:N1} MiB" -f ((Get-Item $shot).Length / 1MB), ($shipped / 1MB))
+Write-Host ("excluded {0} unused DLLs, saving {1:N1} MiB:" -f $dead.Count, (($allDeps - $shipped) / 1MB))
+$dead | Sort-Object | ForEach-Object { Write-Host ("    - {0} ({1:N2} MiB)" -f $_, ((Get-Item $pool[$_]).Length / 1MB)) }
 Write-Host "dist -> $Out"

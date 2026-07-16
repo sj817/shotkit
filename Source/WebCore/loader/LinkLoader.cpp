@@ -360,6 +360,13 @@ RefPtr<LinkPreloadResourceClient> LinkLoader::preloadIfNeeded(const LinkLoadPara
     if (!type)
         return nullptr;
 
+#if defined(SHOT_NO_SCRIPT)
+    // Do not instantiate CachedScript for modulepreload, preload-as-script or
+    // HTTP Link header script preloads in the static ShotKit renderer.
+    if (*type == CachedResource::Type::Script || *type == CachedResource::Type::JSON)
+        return nullptr;
+#endif
+
     URL url;
     if (type == CachedResource::Type::ImageResource && !params.imageSrcSet.isEmpty()) {
         auto sourceSize = SizesAttributeParser(params.imageSizes, document).effectiveSize();

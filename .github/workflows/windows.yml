@@ -1,0 +1,151 @@
+name: Windows
+
+on:
+  push:
+    branches: [main, shotkit]
+  pull_request:
+  workflow_dispatch:
+
+concurrency:
+  group: windows-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    runs-on: windows-2022
+    timeout-minutes: 360
+
+    env:
+      VCPKG_FEATURE_FLAGS: manifests,binarycaching
+
+    steps:
+      - name: Checkout the ShotKit build closure
+        uses: actions/checkout@v7
+        with:
+          fetch-depth: 1
+          sparse-checkout-cone-mode: false
+          sparse-checkout: |
+            /.github/
+            /Source/
+            /Tools/
+            /WebKitLibraries/
+            /CMakeLists.txt
+            /CMakePresets.json
+            /Makefile
+            /Makefile.shared
+            /vcpkg.json
+            /vcpkg-configuration.json
+            /AGENTS.md
+            /ReadMe.md
+
+      - name: Cache vcpkg binary packages
+        uses: actions/cache@v6
+        with:
+          path: ${{ runner.temp }}\vcpkg-binary-cache
+          key: vcpkg-windows-shot-${{ hashFiles('vcpkg.json', 'vcpkg-configuration.json', 'WebKitLibraries/triplets/x64-windows-webkit.cmake') }}
+
+      - name: Cache ThinLTO backend objects
+        uses: actions/cache@v6
+        with:
+          path: ${{ runner.temp }}\shot-thinlto-cache
+          key: thinlto-windows-${{ github.sha }}
+          restore-keys: |
+            thinlto-windows-
+
+      - name: Install parser generator tools
+        shell: pwsh
+        run: |
+          choco install gperf winflexbison3 -y --no-progress
+          $shim = Join-Path $env:RUNNER_TEMP 'webkit-tools'
+          New-Item -ItemType Directory -Force -Path $shim | Out-Null
+          Copy-Item (Get-Command win_bison.exe).Source (Join-Path $shim 'bison.exe')
+          Copy-Item (Get-Command win_flex.exe).Source (Join-Path $shim 'flex.exe')
+          $shim | Out-File -FilePath $env:GITHUB_PATH -Encoding utf8 -Append
+          ruby --version
+          perl --version
+          python --version
+          cmake --version
+          ninja --version
+          clang-cl --version
+
+      - name: Install native dependencies
+        shell: pwsh
+        run: |
+          $vcpkg = Get-Command vcpkg.exe -ErrorAction Stop
+          $vcpkgRoot = Split-Path $vcpkg.Source -Parent
+          $installed = Join-Path $env:GITHUB_WORKSPACE 'WebKitBuild\vcpkg_installed'
+          $binaryCache = Join-Path $env:RUNNER_TEMP 'vcpkg-binary-cache'
+          New-Item -ItemType Directory -Force -Path $binaryCache | Out-Null
+          $env:VCPKG_BINARY_SOURCES = "clear;files,$binaryCache,readwrite"
+
+          & $vcpkg.Source install `
+            --x-manifest-root=$env:GITHUB_WORKSPACE `
+            --x-install-root=$installed `
+            --triplet=x64-windows-webkit `
+            --overlay-triplets="$env:GITHUB_WORKSPACE\WebKitLibraries\triplets" `
+            --x-feature=web `
+            --x-feature=skia `
+            --x-feature=woff2 `
+            --clean-after-build `
+            --no-print-usage
+          if ($LASTEXITCODE) { throw "vcpkg failed with exit code $LASTEXITCODE" }
+
+          "SHOT_VCPKG_ROOT=$vcpkgRoot" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
+          "SHOT_VCPKG_INSTALLED=$installed" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
+
+      - name: Configure and build ShotKit
+        shell: pwsh
+        run: |
+          pwsh Source/WebKitShot/build-shot.ps1 `
+            -Configure -Build `
+            -Root $env:GITHUB_WORKSPACE `
+            -VcpkgRoot $env:SHOT_VCPKG_ROOT `
+            -VcpkgInstalledDir $env:SHOT_VCPKG_INSTALLED `
+            -LtoMode thin `
+            -LtoJobs 1 `
+            -ThinLTOCacheDir (Join-Path $env:RUNNER_TEMP 'shot-thinlto-cache') `
+            -Jobs 2
+
+      - name: Smoke test PNG and WebP
+        shell: pwsh
+        run: |
+          $bin = Join-Path $env:GITHUB_WORKSPACE 'WebKitBuild\shot\bin'
+          $html = Join-Path $env:RUNNER_TEMP 'shot-smoke.html'
+          $png = Join-Path $env:RUNNER_TEMP 'shot-smoke.png'
+          $webp = Join-Path $env:RUNNER_TEMP 'shot-smoke.webp'
+          '<!doctype html><meta charset=utf-8><style>body{background:#eef2f7;font:32px sans-serif}h1{color:#246}</style><h1>ShotKit CI ✓</h1>' | Set-Content -LiteralPath $html -Encoding utf8NoBOM
+          & (Join-Path $bin 'shotcli.exe') --html $html --out $png --width 640 --height 360
+          if ($LASTEXITCODE) { throw "PNG smoke failed with exit code $LASTEXITCODE" }
+          & (Join-Path $bin 'shotcli.exe') --html $html --out $webp --format webp --quality 82 --width 640 --height 360
+          if ($LASTEXITCODE) { throw "WebP smoke failed with exit code $LASTEXITCODE" }
+          if ((Get-Item $png).Length -lt 100 -or (Get-Item $webp).Length -lt 100) { throw 'encoded image is unexpectedly small' }
+
+      - name: Verify scripts are never fetched
+        shell: pwsh
+        run: pwsh Source/WebKitShot/tests/verify_no_script_network.ps1 -BuildDir "$env:GITHUB_WORKSPACE\WebKitBuild\shot"
+
+      - name: Verify the C ABI export surface
+        shell: pwsh
+        run: |
+          $vswhere = Join-Path ${env:ProgramFiles(x86)} 'Microsoft Visual Studio\Installer\vswhere.exe'
+          $vs = & $vswhere -latest -products * -property installationPath
+          $dumpbin = (Get-ChildItem "$vs\VC\Tools\MSVC\*\bin\Hostx64\x64\dumpbin.exe" | Sort-Object FullName -Descending | Select-Object -First 1).FullName
+          $dll = Join-Path $env:GITHUB_WORKSPACE 'WebKitBuild\shot\bin\shot.dll'
+          $exports = @(& $dumpbin /EXPORTS $dll | Select-String '^\s+\d+\s+[0-9A-F]+\s+[0-9A-F]+\s+(shot_\S+)\s*$')
+          if ($exports.Count -ne 10) { throw "expected 10 shot_* exports, found $($exports.Count)" }
+          Get-Item $dll, (Join-Path (Split-Path $dll) 'shotcli.exe') | Format-Table Name, Length
+
+      - name: Collect runtime artifact
+        shell: pwsh
+        run: pwsh Source/WebKitShot/tools/collect-dist.ps1 -Root $env:GITHUB_WORKSPACE -Out "$env:GITHUB_WORKSPACE\WebKitBuild\shot-ci-dist"
+
+      - name: Upload runtime
+        uses: actions/upload-artifact@v7
+        with:
+          name: shotkit-windows-x64-thinlto
+          path: WebKitBuild/shot-ci-dist/
+          if-no-files-found: error
+          retention-days: 7

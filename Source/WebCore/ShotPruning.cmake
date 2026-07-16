@@ -10,15 +10,29 @@
 
 set(_shot_original_idl_files ${WebCore_IDL_FILES} ${WebCore_SUPPLEMENTAL_IDL_FILES})
 
+set(_shot_js_only_module_regex "(webdatabase|websockets)")
+
 foreach (_shot_idl_list
     WebCore_NON_SVG_IDL_FILES
     WebCore_IDL_FILES
     WebCore_SUPPLEMENTAL_IDL_FILES
 )
     if (DEFINED ${_shot_idl_list})
-        list(FILTER ${_shot_idl_list} EXCLUDE REGEX "(^|/)Modules/webdatabase/")
+        list(FILTER ${_shot_idl_list} EXCLUDE REGEX "(^|/)Modules/${_shot_js_only_module_regex}/")
     endif ()
 endforeach ()
+
+# WebSocket and CloseEvent remain an internal ABI closure: core Event and
+# EventTarget factories still name these wrappers even though no page script can
+# reach them. WebSQL's generated bindings are removed. IndexedDB was deliberately
+# retained because worker/structured-clone/inspector code has a broad internal
+# closure; removing that closure produced no linked-size win under LTO.
+set(_shot_internal_idl_files
+    Modules/websockets/CloseEvent.idl
+    Modules/websockets/WebSocket.idl
+)
+list(APPEND WebCore_NON_SVG_IDL_FILES ${_shot_internal_idl_files})
+list(APPEND WebCore_IDL_FILES ${_shot_internal_idl_files})
 
 # Sources.txt 静态列出了所有 IDL 对应的 JS*.cpp。仅从绑定输入移除 IDL
 # 还不够：增量构建时统一源生成器会重新收进旧的派生文件。同步排除每个
@@ -36,3 +50,5 @@ unset(_shot_idl_name)
 unset(_shot_idl_name_regex)
 unset(_shot_original_idl_files)
 unset(_shot_retained_idl_files)
+unset(_shot_internal_idl_files)
+unset(_shot_js_only_module_regex)

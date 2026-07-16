@@ -18,17 +18,57 @@
 #include <windows.h>
 #include <psapi.h>
 
-static size_t rssBytes()
+struct MemorySnapshot {
+    size_t rss { 0 };
+    size_t privateBytes { 0 };
+    size_t reservedAddressSpace { 0 };
+    size_t committedAddressSpace { 0 };
+    size_t largestReservedRegion { 0 };
+};
+
+static MemorySnapshot memorySnapshot()
 {
-    PROCESS_MEMORY_COUNTERS pmc {};
-    if (GetProcessMemoryInfo(GetCurrentProcess(), &pmc, sizeof(pmc)))
-        return pmc.WorkingSetSize;
-    return 0;
+    MemorySnapshot result;
+    PROCESS_MEMORY_COUNTERS_EX pmc {};
+    if (GetProcessMemoryInfo(GetCurrentProcess(), reinterpret_cast<PROCESS_MEMORY_COUNTERS*>(&pmc), sizeof(pmc))) {
+        result.rss = pmc.WorkingSetSize;
+        result.privateBytes = pmc.PrivateUsage;
+    }
+
+    MEMORY_BASIC_INFORMATION region {};
+    for (auto* address = static_cast<unsigned char*>(nullptr); VirtualQuery(address, &region, sizeof(region));) {
+        if (region.State == MEM_RESERVE) {
+            result.reservedAddressSpace += region.RegionSize;
+            if (region.RegionSize > result.largestReservedRegion)
+                result.largestReservedRegion = region.RegionSize;
+        } else if (region.State == MEM_COMMIT)
+            result.committedAddressSpace += region.RegionSize;
+
+        auto* next = static_cast<unsigned char*>(region.BaseAddress) + region.RegionSize;
+        if (next <= address)
+            break;
+        address = next;
+    }
+    return result;
+}
+
+static void printMemory(const char* label, const MemorySnapshot& memory)
+{
+    std::printf("%-12s RSS %7.1f MB  private %7.1f MB  VA reserve %7.1f MB  commit %7.1f MB  largest reserve %7.1f MB\n",
+        label,
+        memory.rss / 1048576.0,
+        memory.privateBytes / 1048576.0,
+        memory.reservedAddressSpace / 1048576.0,
+        memory.committedAddressSpace / 1048576.0,
+        memory.largestReservedRegion / 1048576.0);
 }
 
 int main(int argc, char** argv)
 {
     int iterations = argc > 1 ? std::atoi(argv[1]) : 1000;
+
+    auto processStartMemory = memorySnapshot();
+    printMemory("process start", processStartMemory);
 
     static const char kHTML[] =
         "<!DOCTYPE html><html><head><style>"
@@ -43,6 +83,8 @@ int main(int argc, char** argv)
         std::fprintf(stderr, "shot_init failed\n");
         return 1;
     }
+    auto initializedMemory = memorySnapshot();
+    printMemory("after init", initializedMemory);
     shot_renderer* r = shot_renderer_create();
 
     shot_render_options opt;
@@ -52,6 +94,7 @@ int main(int argc, char** argv)
     opt.timeout_ms = 5000;
 
     size_t rssBaseline = 0, rssPeak = 0;
+    MemorySnapshot firstRenderMemory;
     for (int i = 0; i < iterations; ++i) {
         shot_png png { nullptr, 0 };
         shot_status s = shot_render_html(r, kHTML, sizeof(kHTML) - 1, &opt, &png);
@@ -65,9 +108,14 @@ int main(int argc, char** argv)
         }
         shot_png_free(&png);
 
+        auto memory = memorySnapshot();
+        if (!i) {
+            firstRenderMemory = memory;
+            printMemory("first render", firstRenderMemory);
+        }
         if (i == 20)  // 预热后取基线（前几次含一次性缓存分配）
-            rssBaseline = rssBytes();
-        size_t now = rssBytes();
+            rssBaseline = memory.rss;
+        size_t now = memory.rss;
         if (now > rssPeak)
             rssPeak = now;
         if ((i + 1) % 100 == 0)
@@ -75,10 +123,20 @@ int main(int argc, char** argv)
     }
 
     double growthMB = (rssPeak > rssBaseline ? rssPeak - rssBaseline : 0) / 1048576.0;
+    auto finalMemory = memorySnapshot();
+    printMemory("final", finalMemory);
     std::printf("baseline(@20) %.1f MB  peak %.1f MB  growth %.1f MB over %d iters\n",
         rssBaseline / 1048576.0, rssPeak / 1048576.0, growthMB, iterations);
     // 判据：预热后增长应远小于总量（<64MB 视为无明显泄漏；真泄漏会线性爬到数百 MB）。
-    bool ok = growthMB < 64.0;
+    // Windows 运行时本身会在 main() 前保留一块约 4GB 的地址区域（不链接
+    // shot.dll 的空程序同样存在），所以验收 Shot/JSC 的增量，而不是进程总量。
+    // 默认 JSC 结构堆还会额外增加约 4GB；ShotKit 只应增加约 64MB。
+    size_t shotReservedDelta = firstRenderMemory.reservedAddressSpace > processStartMemory.reservedAddressSpace
+        ? firstRenderMemory.reservedAddressSpace - processStartMemory.reservedAddressSpace : 0;
+    bool addressSpaceOK = shotReservedDelta <= 256 * 1048576ULL;
+    bool ok = growthMB < 64.0 && addressSpaceOK;
+    std::printf("Shot/JSC VA reserve delta %.1f MB\n", shotReservedDelta / 1048576.0);
+    std::printf("VA RESERVATION CHECK: %s\n", addressSpaceOK ? "PASS" : "FAIL (large Shot/JSC reservation remains)");
     std::printf("%s\n", ok ? "LEAK CHECK: PASS" : "LEAK CHECK: FAIL (growth too large)");
     std::fflush(nullptr);
     std::_Exit(ok ? 0 : 4);

@@ -304,7 +304,8 @@ static void writeErrorResponse(const std::string& id, int status, const std::str
 static int runServer(const shot_render_options& defaults)
 {
     if (shot_init(nullptr) != SHOT_OK) {
-        std::cout << "{\"ready\":false,\"protocol\":1,\"error\":\"shot_init failed\"}" << std::endl;
+        const char* error = shot_last_error(nullptr);
+        std::cout << "{\"ready\":false,\"protocol\":1,\"error\":" << jsonQuote(error && *error ? error : "shot_init failed") << "}" << std::endl;
         return 1;
     }
 
@@ -571,7 +572,8 @@ int main(int argc, char** argv)
     }
 
     if (shot_init(nullptr) != SHOT_OK) {
-        std::fprintf(stderr, "error: shot_init failed\n");
+        const char* error = shot_last_error(nullptr);
+        std::fprintf(stderr, "error: %s\n", error && *error ? error : "shot_init failed");
         return 1;
     }
 

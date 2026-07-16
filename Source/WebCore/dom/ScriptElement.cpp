@@ -92,8 +92,12 @@ ScriptElement::ScriptElement(Element& element, bool parserInserted, bool already
     , m_creationTime(MonotonicTime::now())
     , m_userGestureToken(UserGestureIndicator::currentUserGesture())
 {
+#if defined(SHOT_NO_SCRIPT)
+    m_taintedOrigin = JSC::SourceTaintedOrigin::Untainted;
+#else
     Ref vm = commonVM();
     m_taintedOrigin = computeNewSourceTaintedOriginFromStack(vm, vm->topCallFrame);
+#endif
     if (parserInserted) {
         Ref document = element.document();
         if (RefPtr parser = document->scriptableDocumentParser(); parser && !document->isInDocumentWrite())
@@ -213,6 +217,11 @@ std::optional<ScriptType> ScriptElement::determineScriptType() const
 // https://html.spec.whatwg.org/multipage/scripting.html#prepare-the-script-element
 bool ScriptElement::prepareScript(const TextPosition& scriptStartPosition)
 {
+#if defined(SHOT_NO_SCRIPT)
+    UNUSED_PARAM(scriptStartPosition);
+    m_alreadyStarted = true;
+    return false;
+#else
     if (m_alreadyStarted)
         return false;
 
@@ -356,6 +365,7 @@ bool ScriptElement::prepareScript(const TextPosition& scriptStartPosition)
     }
 
     return true;
+#endif
 }
 
 void ScriptElement::updateTaintedOriginFromSourceURL()

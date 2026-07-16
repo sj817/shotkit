@@ -6,6 +6,8 @@
 #include "ShotLoaderStrategy.h"
 
 #include "ShotCurlResourceLoader.h"
+#include <WebCore/CachedResource.h>
+#include <WebCore/FetchOptions.h>
 #include <WebCore/ResourceLoader.h>
 #include <WebCore/ResourceRequest.h>
 #include <WebCore/SubresourceLoader.h>
@@ -35,6 +37,16 @@ ShotLoaderStrategy::~ShotLoaderStrategy()
 
 void ShotLoaderStrategy::loadResource(LocalFrame& frame, CachedResource& resource, ResourceRequest&& request, const ResourceLoaderOptions& options, CompletionHandler<void(RefPtr<SubresourceLoader>&&)>&& completionHandler)
 {
+    // Defense in depth for every script request source: classic/module tags,
+    // preload/modulepreload, HTTP Link headers, workers and worklets.
+    if (resource.type() == CachedResource::Type::Script
+        || resource.type() == CachedResource::Type::JSON
+        || isScriptLikeDestination(options.destination)
+        || options.destination == FetchOptions::Destination::Speculationrules) {
+        completionHandler(nullptr);
+        return;
+    }
+
     SubresourceLoader::create(frame, resource, WTF::move(request), options, [this, completionHandler = WTF::move(completionHandler)](RefPtr<SubresourceLoader>&& loader) mutable {
         if (loader)
             startLoad(*loader);

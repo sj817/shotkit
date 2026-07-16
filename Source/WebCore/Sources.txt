@@ -4138,8 +4138,6 @@ JSDataTransfer.cpp
 JSDataTransferItem.cpp
 JSDataTransferItemList.cpp
 JSDatagramsReadableMode.cpp
-JSDatabase.cpp
-JSDatabaseCallback.cpp
 JSDecompressionStream.cpp
 JSDecompressionStreamDecoder.cpp
 JSDedicatedWorkerGlobalScope.cpp
@@ -4909,14 +4907,6 @@ JSRsaOaepParams.cpp
 JSRsaOtherPrimesInfo.cpp
 JSRsaPssParams.cpp
 JSRunningStatus.cpp
-JSSQLError.cpp
-JSSQLResultSet.cpp
-JSSQLResultSetRowList.cpp
-JSSQLStatementCallback.cpp
-JSSQLStatementErrorCallback.cpp
-JSSQLTransaction.cpp
-JSSQLTransactionCallback.cpp
-JSSQLTransactionErrorCallback.cpp
 JSSVGAElement.cpp
 JSSVGAngle.cpp
 JSSVGAnimateElement.cpp

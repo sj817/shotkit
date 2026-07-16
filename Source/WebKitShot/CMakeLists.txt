@@ -1,7 +1,7 @@
 # WebKitShot — ShotKit 截图内核
 #
-# libshot：SHARED 动态库，静态汇入 WebCore(OBJECT) 等，只导出 C ABI（shot_*）。
-# shotcli：libshot 的薄命令行封装。
+# libshot: the direct C ABI library, with WebCore/JSC linked into one DLL.
+# shotcli: a thin client of libshot.
 # 见仓库根 AGENTS.md。
 
 set(SHOTKIT_DIR "${CMAKE_CURRENT_SOURCE_DIR}/ShotKit")
@@ -20,7 +20,7 @@ set(_shotkit_includes
     ${CMAKE_BINARY_DIR}/WebCore/PrivateHeaders
 )
 
-# ---- libshot（SHARED，唯一导出 shot_*）----
+# ---- libshot (WebCore/JSC implementation) ----
 set(libshot_LIBRARY_TYPE SHARED)
 set(libshot_OUTPUT_NAME shot)
 
@@ -50,11 +50,14 @@ set(libshot_PRIVATE_INCLUDE_DIRECTORIES ${_shotkit_includes})
 set(libshot_LIBRARIES
     ICU::data ICU::i18n ICU::uc
     dwrite
+    delayimp
 )
 
 WEBKIT_LIBRARY_DECLARE(libshot)
 target_compile_definitions(libshot PRIVATE BUILDING_LIBSHOT=1)
 WEBKIT_LIBRARY(libshot)
+target_link_options(libshot PRIVATE "/DELAYLOAD:libEGL.dll" "/DELAYLOAD:libGLESv2.dll")
+
 
 # ---- shotcli（薄 CLI，只用 C ABI，链接 libshot）----
 set(shotcli_SOURCES

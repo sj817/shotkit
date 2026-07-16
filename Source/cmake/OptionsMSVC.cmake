@@ -63,8 +63,14 @@ endfunction()
 # Use AT&T syntax for inline asm
 MSVC_ADD_COMPILE_OPTIONS(/clang:-masm=att)
 
-# Create pdb files for debugging purposes, also for Release builds
-MSVC_ADD_COMPILE_OPTIONS(/Zi /GS)
+# Upstream creates PDB information for Release builds too. Shot's MinSizeRel
+# artifacts do not ship a PDB, and carrying /Zi through every WebCore/JSC LTO
+# input consumes substantial CI disk and linker memory for no runtime benefit.
+if (PORT STREQUAL "Shot" AND CMAKE_BUILD_TYPE STREQUAL "MinSizeRel")
+    MSVC_ADD_COMPILE_OPTIONS(/GS)
+else ()
+    MSVC_ADD_COMPILE_OPTIONS(/Zi /GS)
+endif ()
 
 # Disable ICF (identical code folding) optimization,
 # as it makes it unsafe to pointer-compare functions with identical definitions.

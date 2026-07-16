@@ -393,7 +393,11 @@ private:
     {
         switch (m_tagId) {
         case TagId::Script:
+#if defined(SHOT_NO_SCRIPT)
+            return std::nullopt;
+#else
             return CachedResource::Type::Script;
+#endif
         case TagId::Img:
         case TagId::Input:
         case TagId::Source:

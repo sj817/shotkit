@@ -127,12 +127,34 @@ add_definitions(-DSHOT_NO_DLLEXPORT=1)
 #    （非 WTF_EXPORT_DECLARATION）导出。libshot 从不暴露 JSC C API，故用上游自带的 JS_NO_EXPORT
 #    钩子（JSBase.h:82）把 JS_EXPORT 清空，去掉这批导出锚点，连带其 API glue 可被 DCE。
 add_definitions(-DJS_NO_EXPORT=1)
+# ShotKit is a static renderer: page scripts are neither executed nor fetched.
+# Upstream loader/parser seams use this to compile out script-only request paths.
+add_definitions(-DSHOT_NO_SCRIPT=1)
 # ② 函数级/数据级 COMDAT 分段，让链接器能按符号粒度回收。
 add_compile_options(/Gy /Gw)
 # ③ 链接期去未引用段(/OPT:REF) + 折叠完全相同的段(/OPT:ICF)。command-line 的
 #    /INCREMENTAL:NO 已由 build-shot.ps1 供给（增量链接与 /OPT:REF 互斥），此处追加优化开关。
 string(APPEND CMAKE_EXE_LINKER_FLAGS " /OPT:REF /OPT:ICF")
 string(APPEND CMAKE_SHARED_LINKER_FLAGS " /OPT:REF /OPT:ICF")
+
+# CI release profile: ThinLTO retains cross-module optimization without the
+# monolithic full-LTO memory peak. Bound backend parallelism explicitly on
+# small hosted runners and persist native backend objects in a cache.
+set(SHOT_LTO_JOBS "0" CACHE STRING "Maximum parallel ThinLTO backend jobs (0 = linker default)")
+set(SHOT_THINLTO_CACHE_DIR "" CACHE PATH "ThinLTO native object cache directory")
+if (MSVC AND LTO_MODE STREQUAL "thin")
+    set(_shot_thin_lto_link_flags "")
+    if (SHOT_LTO_JOBS)
+        string(APPEND _shot_thin_lto_link_flags " /opt:lldltojobs=${SHOT_LTO_JOBS}")
+    endif ()
+    if (SHOT_THINLTO_CACHE_DIR)
+        file(TO_NATIVE_PATH "${SHOT_THINLTO_CACHE_DIR}" _shot_thin_lto_cache_native)
+        string(APPEND _shot_thin_lto_link_flags " /lldltocache:${_shot_thin_lto_cache_native}")
+    endif ()
+    string(APPEND CMAKE_EXE_LINKER_FLAGS "${_shot_thin_lto_link_flags}")
+    string(APPEND CMAKE_SHARED_LINKER_FLAGS "${_shot_thin_lto_link_flags}")
+    string(APPEND CMAKE_MODULE_LINKER_FLAGS "${_shot_thin_lto_link_flags}")
+endif ()
 
 # ---- USE_* 后端暴露给构建（Skia；保留可选 GPU 接线，默认截图仍走 CPU）----
 SET_AND_EXPOSE_TO_BUILD(USE_CURL ON)

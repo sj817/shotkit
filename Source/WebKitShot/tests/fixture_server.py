@@ -14,9 +14,11 @@
   GET /cookie.txt      回读 Cookie 头（证明 cookie 回写生效）
 所有响应带宽松 CORS/缓存头，尽量贴近真实站点。
 """
-import base64, sys, struct, zlib, http.server
+import base64, collections, json, sys, struct, threading, zlib, http.server
 
 VERBOSE = "--verbose" in sys.argv
+REQUEST_COUNTS = collections.Counter()
+REQUEST_COUNTS_LOCK = threading.Lock()
 
 def _png(w, h, rgba):
     def chunk(tag, data):
@@ -63,6 +65,13 @@ SCRIPT_PAGE = b'''<!doctype html><html><body style="background:#eef2f7;font-fami
 <script>document.getElementById('result').textContent='JS EXECUTED';</script>
 </body></html>'''
 
+SCRIPT_NETWORK_PAGE = b'''<!doctype html><html><head>
+<link rel="preload" as="script" href="/preloaded.js">
+<link rel="modulepreload" href="/module.js">
+<script src="/classic.js"></script>
+<script type="module" src="/module.js"></script>
+</head><body><h1>Script network requests must remain zero</h1></body></html>'''
+
 INDEX = """<!DOCTYPE html><html><head><meta charset=utf-8>
 <link rel=stylesheet href="/style.css">
 <link rel=stylesheet href="/redirect-css">
@@ -96,6 +105,18 @@ class H(http.server.BaseHTTPRequestHandler):
 
     def do_GET(self):
         p = self.path.split("?")[0]
+        if p == "/reset-counts":
+            with REQUEST_COUNTS_LOCK:
+                REQUEST_COUNTS.clear()
+            self._send(b"ok", "text/plain")
+            return
+        if p == "/request-counts":
+            with REQUEST_COUNTS_LOCK:
+                body = json.dumps(dict(REQUEST_COUNTS), sort_keys=True).encode()
+            self._send(body, "application/json")
+            return
+        with REQUEST_COUNTS_LOCK:
+            REQUEST_COUNTS[p] += 1
         if p == "/":
             # 主文档下发 cookie；随后的 /cookiepix 子资源请求应带上它。
             self._send(INDEX, "text/html; charset=utf-8", 200, {"Set-Cookie": "shot=ok; Path=/"})
@@ -116,6 +137,12 @@ class H(http.server.BaseHTTPRequestHandler):
             self._send(WEBP_GREEN, "image/webp")
         elif p == "/script-disabled":
             self._send(SCRIPT_PAGE, "text/html; charset=utf-8")
+        elif p == "/script-network":
+            self._send(SCRIPT_NETWORK_PAGE, "text/html; charset=utf-8", 200, {
+                "Link": "</header-preload.js>; rel=preload; as=script, </header-module.js>; rel=modulepreload"
+            })
+        elif p in ("/classic.js", "/module.js", "/preloaded.js", "/header-preload.js", "/header-module.js"):
+            self._send(b"throw new Error('ShotKit must never fetch this')", "text/javascript")
         elif p == "/document.xml":
             self._send(XML, "application/xml")
         elif p == "/document.xsl":

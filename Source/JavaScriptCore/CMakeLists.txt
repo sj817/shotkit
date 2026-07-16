@@ -134,35 +134,39 @@ set(JavaScriptCore_OBJECT_LUT_SOURCES
     runtime/TemporalPlainYearMonthPrototype.cpp
     runtime/TemporalZonedDateTimeConstructor.cpp
     runtime/TemporalZonedDateTimePrototype.cpp
-
-    wasm/js/JSWebAssembly.cpp
-    wasm/js/WebAssemblyArrayConstructor.cpp
-    wasm/js/WebAssemblyArrayPrototype.cpp
-    wasm/js/WebAssemblyCompileErrorConstructor.cpp
-    wasm/js/WebAssemblyCompileErrorPrototype.cpp
-    wasm/js/WebAssemblyExceptionConstructor.cpp
-    wasm/js/WebAssemblyExceptionPrototype.cpp
-    wasm/js/WebAssemblyGlobalConstructor.cpp
-    wasm/js/WebAssemblyGlobalPrototype.cpp
-    wasm/js/WebAssemblyInstanceConstructor.cpp
-    wasm/js/WebAssemblyInstancePrototype.cpp
-    wasm/js/WebAssemblyLinkErrorConstructor.cpp
-    wasm/js/WebAssemblyLinkErrorPrototype.cpp
-    wasm/js/WebAssemblyMemoryConstructor.cpp
-    wasm/js/WebAssemblyMemoryPrototype.cpp
-    wasm/js/WebAssemblyModuleConstructor.cpp
-    wasm/js/WebAssemblyModulePrototype.cpp
-    wasm/js/WebAssemblyRuntimeErrorConstructor.cpp
-    wasm/js/WebAssemblyRuntimeErrorPrototype.cpp
-    wasm/js/WebAssemblySuspendErrorConstructor.cpp
-    wasm/js/WebAssemblySuspendErrorPrototype.cpp
-    wasm/js/WebAssemblyStructConstructor.cpp
-    wasm/js/WebAssemblyStructPrototype.cpp
-    wasm/js/WebAssemblyTableConstructor.cpp
-    wasm/js/WebAssemblyTablePrototype.cpp
-    wasm/js/WebAssemblyTagConstructor.cpp
-    wasm/js/WebAssemblyTagPrototype.cpp
 )
+
+if (ENABLE_WEBASSEMBLY)
+    list(APPEND JavaScriptCore_OBJECT_LUT_SOURCES
+        wasm/js/JSWebAssembly.cpp
+        wasm/js/WebAssemblyArrayConstructor.cpp
+        wasm/js/WebAssemblyArrayPrototype.cpp
+        wasm/js/WebAssemblyCompileErrorConstructor.cpp
+        wasm/js/WebAssemblyCompileErrorPrototype.cpp
+        wasm/js/WebAssemblyExceptionConstructor.cpp
+        wasm/js/WebAssemblyExceptionPrototype.cpp
+        wasm/js/WebAssemblyGlobalConstructor.cpp
+        wasm/js/WebAssemblyGlobalPrototype.cpp
+        wasm/js/WebAssemblyInstanceConstructor.cpp
+        wasm/js/WebAssemblyInstancePrototype.cpp
+        wasm/js/WebAssemblyLinkErrorConstructor.cpp
+        wasm/js/WebAssemblyLinkErrorPrototype.cpp
+        wasm/js/WebAssemblyMemoryConstructor.cpp
+        wasm/js/WebAssemblyMemoryPrototype.cpp
+        wasm/js/WebAssemblyModuleConstructor.cpp
+        wasm/js/WebAssemblyModulePrototype.cpp
+        wasm/js/WebAssemblyRuntimeErrorConstructor.cpp
+        wasm/js/WebAssemblyRuntimeErrorPrototype.cpp
+        wasm/js/WebAssemblySuspendErrorConstructor.cpp
+        wasm/js/WebAssemblySuspendErrorPrototype.cpp
+        wasm/js/WebAssemblyStructConstructor.cpp
+        wasm/js/WebAssemblyStructPrototype.cpp
+        wasm/js/WebAssemblyTableConstructor.cpp
+        wasm/js/WebAssemblyTablePrototype.cpp
+        wasm/js/WebAssemblyTagConstructor.cpp
+        wasm/js/WebAssemblyTagPrototype.cpp
+    )
+endif ()
 
 list(APPEND JavaScriptCore_SOURCES
     ${JavaScriptCore_DERIVED_SOURCES_DIR}/JSCBuiltins.cpp

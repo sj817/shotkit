@@ -1,47 +1,132 @@
-# build-shot.ps1 — 配置并构建 ShotKit 截图内核（Windows / clang-cl / ninja / vcpkg / Skia）。
-#
-# 用法：pwsh Source/WebKitShot/build-shot.ps1 [-Configure] [-Build] [-Clean]
-#   -Build                增量：只重编改动的源 + 重链 shotcli（日常迭代用这个）
-#   -Configure            全量重配（改了任何 *.cmake，或 ninja 自动重配擦了 CMake 缓存后必用）
-#   -Configure -Build     先重配再构建
-#
-# 背景（见仓库根 AGENTS.md「实施进度 M0/M1」）：编辑任何 *.cmake 触发 ninja 自动重配时，
-# CMake 因编译器缓存项是短名 clang-cl 判定"编译器变了" → 擦掉整个 CMake 缓存（PORT/vcpkg
-# 前缀/Ruby/全部编译链接 flag 尽失）。-Configure 用完整 -D 一次性补齐所有被擦变量，避免手工
-# 逐个补参数。缺 /DNDEBUG 会开断言，触发 C_LOOP 下 JSDOMGlobalObject 编译中断，故
-# 发布构建固定 MinSizeRel + full LTO；*_FLAGS_MINSIZEREL 必含 /DNDEBUG。
-# 运行 shotcli 前把 vcpkg_installed/.../bin 加进 PATH。
+# build-shot.ps1 — configure and build ShotKit on Windows with clang-cl/Ninja/vcpkg.
 
 param(
     [switch]$Configure,
     [switch]$Build,
-    [switch]$Clean
+    [switch]$Clean,
+    [string]$Root = [IO.Path]::GetFullPath((Join-Path $PSScriptRoot '..\..')),
+    [string]$BuildDir = '',
+    [string]$VcpkgRoot = $env:VCPKG_INSTALLATION_ROOT,
+    [string]$VcpkgInstalledDir = '',
+    [string]$VcpkgTriplet = 'x64-windows-webkit',
+    [ValidateSet('off', 'thin', 'full')]
+    [string]$LtoMode = 'full',
+    [ValidateRange(0, 256)]
+    [int]$Jobs = 0,
+    [ValidateRange(0, 256)]
+    [int]$LtoJobs = 0,
+    [string]$ThinLTOCacheDir = '',
+    [string]$LlvmBin = ''
 )
 
 $ErrorActionPreference = 'Stop'
-$Root = 'D:\Github\webkit'
-$BuildDir = "$Root\WebKitBuild\shot"
-$Prefix = "$Root/WebKitBuild/vcpkg_installed/x64-windows-webkit"
-$LlvmBin = 'C:/Program Files/LLVM/bin'
-$vs = & "${env:ProgramFiles(x86)}\Microsoft Visual Studio\Installer\vswhere.exe" -latest -property installationPath
+$Root = [IO.Path]::GetFullPath($Root)
+if (-not $BuildDir) { $BuildDir = Join-Path $Root 'WebKitBuild\shot' }
+if (-not $VcpkgInstalledDir) { $VcpkgInstalledDir = Join-Path $Root 'WebKitBuild\vcpkg_installed' }
+$BuildDir = [IO.Path]::GetFullPath($BuildDir)
+$VcpkgInstalledDir = [IO.Path]::GetFullPath($VcpkgInstalledDir)
+$Prefix = Join-Path $VcpkgInstalledDir $VcpkgTriplet
+
+if (-not $BuildDir.StartsWith($Root + [IO.Path]::DirectorySeparatorChar, [StringComparison]::OrdinalIgnoreCase)) {
+    throw "BuildDir must stay inside the repository: $BuildDir"
+}
+
+if (-not $VcpkgRoot) {
+    $bundledVcpkg = Join-Path $Root 'WebKitLibraries\windows\vcpkg'
+    if (Test-Path -LiteralPath (Join-Path $bundledVcpkg 'scripts\buildsystems\vcpkg.cmake')) {
+        $VcpkgRoot = $bundledVcpkg
+    } else {
+        $vcpkgCommand = Get-Command vcpkg.exe -ErrorAction SilentlyContinue
+        if ($vcpkgCommand) { $VcpkgRoot = Split-Path $vcpkgCommand.Source -Parent }
+    }
+}
+if (-not $VcpkgRoot) { throw 'Unable to locate vcpkg; pass -VcpkgRoot or set VCPKG_INSTALLATION_ROOT.' }
+$VcpkgRoot = [IO.Path]::GetFullPath($VcpkgRoot)
+$VcpkgToolchain = Join-Path $VcpkgRoot 'scripts\buildsystems\vcpkg.cmake'
+if (-not (Test-Path -LiteralPath $VcpkgToolchain)) { throw "vcpkg toolchain not found: $VcpkgToolchain" }
+
+if (-not $LlvmBin) {
+    $clang = Get-Command clang-cl.exe -ErrorAction SilentlyContinue
+    if ($clang) {
+        $LlvmBin = Split-Path $clang.Source -Parent
+    } elseif (Test-Path -LiteralPath 'C:\Program Files\LLVM\bin\clang-cl.exe') {
+        $LlvmBin = 'C:\Program Files\LLVM\bin'
+    }
+}
+if (-not $LlvmBin) { throw 'Unable to locate clang-cl; pass -LlvmBin.' }
+$LlvmBin = [IO.Path]::GetFullPath($LlvmBin)
+$clangCl = Join-Path $LlvmBin 'clang-cl.exe'
+$llvmRc = Join-Path $LlvmBin 'llvm-rc.exe'
+foreach ($requiredTool in $clangCl, $llvmRc) {
+    if (-not (Test-Path -LiteralPath $requiredTool)) { throw "required LLVM tool not found: $requiredTool" }
+}
+
+$vswhere = Join-Path ${env:ProgramFiles(x86)} 'Microsoft Visual Studio\Installer\vswhere.exe'
+if (-not (Test-Path -LiteralPath $vswhere)) { throw "vswhere not found: $vswhere" }
+$vs = & $vswhere -latest -products * -requires Microsoft.VisualStudio.Component.VC.Tools.x86.x64 -property installationPath
+if (-not $vs) { throw 'Visual Studio C++ tools were not found.' }
+$vcvarsall = Join-Path $vs 'VC\Auxiliary\Build\vcvarsall.bat'
+
+# Import vcvarsall into this PowerShell process so CMake/Ninja can be invoked with
+# argument arrays instead of one fragile cmd.exe command line.
+$environmentLines = & cmd.exe /d /s /c "`"$vcvarsall`" x64 >nul && set"
+if ($LASTEXITCODE) { throw "vcvarsall failed with exit code $LASTEXITCODE" }
+foreach ($line in $environmentLines) {
+    $separator = $line.IndexOf('=')
+    if ($separator -le 0) { continue }
+    $name = $line.Substring(0, $separator)
+    $value = $line.Substring($separator + 1)
+    Set-Item -Path "Env:$name" -Value $value
+}
+$env:PATH = "$LlvmBin;$env:PATH"
+$env:CC = $clangCl
+$env:CXX = $clangCl
 
 if ($Clean) {
-    Remove-Item $BuildDir -Recurse -Force -ErrorAction SilentlyContinue
+    Remove-Item -LiteralPath $BuildDir -Recurse -Force -ErrorAction SilentlyContinue
     Write-Host "cleaned $BuildDir"
 }
 
-# 单行 cmake 配置（cmd /c 里的 ^ 续行不可靠，务必单行）。含 cache-wipe 后需回填的全部变量。
-$cfg = 'cmake -S "' + $Root + '" -B "' + $BuildDir + '" -G Ninja -DPORT=Shot -DCMAKE_C_COMPILER="' + $LlvmBin + '/clang-cl.exe" -DCMAKE_CXX_COMPILER="' + $LlvmBin + '/clang-cl.exe" -DCMAKE_RC_COMPILER="' + $LlvmBin + '/llvm-rc.exe" -DCMAKE_BUILD_TYPE=MinSizeRel -DLTO_MODE=full -DCMAKE_TOOLCHAIN_FILE="' + $Root + '/WebKitLibraries/windows/vcpkg/scripts/buildsystems/vcpkg.cmake" -DVCPKG_TARGET_TRIPLET=x64-windows-webkit -DVCPKG_OVERLAY_TRIPLETS="' + $Root + '/WebKitLibraries/triplets" -DVCPKG_INSTALLED_DIR="' + $Root + '/WebKitBuild/vcpkg_installed" -DVCPKG_MANIFEST_INSTALL=OFF -DCMAKE_PREFIX_PATH="' + $Prefix + '" -DCMAKE_C_FLAGS_MINSIZEREL="/MD /O1 /DNDEBUG" -DCMAKE_CXX_FLAGS_MINSIZEREL="/MD /O1 /DNDEBUG" -DCMAKE_EXE_LINKER_FLAGS=/INCREMENTAL:NO -DCMAKE_SHARED_LINKER_FLAGS=/INCREMENTAL:NO'
+if ($Configure) {
+    $cmakeArguments = @(
+        '-S', $Root,
+        '-B', $BuildDir,
+        '-G', 'Ninja',
+        '-DPORT=Shot',
+        "-DCMAKE_C_COMPILER=$clangCl",
+        "-DCMAKE_CXX_COMPILER=$clangCl",
+        "-DCMAKE_RC_COMPILER=$llvmRc",
+        '-DCMAKE_BUILD_TYPE=MinSizeRel',
+        "-DCMAKE_TOOLCHAIN_FILE=$VcpkgToolchain",
+        "-DVCPKG_TARGET_TRIPLET=$VcpkgTriplet",
+        "-DVCPKG_OVERLAY_TRIPLETS=$(Join-Path $Root 'WebKitLibraries\triplets')",
+        "-DVCPKG_INSTALLED_DIR=$VcpkgInstalledDir",
+        '-DVCPKG_MANIFEST_INSTALL=OFF',
+        "-DCMAKE_PREFIX_PATH=$Prefix",
+        '-DCMAKE_C_FLAGS_MINSIZEREL=/MD /O1 /DNDEBUG',
+        '-DCMAKE_CXX_FLAGS_MINSIZEREL=/MD /O1 /DNDEBUG',
+        '-DCMAKE_EXE_LINKER_FLAGS=/INCREMENTAL:NO',
+        '-DCMAKE_SHARED_LINKER_FLAGS=/INCREMENTAL:NO'
+    )
+    if ($LtoMode -ne 'off') { $cmakeArguments += "-DLTO_MODE=$LtoMode" }
+    if ($LtoJobs) { $cmakeArguments += "-DSHOT_LTO_JOBS=$LtoJobs" }
+    if ($ThinLTOCacheDir) {
+        $ThinLTOCacheDir = [IO.Path]::GetFullPath($ThinLTOCacheDir)
+        New-Item -ItemType Directory -Force -Path $ThinLTOCacheDir | Out-Null
+        $cmakeArguments += "-DSHOT_THINLTO_CACHE_DIR=$ThinLTOCacheDir"
+    }
 
-# vcvarsall 提供 Windows SDK/CRT；LLVM(clang-cl) + Ruby 塞进 PATH。
-$cmd = "call `"$vs\VC\Auxiliary\Build\vcvarsall.bat`" x64 && set `"PATH=C:\Program Files\LLVM\bin;C:\Ruby33-x64\bin;%PATH%`" && set `"CC=C:\Program Files\LLVM\bin\clang-cl.exe`" && "
-if ($Configure) { $cmd += "$cfg && " }
-if ($Build -or $Configure) { $cmd += "ninja -C `"$BuildDir`" shotcli" }
-else { $cmd = $null }
+    & cmake @cmakeArguments
+    if ($LASTEXITCODE) { throw "CMake configure failed with exit code $LASTEXITCODE" }
+}
 
-if ($cmd) {
-    Remove-Item "$BuildDir\.ninja_lock" -ErrorAction SilentlyContinue
-    cmd /c $cmd
+if ($Build -or $Configure) {
+    Remove-Item -LiteralPath (Join-Path $BuildDir '.ninja_lock') -Force -ErrorAction SilentlyContinue
+    $ninjaArguments = @('-C', $BuildDir)
+    if ($Jobs) { $ninjaArguments += "-j$Jobs" }
+    $ninjaArguments += 'shotcli'
+    & ninja @ninjaArguments
+    if ($LASTEXITCODE) { throw "Ninja failed with exit code $LASTEXITCODE" }
 } elseif (-not $Clean) {
-    Write-Host "nothing to do; pass -Configure and/or -Build (or -Clean)"
+    Write-Host 'nothing to do; pass -Configure and/or -Build (or -Clean)'
 }
