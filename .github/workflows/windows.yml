@@ -42,7 +42,8 @@ jobs:
             /ReadMe.md
 
       - name: Cache vcpkg binary packages
-        uses: actions/cache@v6
+        id: vcpkg-cache
+        uses: actions/cache/restore@v6
         with:
           path: ${{ runner.temp }}\vcpkg-binary-cache
           key: vcpkg-windows-shot-${{ hashFiles('vcpkg.json', 'vcpkg-configuration.json', 'WebKitLibraries/triplets/x64-windows-webkit.cmake') }}
@@ -95,6 +96,13 @@ jobs:
 
           "SHOT_VCPKG_ROOT=$vcpkgRoot" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
           "SHOT_VCPKG_INSTALLED=$installed" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
+
+      - name: Save vcpkg binary packages
+        if: steps.vcpkg-cache.outputs.cache-hit != 'true'
+        uses: actions/cache/save@v6
+        with:
+          path: ${{ runner.temp }}\vcpkg-binary-cache
+          key: vcpkg-windows-shot-${{ hashFiles('vcpkg.json', 'vcpkg-configuration.json', 'WebKitLibraries/triplets/x64-windows-webkit.cmake') }}
 
       - name: Configure and build ShotKit
         shell: pwsh

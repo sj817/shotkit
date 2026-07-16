@@ -88,21 +88,30 @@ if ($Clean) {
 }
 
 if ($Configure) {
+    # Cache files are CMake syntax, where a raw Windows path such as
+    # C:\Program Files is parsed as an invalid \P escape. Normalize every
+    # path stored through -D; command-line -S/-B arguments can remain native.
+    $clangClCMake = $clangCl.Replace('\', '/')
+    $llvmRcCMake = $llvmRc.Replace('\', '/')
+    $vcpkgToolchainCMake = $VcpkgToolchain.Replace('\', '/')
+    $vcpkgInstalledDirCMake = $VcpkgInstalledDir.Replace('\', '/')
+    $prefixCMake = $Prefix.Replace('\', '/')
+    $overlayTripletsCMake = (Join-Path $Root 'WebKitLibraries\triplets').Replace('\', '/')
     $cmakeArguments = @(
         '-S', $Root,
         '-B', $BuildDir,
         '-G', 'Ninja',
         '-DPORT=Shot',
-        "-DCMAKE_C_COMPILER=$clangCl",
-        "-DCMAKE_CXX_COMPILER=$clangCl",
-        "-DCMAKE_RC_COMPILER=$llvmRc",
+        "-DCMAKE_C_COMPILER=$clangClCMake",
+        "-DCMAKE_CXX_COMPILER=$clangClCMake",
+        "-DCMAKE_RC_COMPILER=$llvmRcCMake",
         '-DCMAKE_BUILD_TYPE=MinSizeRel',
-        "-DCMAKE_TOOLCHAIN_FILE=$VcpkgToolchain",
+        "-DCMAKE_TOOLCHAIN_FILE=$vcpkgToolchainCMake",
         "-DVCPKG_TARGET_TRIPLET=$VcpkgTriplet",
-        "-DVCPKG_OVERLAY_TRIPLETS=$(Join-Path $Root 'WebKitLibraries\triplets')",
-        "-DVCPKG_INSTALLED_DIR=$VcpkgInstalledDir",
+        "-DVCPKG_OVERLAY_TRIPLETS=$overlayTripletsCMake",
+        "-DVCPKG_INSTALLED_DIR=$vcpkgInstalledDirCMake",
         '-DVCPKG_MANIFEST_INSTALL=OFF',
-        "-DCMAKE_PREFIX_PATH=$Prefix",
+        "-DCMAKE_PREFIX_PATH=$prefixCMake",
         '-DCMAKE_C_FLAGS_MINSIZEREL=/MD /O1 /DNDEBUG',
         '-DCMAKE_CXX_FLAGS_MINSIZEREL=/MD /O1 /DNDEBUG',
         '-DCMAKE_EXE_LINKER_FLAGS=/INCREMENTAL:NO',
@@ -113,7 +122,7 @@ if ($Configure) {
     if ($ThinLTOCacheDir) {
         $ThinLTOCacheDir = [IO.Path]::GetFullPath($ThinLTOCacheDir)
         New-Item -ItemType Directory -Force -Path $ThinLTOCacheDir | Out-Null
-        $cmakeArguments += "-DSHOT_THINLTO_CACHE_DIR=$ThinLTOCacheDir"
+        $cmakeArguments += "-DSHOT_THINLTO_CACHE_DIR=$($ThinLTOCacheDir.Replace('\', '/'))"
     }
 
     & cmake @cmakeArguments
