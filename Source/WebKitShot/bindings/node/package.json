@@ -1,0 +1,50 @@
+{
+  "name": "@shotkit/node",
+  "version": "0.1.0",
+  "description": "Fast static HTML/URL screenshots powered by ShotKit",
+  "license": "UNLICENSED",
+  "type": "module",
+  "main": "./dist/index.cjs",
+  "module": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.js",
+      "require": "./dist/index.cjs"
+    }
+  },
+  "files": [
+    "dist/",
+    "vendor/",
+    "README.md"
+  ],
+  "engines": {
+    "node": ">=18.18"
+  },
+  "scripts": {
+    "build": "tsup src/index.ts --format esm,cjs --dts --sourcemap --clean --shims",
+    "typecheck": "tsc --noEmit",
+    "test": "npm run build && node --test test/*.test.mjs test/*.test.cjs",
+    "stage:runtime": "tsx tools/stage-runtime.ts",
+    "pack:win": "npm run build && npm run stage:runtime && npm pack"
+  },
+  "devDependencies": {
+    "@types/node": "26.1.1",
+    "tsup": "8.5.1",
+    "tsx": "4.23.1",
+    "typescript": "5.9.3"
+  },
+  "overrides": {
+    "esbuild": "0.28.1"
+  },
+  "keywords": [
+    "screenshot",
+    "html",
+    "webcore",
+    "webkit",
+    "headless",
+    "png",
+    "webp"
+  ]
+}
