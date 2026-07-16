@@ -1,0 +1,129 @@
+name: Linux
+
+on:
+  push:
+    branches: [main, codex/linux-macos-port]
+  pull_request:
+  workflow_dispatch:
+
+concurrency:
+  group: linux-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 360
+
+    steps:
+      - name: Checkout the ShotKit build closure
+        uses: actions/checkout@v7
+        with:
+          fetch-depth: 1
+          sparse-checkout-cone-mode: false
+          sparse-checkout: |
+            /.github/
+            /Source/
+            /Tools/
+            /CMakeLists.txt
+            /CMakePresets.json
+            /Makefile
+            /Makefile.shared
+            /AGENTS.md
+            /ReadMe.md
+
+      - name: Install build dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends \
+            bison clang-18 cmake flex gperf libbrotli-dev \
+            libcurl4-openssl-dev libegl1-mesa-dev libfontconfig1-dev \
+            libfreetype-dev libgles2-mesa-dev libharfbuzz-dev libicu-dev \
+            libjpeg-dev libpng-dev libpsl-dev libsqlite3-dev libssl-dev \
+            libwebp-dev libwoff-dev libxml2-dev libxslt1-dev lld-18 \
+            ninja-build perl python3 ruby xz-utils zlib1g-dev
+          clang-18 --version
+          ld.lld-18 --version
+          cmake --version
+          ninja --version
+
+      - name: Configure ShotKit with Full LTO
+        run: |
+          free -h
+          cmake -S . -B WebKitBuild/shot-linux -G Ninja \
+            -DPORT=Shot \
+            -DCMAKE_BUILD_TYPE=MinSizeRel \
+            -DCMAKE_C_COMPILER=clang-18 \
+            -DCMAKE_CXX_COMPILER=clang++-18 \
+            -DCMAKE_AR=llvm-ar-18 \
+            -DCMAKE_RANLIB=llvm-ranlib-18 \
+            -DCMAKE_EXE_LINKER_FLAGS="-fuse-ld=lld -Wl,--threads=1" \
+            -DCMAKE_SHARED_LINKER_FLAGS="-fuse-ld=lld -Wl,--threads=1" \
+            -DLTO_MODE=full
+
+      - name: Build ShotKit
+        run: |
+          ninja -C WebKitBuild/shot-linux -j2 shotcli
+          free -h
+
+      - name: Smoke test PNG and WebP
+        run: |
+          printf '%s\n' '<!doctype html><meta charset=utf-8><style>body{background:#eef2f7;font:32px sans-serif}h1{color:#246}</style><h1>ShotKit CI ✓</h1>' > "$RUNNER_TEMP/shot-smoke.html"
+          WebKitBuild/shot-linux/bin/shotcli --html "$RUNNER_TEMP/shot-smoke.html" --out "$RUNNER_TEMP/shot-smoke.png" --width 640 --height 360
+          WebKitBuild/shot-linux/bin/shotcli --html "$RUNNER_TEMP/shot-smoke.html" --out "$RUNNER_TEMP/shot-smoke.webp" --format webp --quality 82 --width 640 --height 360
+          test "$(stat -c %s "$RUNNER_TEMP/shot-smoke.png")" -gt 100
+          test "$(stat -c %s "$RUNNER_TEMP/shot-smoke.webp")" -gt 100
+
+      - name: Verify scripts are never fetched
+        run: |
+          python3 Source/WebKitShot/tests/fixture_server.py 8988 > "$RUNNER_TEMP/fixture.log" 2>&1 &
+          server_pid=$!
+          trap 'kill "$server_pid" 2>/dev/null || true' EXIT
+          for attempt in $(seq 1 50); do
+            if curl -fsS http://127.0.0.1:8988/reset-counts >/dev/null; then break; fi
+            sleep 0.1
+          done
+          curl -fsS http://127.0.0.1:8988/reset-counts >/dev/null
+          WebKitBuild/shot-linux/bin/shotcli --url http://127.0.0.1:8988/script-network --out "$RUNNER_TEMP/no-script-network.png" --timeout 5000
+          counts=$(curl -fsS http://127.0.0.1:8988/request-counts)
+          python3 -c 'import json,sys; counts=json.loads(sys.argv[1]); assert counts == {"/script-network": 1}, counts' "$counts"
+          echo "NO-SCRIPT NETWORK PASS: $counts"
+
+      - name: Verify ABI and relocatable CLI
+        run: |
+          exports=$(llvm-nm-18 -D --defined-only WebKitBuild/shot-linux/lib/libshot.so | awk '{print $3}' | grep '^shot_' | sort)
+          test "$(printf '%s\n' "$exports" | grep -c '^shot_')" -eq 10
+          readelf -d WebKitBuild/shot-linux/bin/shotcli | grep -F '$ORIGIN/../lib'
+          ls -lh WebKitBuild/shot-linux/lib/libshot.so WebKitBuild/shot-linux/bin/shotcli
+
+      - name: Package release archive
+        run: |
+          version="0.1.0-ci.${GITHUB_RUN_NUMBER}"
+          name="shotkit-${version}-linux-x64"
+          stage="WebKitBuild/releases/${name}"
+          mkdir -p "$stage/bin" "$stage/lib" "$stage/include"
+          cp WebKitBuild/shot-linux/bin/shotcli "$stage/bin/"
+          cp WebKitBuild/shot-linux/lib/libshot.so "$stage/lib/"
+          cp Source/WebKitShot/capi/shot.h "$stage/include/"
+          llvm-strip-18 --strip-unneeded "$stage/bin/shotcli" "$stage/lib/libshot.so"
+          ldd "$stage/lib/libshot.so" > "$stage/DEPENDENCIES.txt"
+          cp ReadMe.md "$stage/README.md"
+          tar -C WebKitBuild/releases -cJf "WebKitBuild/releases/${name}.tar.xz" "$name"
+          sha256sum "WebKitBuild/releases/${name}.tar.xz" > "WebKitBuild/releases/${name}.tar.xz.sha256"
+          archive_bytes=$(stat -c %s "WebKitBuild/releases/${name}.tar.xz")
+          test "$archive_bytes" -le 18000000
+          ls -lh "$stage/bin/shotcli" "$stage/lib/libshot.so" "WebKitBuild/releases/${name}.tar.xz"
+
+      - name: Upload compressed release
+        uses: actions/upload-artifact@v7
+        with:
+          name: shotkit-linux-x64-fulllto
+          path: |
+            WebKitBuild/releases/*.tar.xz
+            WebKitBuild/releases/*.tar.xz.sha256
+          if-no-files-found: error
+          compression-level: 0
+          retention-days: 7

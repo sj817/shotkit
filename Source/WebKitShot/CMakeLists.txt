@@ -75,3 +75,14 @@ set(shotcli_PRIVATE_INCLUDE_DIRECTORIES
 
 WEBKIT_EXECUTABLE_DECLARE(shotcli)
 WEBKIT_EXECUTABLE(shotcli)
+if (APPLE)
+    set_target_properties(shotcli PROPERTIES
+        BUILD_RPATH "@loader_path/../lib"
+        INSTALL_RPATH "@loader_path/../lib"
+    )
+elseif (UNIX)
+    set_target_properties(shotcli PROPERTIES
+        BUILD_RPATH "$ORIGIN/../lib"
+        INSTALL_RPATH "$ORIGIN/../lib"
+    )
+endif ()
