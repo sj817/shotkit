@@ -44,6 +44,12 @@ WTF_IGNORE_WARNINGS_IN_THIRD_PARTY_CODE_BEGIN
 WTF_IGNORE_WARNINGS_IN_THIRD_PARTY_CODE_END
 #endif
 
+#if USE(LIBEPOXY)
+#include <epoxy/gl.h>
+#else
+#include <GLES3/gl3.h>
+#endif
+
 namespace WebCore {
 
 std::unique_ptr<CoordinatedPlatformLayerBufferRGB> CoordinatedPlatformLayerBufferRGB::create(Ref<BitmapTexture>&& texture, OptionSet<TextureMapperFlags> flags, std::unique_ptr<GLFence>&& fence)

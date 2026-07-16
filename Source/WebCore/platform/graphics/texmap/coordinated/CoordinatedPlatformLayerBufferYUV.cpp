@@ -43,6 +43,12 @@ WTF_IGNORE_WARNINGS_IN_THIRD_PARTY_CODE_BEGIN
 WTF_IGNORE_WARNINGS_IN_THIRD_PARTY_CODE_END
 #endif
 
+#if USE(LIBEPOXY)
+#include <epoxy/gl.h>
+#else
+#include <GLES3/gl3.h>
+#endif
+
 namespace WebCore {
 
 std::unique_ptr<CoordinatedPlatformLayerBufferYUV> CoordinatedPlatformLayerBufferYUV::create(Format format, unsigned planeCount, std::array<unsigned, 4>&& planes, std::array<unsigned, 4>&& yuvPlane, std::array<unsigned, 4>&& yuvPlaneOffset, YuvToRgbColorSpace yuvToRgbColorSpace, TransferFunction transferFunction, const IntSize& size, OptionSet<TextureMapperFlags> flags, std::unique_ptr<GLFence>&& fence)
@@ -187,11 +193,11 @@ sk_sp<SkImage> CoordinatedPlatformLayerBufferYUV::skiaImage()
         subsampling = SkYUVAInfo::Subsampling::k420;
 
         externalTexture.fID = m_planes[m_yuvPlane[0]];
-        externalTexture.fFormat = m_format == Format::P010 ? GL_R16 : GL_R8;
+        externalTexture.fFormat = m_format == Format::P010 ? static_cast<GrGLenum>(0x822A) /* GL_R16 */ : GL_R8;
         backendTextures[0] = GrBackendTextures::MakeGL(m_size.width(), m_size.height(), skgpu::Mipmapped::kNo, externalTexture);
 
         externalTexture.fID = m_planes[m_yuvPlane[1]];
-        externalTexture.fFormat = m_format == Format::P010 ? GL_RG16 : GL_RG8;
+        externalTexture.fFormat = m_format == Format::P010 ? static_cast<GrGLenum>(0x822C) /* GL_RG16 */ : GL_RG8;
         backendTextures[1] = GrBackendTextures::MakeGL(m_size.width() / 2, m_size.height() / 2, skgpu::Mipmapped::kNo, externalTexture);
         break;
     case 3:

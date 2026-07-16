@@ -9,6 +9,8 @@
 #include "Editor.h"
 
 #include "DocumentFragment.h"
+#include "Element.h"
+#include "Pasteboard.h"
 #include "SimpleRange.h"
 
 namespace WebCore {
@@ -29,6 +31,14 @@ RefPtr<DocumentFragment> Editor::webContentFromPasteboard(Pasteboard&, const Sim
 {
     chosePlainText = false;
     return nullptr;
+}
+
+void Editor::writeSelectionToPasteboard(Pasteboard&)
+{
+}
+
+void Editor::writeImageToPasteboard(Pasteboard&, Element&, const URL&, const String&)
+{
 }
 
 } // namespace WebCore

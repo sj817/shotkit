@@ -60,7 +60,7 @@ void PlatformKeyboardEvent::setCurrentModifierState(OptionSet<Modifier> modifier
     s_currentModifiers = modifiers;
 }
 
-#if PLATFORM(GTK) || USE(LIBWPE) || ENABLE(WPE_PLATFORM)
+#if PLATFORM(GTK) || PLATFORM(SHOT) || USE(LIBWPE) || ENABLE(WPE_PLATFORM)
 OptionSet<PlatformEvent::Modifier> PlatformKeyboardEvent::currentStateOfModifierKeys()
 {
     if (s_currentModifiers)

@@ -6,7 +6,6 @@ elseif (APPLE)
 else ()
     include(platform/Adwaita.cmake)
     include(platform/Curl.cmake)
-    include(platform/FreeType.cmake)
     include(platform/ImageDecoders.cmake)
     include(platform/OpenSSL.cmake)
     include(platform/Skia.cmake)
@@ -14,8 +13,8 @@ else ()
 
     list(APPEND WebCore_PRIVATE_INCLUDE_DIRECTORIES
         "${WEBCORE_DIR}/accessibility/playstation"
+        ${EGL_INCLUDE_DIRS}
         "${WEBCORE_DIR}/platform/generic"
-        "${WEBCORE_DIR}/platform/graphics/opentype"
         "${WEBCORE_DIR}/platform/mediacapabilities"
         "${WEBCORE_DIR}/platform/network/curl"
         "${WEBCORE_DIR}/platform/playstation"
@@ -41,8 +40,14 @@ else ()
         platform/generic/KeyedEncoderGeneric.cpp
 
         platform/graphics/PlatformDisplay.cpp
-        platform/graphics/opentype/OpenTypeUtilities.cpp
         platform/graphics/playstation/SystemFontDatabasePlayStation.cpp
+
+        platform/graphics/egl/GLContext.cpp
+        platform/graphics/egl/GLContextWrapper.cpp
+        platform/graphics/egl/GLDisplay.cpp
+        platform/graphics/egl/GLFence.cpp
+        platform/graphics/egl/GLFenceEGL.cpp
+        platform/graphics/egl/GLFenceGL.cpp
 
         platform/network/playstation/NetworkStateNotifierPlayStation.cpp
         platform/network/win/CurlSSLHandleWin.cpp
@@ -51,7 +56,7 @@ else ()
         platform/playstation/PlatformScreenPlayStation.cpp
         platform/playstation/UserAgentPlayStation.cpp
 
-        platform/skia/DragImageSkia.cpp
+        platform/shot/PasteboardShot.cpp
         platform/text/Hyphenation.cpp
         platform/text/LocaleICU.cpp
 
@@ -62,6 +67,8 @@ else ()
     list(APPEND WebCore_LIBRARIES
         Fontconfig::Fontconfig
         Freetype::Freetype
+        ${EGL_LIBRARIES}
+        OpenGL::GLES
         Threads::Threads
     )
 
