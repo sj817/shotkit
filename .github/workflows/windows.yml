@@ -2,7 +2,7 @@ name: Windows
 
 on:
   push:
-    branches: [main, shotkit]
+    branches: [main]
   pull_request:
   workflow_dispatch:
 
