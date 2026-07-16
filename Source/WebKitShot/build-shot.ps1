@@ -15,6 +15,8 @@ param(
     [int]$Jobs = 0,
     [ValidateRange(0, 256)]
     [int]$LtoJobs = 0,
+    [ValidateRange(0, 256)]
+    [int]$LinkThreads = 0,
     [string]$ThinLTOCacheDir = '',
     [string]$LlvmBin = ''
 )
@@ -119,6 +121,7 @@ if ($Configure) {
     )
     if ($LtoMode -ne 'off') { $cmakeArguments += "-DLTO_MODE=$LtoMode" }
     if ($LtoJobs) { $cmakeArguments += "-DSHOT_LTO_JOBS=$LtoJobs" }
+    if ($LinkThreads) { $cmakeArguments += "-DSHOT_LINK_THREADS=$LinkThreads" }
     if ($ThinLTOCacheDir) {
         $ThinLTOCacheDir = [IO.Path]::GetFullPath($ThinLTOCacheDir)
         New-Item -ItemType Directory -Force -Path $ThinLTOCacheDir | Out-Null

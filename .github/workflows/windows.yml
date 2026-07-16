@@ -48,14 +48,6 @@ jobs:
           path: ${{ runner.temp }}\vcpkg-binary-cache
           key: vcpkg-windows-shot-${{ hashFiles('vcpkg.json', 'vcpkg-configuration.json', 'WebKitLibraries/triplets/x64-windows-webkit.cmake') }}
 
-      - name: Cache ThinLTO backend objects
-        uses: actions/cache@v6
-        with:
-          path: ${{ runner.temp }}\shot-thinlto-cache
-          key: thinlto-windows-${{ github.sha }}
-          restore-keys: |
-            thinlto-windows-
-
       - name: Install parser generator tools
         shell: pwsh
         run: |
@@ -140,14 +132,19 @@ jobs:
       - name: Configure and build ShotKit
         shell: pwsh
         run: |
+          $computer = Get-CimInstance Win32_ComputerSystem
+          $os = Get-CimInstance Win32_OperatingSystem
+          $pageFiles = Get-CimInstance Win32_PageFileUsage
+          Write-Host ("physical memory: {0:N1} MiB; free virtual memory: {1:N1} MiB" -f ($computer.TotalPhysicalMemory / 1MB), ($os.FreeVirtualMemory / 1KB))
+          $pageFiles | Format-Table Name, AllocatedBaseSize, CurrentUsage, PeakUsage
+
           pwsh Source/WebKitShot/build-shot.ps1 `
             -Configure -Build `
             -Root $env:GITHUB_WORKSPACE `
             -VcpkgRoot $env:SHOT_VCPKG_ROOT `
             -VcpkgInstalledDir $env:SHOT_VCPKG_INSTALLED `
-            -LtoMode thin `
-            -LtoJobs 1 `
-            -ThinLTOCacheDir (Join-Path $env:RUNNER_TEMP 'shot-thinlto-cache') `
+            -LtoMode full `
+            -LinkThreads 1 `
             -Jobs 2
 
       - name: Smoke test PNG and WebP
@@ -186,13 +183,13 @@ jobs:
           pwsh Source/WebKitShot/tools/package-release.ps1 `
             -Root $env:GITHUB_WORKSPACE `
             -Version $version `
-            -LtoMode thin `
+            -LtoMode full `
             -MaxPackageBytes 22000000
 
       - name: Upload compressed release
         uses: actions/upload-artifact@v7
         with:
-          name: shotkit-windows-x64-thinlto
+          name: shotkit-windows-x64-fulllto
           path: |
             WebKitBuild/releases/*.tar.xz
             WebKitBuild/releases/*.tar.xz.sha256

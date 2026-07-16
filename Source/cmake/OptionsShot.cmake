@@ -142,6 +142,7 @@ string(APPEND CMAKE_SHARED_LINKER_FLAGS " /OPT:REF /OPT:ICF")
 # small hosted runners and persist native backend objects in a cache.
 set(SHOT_LTO_JOBS "0" CACHE STRING "Maximum parallel ThinLTO backend jobs (0 = linker default)")
 set(SHOT_THINLTO_CACHE_DIR "" CACHE PATH "ThinLTO native object cache directory")
+set(SHOT_LINK_THREADS "0" CACHE STRING "Maximum lld-link threads for Full LTO (0 = linker default)")
 if (MSVC AND LTO_MODE STREQUAL "thin")
     set(_shot_thin_lto_link_flags "")
     if (SHOT_LTO_JOBS)
@@ -154,6 +155,15 @@ if (MSVC AND LTO_MODE STREQUAL "thin")
     string(APPEND CMAKE_EXE_LINKER_FLAGS "${_shot_thin_lto_link_flags}")
     string(APPEND CMAKE_SHARED_LINKER_FLAGS "${_shot_thin_lto_link_flags}")
     string(APPEND CMAKE_MODULE_LINKER_FLAGS "${_shot_thin_lto_link_flags}")
+endif ()
+if (MSVC AND LTO_MODE STREQUAL "full" AND SHOT_LINK_THREADS)
+    # Full LTO merges the complete WebCore/JSC bitcode graph into one module.
+    # Serializing lld's worker pool trades link time for a lower memory peak,
+    # improving the chance of fitting a standard public GitHub runner.
+    set(_shot_full_lto_link_flags " /threads:${SHOT_LINK_THREADS}")
+    string(APPEND CMAKE_EXE_LINKER_FLAGS "${_shot_full_lto_link_flags}")
+    string(APPEND CMAKE_SHARED_LINKER_FLAGS "${_shot_full_lto_link_flags}")
+    string(APPEND CMAKE_MODULE_LINKER_FLAGS "${_shot_full_lto_link_flags}")
 endif ()
 
 # ---- USE_* 后端暴露给构建（Skia；保留可选 GPU 接线，默认截图仍走 CPU）----
