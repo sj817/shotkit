@@ -194,6 +194,8 @@ pwsh Source/WebKitShot/build-shot.ps1 -Configure -Build
 
 [`build-shot.ps1`](Source/WebKitShot/build-shot.ps1) 会从脚本位置解析仓库根目录，并自动发现 Visual Studio、LLVM 与 vcpkg；也可通过 `-Root`、`-LlvmBin`、`-VcpkgRoot`、`-VcpkgInstalledDir` 显式指定。GitHub Actions 使用受限并行的 ThinLTO 配置，避免标准托管 runner 承担本地 full LTO 的峰值内存。
 
+Windows CI 上传的是与正式发布相同的 `tar.xz` 固实压缩包及 SHA-256，而不是把解压目录交给 GitHub ZIP 再压缩。Linux 与 macOS 尚未接入构建 CI：当前 Shot 平台层仍是 Windows 实现，两个平台会在各自端口完成后加入，避免用必然失败的占位任务冒充跨平台支持。
+
 生成传统解压即用的 Windows 发布包：
 
 ```powershell

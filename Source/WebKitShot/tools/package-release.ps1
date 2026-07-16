@@ -1,6 +1,8 @@
 param(
-    [string]$Root = 'D:\Github\webkit',
+    [string]$Root = [IO.Path]::GetFullPath((Join-Path $PSScriptRoot '..\..\..')),
     [string]$Version = '0.1.0',
+    [ValidateSet('off', 'thin', 'full')]
+    [string]$LtoMode = 'full',
     [int64]$MaxPackageBytes = 0
 )
 
@@ -23,7 +25,14 @@ foreach ($pathToValidate in $Stage, $Tar, $Archive) {
 
 $CollectDist = Join-Path $PSScriptRoot 'collect-dist.ps1'
 $tarTool = Join-Path $env:SystemRoot 'System32\tar.exe'
-$xz = (Get-Command xz.exe -ErrorAction Stop).Source
+$xzCommand = Get-Command xz.exe -ErrorAction SilentlyContinue
+if ($xzCommand) {
+    $xz = $xzCommand.Source
+} else {
+    $gitXz = Join-Path $env:ProgramFiles 'Git\usr\bin\xz.exe'
+    if (-not (Test-Path -LiteralPath $gitXz)) { throw 'missing xz.exe; install XZ Utils or Git for Windows' }
+    $xz = $gitXz
+}
 if (-not (Test-Path -LiteralPath $tarTool)) { throw "missing Windows tar.exe: $tarTool" }
 
 try {
@@ -69,7 +78,7 @@ C ABI:
         platform = 'windows'
         architecture = 'x64'
         configuration = 'MinSizeRel'
-        lto = 'full'
+        lto = $LtoMode
         distribution = 'extract-before-use'
         archiveCompression = 'solid-x86-bcj+lzma2-16MiB'
         runtimeExtraction = $false

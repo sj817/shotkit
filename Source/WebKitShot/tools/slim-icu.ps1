@@ -20,14 +20,18 @@
 # 仍由本脚本做确定性的 icupkg 后处理。
 
 param(
-    [string]$Root = 'D:\Github\webkit',
+    [string]$Root = [IO.Path]::GetFullPath((Join-Path $PSScriptRoot '..\..\..')),
+    [string]$VcpkgRoot = '',
+    [string]$VcpkgInstalledDir = '',
+    [string]$VcpkgTriplet = 'x64-windows-webkit',
     [string]$DatPath = '',
     [string]$Out = '',
     [switch]$PruneUnusedConverters
 )
 $ErrorActionPreference = 'Stop'
-$vcpkg = "$Root\WebKitLibraries\windows\vcpkg"
-$installed = "$Root\WebKitBuild\vcpkg_installed\x64-windows-webkit"
+if (-not $VcpkgRoot) { $VcpkgRoot = Join-Path $Root 'WebKitLibraries\windows\vcpkg' }
+if (-not $VcpkgInstalledDir) { $VcpkgInstalledDir = Join-Path $Root 'WebKitBuild\vcpkg_installed' }
+$installed = Join-Path $VcpkgInstalledDir $VcpkgTriplet
 
 # ICU 版本号（icudtNN）
 $dll = Get-ChildItem "$installed\bin\icudt*.dll" | Where-Object { $_.Name -notmatch 'orig' } | Select-Object -First 1
@@ -35,15 +39,20 @@ if (-not $dll) { throw "找不到 icudt*.dll" }
 $ver = [regex]::Match($dll.Name, 'icudt(\d+)\.dll').Groups[1].Value
 if (-not $Out) { $Out = $dll.FullName }
 if (-not $DatPath) {
-    $DatPath = Get-ChildItem "$vcpkg\buildtrees\icu\*rel\data\out\tmp\icudt${ver}l.dat" -ErrorAction SilentlyContinue | Select-Object -First 1 | ForEach-Object FullName
+    $DatPath = Get-ChildItem "$VcpkgRoot\buildtrees\icu\*rel\data\out\tmp\icudt${ver}l.dat" -ErrorAction SilentlyContinue | Select-Object -First 1 | ForEach-Object FullName
 }
 if (-not $DatPath -or -not (Test-Path $DatPath)) {
     throw "找不到源 icudt${ver}l.dat（vcpkg buildtrees 已清理？）。请传 -DatPath，或改用 icu-data-filter.json 重装 ICU。"
 }
 
-$tools = Get-ChildItem "$vcpkg\packages\icu_*\tools\icu" | Select-Object -First 1
+$tools = Get-Item (Join-Path $installed 'tools\icu') -ErrorAction SilentlyContinue
+if (-not $tools) {
+    $tools = Get-ChildItem "$VcpkgRoot\packages\icu_*\tools\icu" -ErrorAction SilentlyContinue | Select-Object -First 1
+}
+if (-not $tools) { throw "找不到 ICU 工具目录（icupkg.exe/genccode.exe）" }
 $icupkg = "$($tools.FullName)\icupkg.exe"
 $genccode = "$($tools.FullName)\genccode.exe"
+if (-not (Test-Path $icupkg) -or -not (Test-Path $genccode)) { throw "ICU 工具不完整：$($tools.FullName)" }
 
 $work = Join-Path $env:TEMP "slimicu_$ver"
 Remove-Item $work -Recurse -Force -ErrorAction SilentlyContinue
@@ -99,6 +108,8 @@ if ($LASTEXITCODE) { throw "link failed with exit code $LASTEXITCODE" }
 if (-not (Test-Path "$installed\bin\icudt$ver.orig.dll")) {
     Copy-Item "$installed\bin\icudt$ver.dll" "$installed\bin\icudt$ver.orig.dll"
 }
+$outDirectory = Split-Path -Parent ([IO.Path]::GetFullPath($Out))
+if ($outDirectory) { New-Item -ItemType Directory -Force -Path $outDirectory | Out-Null }
 Copy-Item "$work\icudt$ver.dll" $Out -Force
 $mb = [math]::Round((Get-Item $Out).Length/1MB, 1)
 Write-Host "slim icudt$ver.dll -> $Out  ($mb MB；原始备份 icudt$ver.orig.dll)"

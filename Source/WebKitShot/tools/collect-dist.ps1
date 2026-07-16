@@ -4,7 +4,7 @@
 # and is therefore added explicitly.
 
 param(
-    [string]$Root = 'D:\Github\webkit',
+    [string]$Root = [IO.Path]::GetFullPath((Join-Path $PSScriptRoot '..\..\..')),
     [string]$Out = ''
 )
 

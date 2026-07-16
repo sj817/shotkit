@@ -94,6 +94,39 @@ jobs:
             --no-print-usage
           if ($LASTEXITCODE) { throw "vcpkg failed with exit code $LASTEXITCODE" }
 
+          # The WebKitRequirements ICU CMake port installs a prebuilt full data
+          # blob, so ICU_DATA_FILTER_FILE is not consumed. Rebuild only the data
+          # DLL deterministically from the pinned upstream archive instead.
+          $icuArchive = Join-Path $vcpkgRoot 'downloads\icu4c-77_1-src.tgz'
+          if (-not (Test-Path $icuArchive)) {
+            New-Item -ItemType Directory -Force -Path (Split-Path $icuArchive) | Out-Null
+            Invoke-WebRequest `
+              -Uri 'https://github.com/unicode-org/icu/releases/download/release-77-1/icu4c-77_1-src.tgz' `
+              -OutFile $icuArchive
+          }
+          $expectedIcuSha512 = 'a47d6d9c327d037a05ea43d1d1a06b2fd757cc02a94f7c1a238f35cfc3dfd4ab78d0612790f3a3cca0292c77412a9c2c15c8f24b718f79a857e007e66f07e7cd'
+          $actualIcuSha512 = (Get-FileHash $icuArchive -Algorithm SHA512).Hash.ToLowerInvariant()
+          if ($actualIcuSha512 -ne $expectedIcuSha512) { throw 'ICU source archive SHA-512 mismatch' }
+
+          $icuSource = Join-Path $env:RUNNER_TEMP 'shotkit-icu-source'
+          Remove-Item $icuSource -Recurse -Force -ErrorAction SilentlyContinue
+          New-Item -ItemType Directory -Force -Path $icuSource | Out-Null
+          & tar.exe -xzf $icuArchive -C $icuSource 'icu/source/data/in/icudt77l.dat'
+          if ($LASTEXITCODE) { throw "ICU source extraction failed with exit code $LASTEXITCODE" }
+          $icuDat = Join-Path $icuSource 'icu\source\data\in\icudt77l.dat'
+          pwsh Source/WebKitShot/tools/slim-icu.ps1 `
+            -Root $env:GITHUB_WORKSPACE `
+            -VcpkgRoot $vcpkgRoot `
+            -VcpkgInstalledDir $installed `
+            -DatPath $icuDat `
+            -PruneUnusedConverters
+          if ($LASTEXITCODE) { throw "ICU slimming failed with exit code $LASTEXITCODE" }
+
+          $icuData = Get-ChildItem "$installed\x64-windows-webkit\bin\icudt*.dll" | Where-Object Name -NotLike '*.orig.dll' | Select-Object -First 1
+          if (-not $icuData) { throw 'vcpkg did not install an ICU data DLL' }
+          if ($icuData.Length -gt 15MB) { throw "slim ICU data exceeds 15 MiB: $($icuData.Length) bytes" }
+          Write-Host "slim ICU data: $($icuData.Length) bytes"
+
           "SHOT_VCPKG_ROOT=$vcpkgRoot" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
           "SHOT_VCPKG_INSTALLED=$installed" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
 
@@ -146,14 +179,23 @@ jobs:
           if ($exports.Count -ne 10) { throw "expected 10 shot_* exports, found $($exports.Count)" }
           Get-Item $dll, (Join-Path (Split-Path $dll) 'shotcli.exe') | Format-Table Name, Length
 
-      - name: Collect runtime artifact
+      - name: Package release archive
         shell: pwsh
-        run: pwsh Source/WebKitShot/tools/collect-dist.ps1 -Root $env:GITHUB_WORKSPACE -Out "$env:GITHUB_WORKSPACE\WebKitBuild\shot-ci-dist"
+        run: |
+          $version = "0.1.0-ci.$env:GITHUB_RUN_NUMBER"
+          pwsh Source/WebKitShot/tools/package-release.ps1 `
+            -Root $env:GITHUB_WORKSPACE `
+            -Version $version `
+            -LtoMode thin `
+            -MaxPackageBytes 22000000
 
-      - name: Upload runtime
+      - name: Upload compressed release
         uses: actions/upload-artifact@v7
         with:
           name: shotkit-windows-x64-thinlto
-          path: WebKitBuild/shot-ci-dist/
+          path: |
+            WebKitBuild/releases/*.tar.xz
+            WebKitBuild/releases/*.tar.xz.sha256
           if-no-files-found: error
+          compression-level: 0
           retention-days: 7
