@@ -414,6 +414,7 @@ CLI（`shotcli`）是 ABI 的薄封装：一次性模式为 `shotcli --url <u> |
 
 | 文件 | 改动 | 原因 | 里程碑 |
 |---|---|---|---|
+| `Source/WebCore/platform/ScrollAnimator.cpp` | `PLATFORM(SHOT)` 即使运行于 macOS 也使用通用同步 `ScrollAnimator::create` | Mac 专用实现要求异步/动量滚动事件；Shot 无交互并明确关闭 `ENABLE_ASYNC_SCROLLING`，不应为 UI 动画重新打开该功能 | M4/macOS 🚧 已改，CI 验证中 |
 | `Source/JavaScriptCore/API/JSRemoteInspector.cpp` | `ENABLE_REMOTE_INSPECTOR=OFF` 时默认检查状态查询直接返回 false | Cocoa 源清单始终编译兼容 C API，但原实现无条件引用仅在远程检查器开启时声明的 `RemoteInspector` | M4/macOS 🚧 已改，CI 验证中 |
 | `Source/WTF/wtf/PlatformEnableCocoa.h` | 给 `ENABLE_VIDEO_PRESENTATION_MODE` 的平台析取补括号 | 原条件受 `&&`/`||` 优先级影响，在 macOS 上即使 cmakeconfig 已定义为 0 仍强制重定义为 1；Shot 已关闭视频 | M4/macOS 🚧 已改，CI 验证中 |
 | `Source/cmake/WebKitMacros.cmake` | framework 链接宏比较 `LINKED_INTO` 时给可能为空的展开值加引号 | Cocoa OBJECT WebCore 没有 `LINKED_INTO` 属性，未加引号会生成语法不完整的 `if(... STREQUAL )` 并阻断配置；不改变非空值语义 | M4/macOS 🚧 已改，CI 验证中 |
