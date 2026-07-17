@@ -19,6 +19,7 @@ elseif (APPLE)
         "(^|/)platform/audio/cocoa/"
         "(^|/)platform/audio/mac/"
     )
+    list(FILTER WebCore_SOURCES EXCLUDE REGEX "(^|/)platform/audio/(cocoa|mac)/")
 else ()
     include(platform/Adwaita.cmake)
     include(platform/Curl.cmake)
