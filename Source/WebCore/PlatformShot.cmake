@@ -14,6 +14,9 @@ elseif (APPLE)
         platform/mac/ScrollAnimatorMac.mm
         platform/network/cocoa/WebCoreNSURLSession.mm
     )
+    list(APPEND WebCore_UNIFIED_SOURCE_EXCLUDES
+        "(^|/)Modules/WebGPU/"
+    )
 else ()
     include(platform/Adwaita.cmake)
     include(platform/Curl.cmake)
