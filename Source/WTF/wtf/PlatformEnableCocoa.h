@@ -943,8 +943,8 @@
 #endif
 
 #if !defined(ENABLE_VIDEO_PRESENTATION_MODE) \
-    && (PLATFORM(IOS_FAMILY) && HAVE(AVKIT)) \
-    || PLATFORM(MAC)
+    && ((PLATFORM(IOS_FAMILY) && HAVE(AVKIT)) \
+        || PLATFORM(MAC))
 #define ENABLE_VIDEO_PRESENTATION_MODE 1
 #endif
 
