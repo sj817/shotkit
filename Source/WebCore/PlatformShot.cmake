@@ -7,6 +7,12 @@ elseif (APPLE)
     # folds WebCore OBJECT files into libshot, so OBJECT targets cannot carry
     # that framework POST_BUILD command.
     set(WebCore_POST_BUILD_COMMAND "")
+    # NSURLSession's WebCore bridge is for PlatformMediaResource/AVFoundation.
+    # Those types are absent with ENABLE_VIDEO=OFF; static document networking
+    # uses ResourceHandleCocoa (NSURLConnection/CFNetwork) instead.
+    list(REMOVE_ITEM WebCore_SOURCES
+        platform/network/cocoa/WebCoreNSURLSession.mm
+    )
 else ()
     include(platform/Adwaita.cmake)
     include(platform/Curl.cmake)
