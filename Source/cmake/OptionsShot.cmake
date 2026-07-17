@@ -152,7 +152,10 @@ if (MSVC)
     string(APPEND CMAKE_EXE_LINKER_FLAGS " /OPT:REF /OPT:ICF")
     string(APPEND CMAKE_SHARED_LINKER_FLAGS " /OPT:REF /OPT:ICF")
 else ()
-    add_compile_options(-ffunction-sections -fdata-sections)
+    add_compile_options(
+        "$<$<COMPILE_LANGUAGE:C,CXX>:-ffunction-sections>"
+        "$<$<COMPILE_LANGUAGE:C,CXX>:-fdata-sections>"
+    )
     string(APPEND CMAKE_EXE_LINKER_FLAGS " -Wl,--gc-sections")
     string(APPEND CMAKE_SHARED_LINKER_FLAGS " -Wl,--gc-sections")
 endif ()
