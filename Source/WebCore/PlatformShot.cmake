@@ -15,6 +15,7 @@ elseif (APPLE)
         platform/network/cocoa/WebCoreNSURLSession.mm
     )
     list(APPEND WebCore_UNIFIED_SOURCE_EXCLUDES
+        "(^|/)Modules/applepay(-ams-ui)?/"
         "(^|/)Modules/WebGPU/"
     )
 else ()
