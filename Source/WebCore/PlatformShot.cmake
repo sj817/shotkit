@@ -16,6 +16,8 @@ elseif (APPLE)
     list(APPEND WebCore_UNIFIED_SOURCE_EXCLUDES
         "(^|/)Modules/applepay(-ams-ui)?/"
         "(^|/)Modules/WebGPU/"
+        "(^|/)platform/audio/cocoa/"
+        "(^|/)platform/audio/mac/"
     )
 else ()
     include(platform/Adwaita.cmake)

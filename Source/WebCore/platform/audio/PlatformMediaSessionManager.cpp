@@ -54,7 +54,7 @@ namespace WebCore {
 
 WTF_MAKE_TZONE_ALLOCATED_IMPL(PlatformMediaSessionManager);
 
-#if !PLATFORM(COCOA) && (!USE(GLIB) || !ENABLE(MEDIA_SESSION))
+#if (!PLATFORM(COCOA) && (!USE(GLIB) || !ENABLE(MEDIA_SESSION))) || PLATFORM(SHOT)
 RefPtr<PlatformMediaSessionManager> PlatformMediaSessionManager::create(PageIdentifier pageIdentifier)
 {
     return adoptRef(new PlatformMediaSessionManager(pageIdentifier));
