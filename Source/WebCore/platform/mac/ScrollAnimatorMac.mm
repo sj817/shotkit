@@ -100,7 +100,8 @@ static bool gestureShouldBeginSnap(const PlatformWheelEvent& wheelEvent, ScrollE
     if (offsetInfo->offsetsForAxis(axis).isEmpty())
         return false;
 
-    if (wheelEvent.phase() != PlatformWheelEventPhase::Ended && !wheelEvent.isEndOfMomentumScroll())
+    bool isEndOfMomentumScroll = wheelEvent.phase() == PlatformWheelEventPhase::None && wheelEvent.momentumPhase() == PlatformWheelEventPhase::Ended;
+    if (wheelEvent.phase() != PlatformWheelEventPhase::Ended && !isEndOfMomentumScroll)
         return false;
 
     return true;

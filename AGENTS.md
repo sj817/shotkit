@@ -414,6 +414,7 @@ CLI（`shotcli`）是 ABI 的薄封装：一次性模式为 `shotcli --url <u> |
 
 | 文件 | 改动 | 原因 | 里程碑 |
 |---|---|---|---|
+| `Source/WebCore/platform/mac/ScrollAnimatorMac.mm` | 直接用 wheel phase 判断动量滚动结束，不调用仅随完整异步滚动声明的便捷方法 | Shot 只保留 Mac animator ABI 所需的 kinetic phase 类型，仍关闭异步滚动；直接判断与该便捷方法语义一致 | M4/macOS 🚧 已改，CI 验证中 |
 | `Source/WebCore/platform/MediaStrategy.cpp` | `AudioVideoRendererAVFObjC.h` 的 include 增加 `ENABLE_VIDEO` 门控 | 创建 AVFoundation renderer 的函数本就只在视频开启时存在；仅按 `USE_AVFOUNDATION` 包含头会在 Shot 关闭视频后引用被裁媒体类型 | M4/macOS 🚧 已改，CI 验证中 |
 | `Source/JavaScriptCore/API/JSRemoteInspector.cpp` | `ENABLE_REMOTE_INSPECTOR=OFF` 时默认检查状态查询直接返回 false | Cocoa 源清单始终编译兼容 C API，但原实现无条件引用仅在远程检查器开启时声明的 `RemoteInspector` | M4/macOS 🚧 已改，CI 验证中 |
 | `Source/WTF/wtf/PlatformEnableCocoa.h` | 给 `ENABLE_VIDEO_PRESENTATION_MODE` 的平台析取补括号 | 原条件受 `&&`/`||` 优先级影响，在 macOS 上即使 cmakeconfig 已定义为 0 仍强制重定义为 1；Shot 已关闭视频 | M4/macOS 🚧 已改，CI 验证中 |
