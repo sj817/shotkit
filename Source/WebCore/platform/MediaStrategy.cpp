@@ -27,7 +27,7 @@
 #include "MediaStrategy.h"
 
 #include "AudioVideoRenderer.h"
-#if USE(AVFOUNDATION)
+#if ENABLE(VIDEO) && USE(AVFOUNDATION)
 #include "AudioVideoRendererAVFObjC.h"
 #endif
 #include "MediaPlayer.h"
