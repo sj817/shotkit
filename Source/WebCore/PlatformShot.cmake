@@ -11,7 +11,6 @@ elseif (APPLE)
     # Those types are absent with ENABLE_VIDEO=OFF; static document networking
     # uses ResourceHandleCocoa (NSURLConnection/CFNetwork) instead.
     list(REMOVE_ITEM WebCore_SOURCES
-        platform/mac/ScrollAnimatorMac.mm
         platform/network/cocoa/WebCoreNSURLSession.mm
     )
     list(APPEND WebCore_UNIFIED_SOURCE_EXCLUDES
