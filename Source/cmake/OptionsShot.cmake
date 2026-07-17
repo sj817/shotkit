@@ -46,10 +46,9 @@ set(CMAKE_RUNTIME_OUTPUT_DIRECTORY_DEBUG "${CMAKE_RUNTIME_OUTPUT_DIRECTORY}")
 set(CMAKE_RUNTIME_OUTPUT_DIRECTORY_RELEASE "${CMAKE_RUNTIME_OUTPUT_DIRECTORY}")
 
 # ---- 第三方依赖（Win/Linux 由 vcpkg/系统包提供；macOS 使用 SDK 框架）----
-find_package(ICU 70.1 REQUIRED COMPONENTS data i18n uc)
-find_package(Threads REQUIRED)
-
 if (NOT APPLE)
+    find_package(ICU 70.1 REQUIRED COMPONENTS data i18n uc)
+    find_package(Threads REQUIRED)
     find_package(CURL 7.87.0 REQUIRED)
     find_package(HarfBuzz 1.4.2 REQUIRED COMPONENTS ICU)
     find_package(JPEG 1.5.2 REQUIRED)

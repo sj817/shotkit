@@ -3,6 +3,10 @@ if (WIN32)
     include(${CMAKE_CURRENT_SOURCE_DIR}/PlatformWin.cmake)
 elseif (APPLE)
     include(${CMAKE_CURRENT_SOURCE_DIR}/PlatformMac.cmake)
+    # PlatformMac normally builds WebCore.framework and codesigns it. Shot
+    # folds WebCore OBJECT files into libshot, so OBJECT targets cannot carry
+    # that framework POST_BUILD command.
+    set(WebCore_POST_BUILD_COMMAND "")
 else ()
     include(platform/Adwaita.cmake)
     include(platform/Curl.cmake)
