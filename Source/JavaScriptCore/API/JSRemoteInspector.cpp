@@ -86,7 +86,9 @@ static bool mainProcessHasEntitlement(ASCIILiteral entitlement, std::optional<au
 
 static bool defaultStateForRemoteInspectionEnabledByDefault(void)
 {
-#if PLATFORM(COCOA)
+#if !ENABLE(REMOTE_INSPECTOR)
+    return false;
+#elif PLATFORM(COCOA)
     auto parentProcessAuditToken = RemoteInspector::singleton().parentProcessAuditToken();
 
     if (!linkedOnOrAfterSDKWithBehavior(SDKAlignedBehavior::InspectableDefaultsToDisabled)) {
@@ -114,7 +116,7 @@ static bool defaultStateForRemoteInspectionEnabledByDefault(void)
     return false;
 #else
     return true;
-#endif // not PLATFORM(COCOA)
+#endif
 }
 
 bool JSRemoteInspectorGetInspectionEnabledByDefault(void)
