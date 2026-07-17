@@ -43,10 +43,12 @@ jobs:
             libcurl4-openssl-dev libegl1-mesa-dev libfontconfig1-dev \
             libfreetype-dev libgles2-mesa-dev libharfbuzz-dev libicu-dev \
             libjpeg-dev libpng-dev libpsl-dev libsqlite3-dev libssl-dev \
-            libwebp-dev libwoff-dev libxml2-dev libxslt1-dev lld-18 \
+            libwebp-dev libwoff-dev libxml2-dev libxslt1-dev lld-18 llvm-18 \
             ninja-build perl python3 ruby xz-utils zlib1g-dev
           clang-18 --version
           ld.lld-18 --version
+          llvm-ar-18 --version
+          llvm-ranlib-18 --version
           cmake --version
           ninja --version
 
@@ -58,8 +60,8 @@ jobs:
             -DCMAKE_BUILD_TYPE=MinSizeRel \
             -DCMAKE_C_COMPILER=clang-18 \
             -DCMAKE_CXX_COMPILER=clang++-18 \
-            -DCMAKE_AR=llvm-ar-18 \
-            -DCMAKE_RANLIB=llvm-ranlib-18 \
+            -DCMAKE_AR="$(command -v llvm-ar-18)" \
+            -DCMAKE_RANLIB="$(command -v llvm-ranlib-18)" \
             -DCMAKE_EXE_LINKER_FLAGS="-fuse-ld=lld -Wl,--threads=1" \
             -DCMAKE_SHARED_LINKER_FLAGS="-fuse-ld=lld -Wl,--threads=1" \
             -DLTO_MODE=full
