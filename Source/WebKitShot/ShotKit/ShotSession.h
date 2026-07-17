@@ -9,6 +9,7 @@
 
 namespace WebCore {
 class CurlResponse;
+class NetworkStorageSession;
 class ResourceRequest;
 }
 
@@ -16,6 +17,9 @@ namespace ShotKit {
 
 // 开始一次新的渲染，清空上一次截图留下的全部 cookie。
 void beginRenderSession();
+
+// Cocoa uses one private CFNetwork storage session for main and subresources.
+WebCore::NetworkStorageSession* activeNetworkStorageSession();
 
 // 请求发出前，把匹配的 cookie 追加到 Cookie 头。
 void appendRequestCookies(WebCore::ResourceRequest&);

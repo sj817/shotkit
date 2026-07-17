@@ -229,6 +229,11 @@ class EmptyChromeClient : public ChromeClient {
 DiagnosticLoggingClient& NODELETE emptyDiagnosticLoggingClient();
 WEBCORE_EXPORT PageConfiguration pageConfigurationWithEmptyClients(std::optional<PageIdentifier>, PAL::SessionID);
 
+#if PLATFORM(SHOT) && PLATFORM(COCOA)
+class NetworkStorageSession;
+WEBCORE_EXPORT void setEmptyFrameNetworkingContextStorageSession(NetworkStorageSession*);
+#endif
+
 class EmptyCryptoClient: public CryptoClient {
     WTF_MAKE_TZONE_ALLOCATED(EmptyCryptoClient);
 };

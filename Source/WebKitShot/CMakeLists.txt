@@ -25,7 +25,6 @@ set(libshot_LIBRARY_TYPE SHARED)
 set(libshot_OUTPUT_NAME shot)
 
 set(libshot_SOURCES
-    ${SHOTKIT_DIR}/ShotCurlResourceLoader.cpp
     ${SHOTKIT_DIR}/ShotGlobal.cpp
     ${SHOTKIT_DIR}/ShotLoaderStrategy.cpp
     ${SHOTKIT_DIR}/ShotPage.cpp
@@ -33,6 +32,10 @@ set(libshot_SOURCES
     ${SHOTKIT_DIR}/ShotSession.cpp
     ${CMAKE_CURRENT_SOURCE_DIR}/capi/shot.cpp
 )
+
+if (USE_CURL)
+    list(APPEND libshot_SOURCES ${SHOTKIT_DIR}/ShotCurlResourceLoader.cpp)
+endif ()
 
 # WebCore 等是 OBJECT 库，链接时把目标文件与 include 一并带入。
 set(libshot_FRAMEWORKS

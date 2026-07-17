@@ -426,8 +426,9 @@ public:
 private:
     EmptyFrameNetworkingContext();
 
+    bool NODELETE isValid() const final;
     bool NODELETE shouldClearReferrerOnHTTPSToHTTPRedirect() const { return true; }
-    NetworkStorageSession* NODELETE storageSession() const final { return nullptr; }
+    NetworkStorageSession* NODELETE storageSession() const final;
 
 #if PLATFORM(COCOA)
     bool NODELETE localFileContentSniffingEnabled() const { return false; }
@@ -1169,6 +1170,33 @@ void EmptyFrameLoaderClient::dispatchLoadEventToOwnerElementInAnotherProcess()
 inline EmptyFrameNetworkingContext::EmptyFrameNetworkingContext()
     : FrameNetworkingContext { nullptr }
 {
+}
+
+#if PLATFORM(SHOT) && PLATFORM(COCOA)
+static NetworkStorageSession* shotEmptyClientsStorageSession;
+
+void setEmptyFrameNetworkingContextStorageSession(NetworkStorageSession* session)
+{
+    shotEmptyClientsStorageSession = session;
+}
+#endif
+
+bool EmptyFrameNetworkingContext::isValid() const
+{
+#if PLATFORM(SHOT) && PLATFORM(COCOA)
+    return shotEmptyClientsStorageSession;
+#else
+    return false;
+#endif
+}
+
+NetworkStorageSession* EmptyFrameNetworkingContext::storageSession() const
+{
+#if PLATFORM(SHOT) && PLATFORM(COCOA)
+    return shotEmptyClientsStorageSession;
+#else
+    return nullptr;
+#endif
 }
 
 Ref<FrameNetworkingContext> EmptyFrameLoaderClient::createNetworkingContext()

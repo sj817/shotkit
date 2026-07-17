@@ -8,6 +8,13 @@
 
 add_definitions(-DWTF_PLATFORM_SHOT=1 -DBPLATFORM_SHOT=1)
 
+if (APPLE)
+    include(WebKitVersion)
+    enable_language(OBJC OBJCXX)
+    set(WEBKIT_SDK_NAME "macosx")
+    set(WEBKIT_PLATFORM_NAME "MacOSX")
+endif ()
+
 if (MSVC)
     include(OptionsMSVC)
 else ()
@@ -38,21 +45,24 @@ set(CMAKE_LIBRARY_OUTPUT_DIRECTORY_RELEASE "${CMAKE_LIBRARY_OUTPUT_DIRECTORY}")
 set(CMAKE_RUNTIME_OUTPUT_DIRECTORY_DEBUG "${CMAKE_RUNTIME_OUTPUT_DIRECTORY}")
 set(CMAKE_RUNTIME_OUTPUT_DIRECTORY_RELEASE "${CMAKE_RUNTIME_OUTPUT_DIRECTORY}")
 
-# ---- 第三方依赖（vcpkg 提供；对齐 OptionsWin 的最小渲染子集）----
-find_package(CURL 7.87.0 REQUIRED)
-find_package(HarfBuzz 1.4.2 REQUIRED COMPONENTS ICU)
+# ---- 第三方依赖（Win/Linux 由 vcpkg/系统包提供；macOS 使用 SDK 框架）----
 find_package(ICU 70.1 REQUIRED COMPONENTS data i18n uc)
-find_package(JPEG 1.5.2 REQUIRED)
-find_package(LibXml2 2.9.7 REQUIRED)
-find_package(OpenSSL REQUIRED)
-find_package(PNG 1.6.34 REQUIRED)
-find_package(SQLite3 3.23.1 REQUIRED)
-find_package(ZLIB 1.2.11 REQUIRED)
-find_package(LibPSL 0.20.2 REQUIRED)
-find_package(WebP REQUIRED COMPONENTS demux)
-find_package(WOFF2 1.0.2 COMPONENTS dec)
-find_package(Brotli REQUIRED COMPONENTS dec)
 find_package(Threads REQUIRED)
+
+if (NOT APPLE)
+    find_package(CURL 7.87.0 REQUIRED)
+    find_package(HarfBuzz 1.4.2 REQUIRED COMPONENTS ICU)
+    find_package(JPEG 1.5.2 REQUIRED)
+    find_package(LibXml2 2.9.7 REQUIRED)
+    find_package(OpenSSL REQUIRED)
+    find_package(PNG 1.6.34 REQUIRED)
+    find_package(SQLite3 3.23.1 REQUIRED)
+    find_package(ZLIB 1.2.11 REQUIRED)
+    find_package(LibPSL 0.20.2 REQUIRED)
+    find_package(WebP REQUIRED COMPONENTS demux)
+    find_package(WOFF2 1.0.2 COMPONENTS dec)
+    find_package(Brotli REQUIRED COMPONENTS dec)
+endif ()
 
 if (CMAKE_SYSTEM_NAME MATCHES "Linux")
     find_package(EGL REQUIRED)
@@ -61,7 +71,7 @@ if (CMAKE_SYSTEM_NAME MATCHES "Linux")
     find_package(OpenGLES2 REQUIRED)
 endif ()
 
-if (NOT TARGET SQLite3::SQLite3) # CMake < 4.3
+if (NOT APPLE AND NOT TARGET SQLite3::SQLite3) # CMake < 4.3
     add_library(SQLite3::SQLite3 ALIAS SQLite::SQLite3)
 endif ()
 
@@ -82,8 +92,13 @@ WEBKIT_OPTION_DEFINE(ENABLE_STATIC_JSC "Control whether to build a non-shared JS
 WEBKIT_OPTION_DEFINE(ENABLE_SHOTKIT_STATIC_RENDERER "Build only the static rendering surface" PRIVATE ON)
 
 # ---- 图形/字体后端：Skia 纯 CPU 软光栅 + HarfBuzz ----
-WEBKIT_OPTION_DEFAULT_PORT_VALUE(USE_SKIA PRIVATE ON)
-WEBKIT_OPTION_DEFAULT_PORT_VALUE(USE_WOFF2 PRIVATE ON)
+if (APPLE)
+    WEBKIT_OPTION_DEFAULT_PORT_VALUE(USE_SKIA PRIVATE OFF)
+    WEBKIT_OPTION_DEFAULT_PORT_VALUE(USE_WOFF2 PRIVATE OFF)
+else ()
+    WEBKIT_OPTION_DEFAULT_PORT_VALUE(USE_SKIA PRIVATE ON)
+    WEBKIT_OPTION_DEFAULT_PORT_VALUE(USE_WOFF2 PRIVATE ON)
+endif ()
 
 # ---- 渲染必需、零依赖的特性（保留以提高还原度）----
 WEBKIT_OPTION_DEFAULT_PORT_VALUE(ENABLE_MATHML PUBLIC ON)
@@ -131,6 +146,21 @@ WEBKIT_OPTION_DEFAULT_PORT_VALUE(USE_JPEGXL PRIVATE OFF)
 
 WEBKIT_OPTION_END()
 
+if (APPLE)
+    # Reuse the maintained Cocoa SDK/framework setup, then restore ShotKit's
+    # single-process, OBJECT-library shape below. Page scripts and browser-only
+    # features remain governed by the Shot option matrix above.
+    include(OptionsCocoa)
+    set(SWIFT_REQUIRED OFF)
+    set(ENABLE_WEBKIT OFF)
+    set(ENABLE_WEBKIT_LEGACY OFF)
+    set(USE_LIBWEBRTC OFF)
+    set(USE_ANGLE_EGL OFF)
+    set(CMAKE_ARCHIVE_OUTPUT_DIRECTORY "${CMAKE_BINARY_DIR}/lib")
+    set(CMAKE_LIBRARY_OUTPUT_DIRECTORY "${CMAKE_BINARY_DIR}/lib")
+    set(CMAKE_RUNTIME_OUTPUT_DIRECTORY "${CMAKE_BINARY_DIR}/bin")
+endif ()
+
 # CSS 选择器 JIT 无 CMake 变量，用编译定义覆盖 PlatformEnable.h 默认（回退解释执行）。
 add_definitions(-DENABLE_CSS_SELECTOR_JIT=0 -DSHOT_DISABLE_HTTP3=1)
 
@@ -153,6 +183,9 @@ if (MSVC)
     add_compile_options(/Gy /Gw)
     string(APPEND CMAKE_EXE_LINKER_FLAGS " /OPT:REF /OPT:ICF")
     string(APPEND CMAKE_SHARED_LINKER_FLAGS " /OPT:REF /OPT:ICF")
+elseif (APPLE)
+    string(APPEND CMAKE_EXE_LINKER_FLAGS " -Wl,-dead_strip")
+    string(APPEND CMAKE_SHARED_LINKER_FLAGS " -Wl,-dead_strip")
 else ()
     add_compile_options(
         "$<$<COMPILE_LANGUAGE:C,CXX>:-ffunction-sections>"
@@ -192,10 +225,19 @@ if (MSVC AND LTO_MODE STREQUAL "full" AND SHOT_LINK_THREADS)
 endif ()
 
 # ---- USE_* 后端暴露给构建（Skia；保留可选 GPU 接线，默认截图仍走 CPU）----
-SET_AND_EXPOSE_TO_BUILD(USE_CURL ON)
-SET_AND_EXPOSE_TO_BUILD(USE_OPENSSL ON)
-SET_AND_EXPOSE_TO_BUILD(USE_HARFBUZZ ON)
-SET_AND_EXPOSE_TO_BUILD(USE_SKIA ON)
+if (APPLE)
+    SET_AND_EXPOSE_TO_BUILD(USE_CF ON)
+    SET_AND_EXPOSE_TO_BUILD(USE_CG ON)
+    SET_AND_EXPOSE_TO_BUILD(USE_CURL OFF)
+    SET_AND_EXPOSE_TO_BUILD(USE_OPENSSL OFF)
+    SET_AND_EXPOSE_TO_BUILD(USE_HARFBUZZ OFF)
+    SET_AND_EXPOSE_TO_BUILD(USE_SKIA OFF)
+else ()
+    SET_AND_EXPOSE_TO_BUILD(USE_CURL ON)
+    SET_AND_EXPOSE_TO_BUILD(USE_OPENSSL ON)
+    SET_AND_EXPOSE_TO_BUILD(USE_HARFBUZZ ON)
+    SET_AND_EXPOSE_TO_BUILD(USE_SKIA ON)
+endif ()
 # ANGLE/EGL/TextureMapper 保留为可选 GPU 接线；默认截图仍关闭加速合成并使用 Skia CPU，
 # 以保证无 GPU 环境可运行。发行依赖收集只复制 shot.dll 真正导入的库。
 if (WIN32)
@@ -204,8 +246,13 @@ if (WIN32)
 else ()
     SET_AND_EXPOSE_TO_BUILD(USE_ANGLE OFF)
 endif ()
-SET_AND_EXPOSE_TO_BUILD(USE_TEXTURE_MAPPER ON)
-SET_AND_EXPOSE_TO_BUILD(USE_GRAPHICS_LAYER_TEXTURE_MAPPER ON)
+if (APPLE)
+    SET_AND_EXPOSE_TO_BUILD(USE_TEXTURE_MAPPER OFF)
+    SET_AND_EXPOSE_TO_BUILD(USE_GRAPHICS_LAYER_TEXTURE_MAPPER OFF)
+else ()
+    SET_AND_EXPOSE_TO_BUILD(USE_TEXTURE_MAPPER ON)
+    SET_AND_EXPOSE_TO_BUILD(USE_GRAPHICS_LAYER_TEXTURE_MAPPER ON)
+endif ()
 SET_AND_EXPOSE_TO_BUILD(USE_LIBWPE OFF)
 
 if (CMAKE_SYSTEM_NAME MATCHES "Linux")
@@ -221,16 +268,22 @@ endif ()
 # 主题/滚动条：Win 端口用 Adwaita 主题（RenderTheme/Theme/ScrollbarTheme::singleton
 # 的定义整体包在 #if USE(THEME_ADWAITA) 内，platform/Adwaita.cmake 已随 PlatformWin
 # 挂入源码，但符号定义需此开关点亮，否则链接期缺 singleton 符号）。对齐 OptionsWin:128。
-SET_AND_EXPOSE_TO_BUILD(USE_THEME_ADWAITA ON)
+if (APPLE)
+    SET_AND_EXPOSE_TO_BUILD(USE_THEME_ADWAITA OFF)
+else ()
+    SET_AND_EXPOSE_TO_BUILD(USE_THEME_ADWAITA ON)
+endif ()
 
 # 判断 OpenSSL 是否为 BoringSSL（curl TLS 相关代码分支需要）
-cmake_push_check_state()
-set(CMAKE_REQUIRED_INCLUDES "${OPENSSL_INCLUDE_DIR}")
-set(CMAKE_REQUIRED_LIBRARIES "${OPENSSL_LIBRARIES}")
-WEBKIT_CHECK_HAVE_SYMBOL(USE_BORINGSSL OPENSSL_IS_BORINGSSL openssl/ssl.h)
-cmake_pop_check_state()
+if (NOT APPLE)
+    cmake_push_check_state()
+    set(CMAKE_REQUIRED_INCLUDES "${OPENSSL_INCLUDE_DIR}")
+    set(CMAKE_REQUIRED_LIBRARIES "${OPENSSL_LIBRARIES}")
+    WEBKIT_CHECK_HAVE_SYMBOL(USE_BORINGSSL OPENSSL_IS_BORINGSSL openssl/ssl.h)
+    cmake_pop_check_state()
+endif ()
 
-if (ENABLE_XSLT)
+if (ENABLE_XSLT AND NOT APPLE)
     find_package(LibXslt 1.1.32 REQUIRED)
 endif ()
 

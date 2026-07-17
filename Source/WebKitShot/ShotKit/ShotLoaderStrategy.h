@@ -8,7 +8,10 @@
 
 #pragma once
 
+#include <wtf/Platform.h>
+#if USE(CURL)
 #include "ShotCurlResourceLoader.h" // Ref<ShotCurlResourceLoader> 需完整类型
+#endif
 #include <WebCore/LoaderStrategy.h>
 #include <WebCore/ResourceError.h>
 #include <wtf/CompletionHandler.h>
@@ -26,7 +29,14 @@ public:
     void didCompleteLoad(WebCore::ResourceLoader&);
 
     // 完成状态机用：是否仍有在途 curl 子资源加载。
-    bool hasPendingLoads() const { return !m_handles.isEmpty(); }
+    bool hasPendingLoads() const
+    {
+#if USE(CURL)
+        return !m_handles.isEmpty();
+#else
+        return false;
+#endif
+    }
 
 private:
     void loadResource(WebCore::LocalFrame&, WebCore::CachedResource&, WebCore::ResourceRequest&&, const WebCore::ResourceLoaderOptions&, WTF::CompletionHandler<void(RefPtr<WebCore::SubresourceLoader>&&)>&&) final;
@@ -60,7 +70,9 @@ private:
 
     void startLoad(WebCore::ResourceLoader&);
 
+#if USE(CURL)
     HashMap<WebCore::ResourceLoader*, Ref<ShotCurlResourceLoader>> m_handles;
+#endif
 };
 
 // 进程内当前活跃的 LoaderStrategy（PlatformStrategies 单例创建时登记），供完成状态机查在途加载。

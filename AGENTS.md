@@ -365,8 +365,8 @@ CLI（`shotcli`）是 ABI 的薄封装：一次性模式为 `shotcli --url <u> |
 | **M0** Windows 端口骨架 | ALL_PORTS 注册、OptionsShot.cmake（Win 段）、各 PlatformShot.cmake，编译到 WebCore OBJECT 汇总；**体积化编译/链接层全部打开**（MinSizeRel/LTO/gc-sections/visibility，见 4.5①） | 链接出空 main 可执行文件；`jsc` shell（CLoop）能算 `1+1` | — |
 | **M1** Win 最小 HTML→PNG ✅ | ShotGlobal/ShotPage + EmptyClients 替换件 + writer 直喂 + snapshotFrameRect + encodeData；子资源仅 data:；Skia 裁到纯 CPU（4.5③） | ✅ `shotcli --html` 截出 640×400 RGBA PNG，退出码 0，CJK/emoji 正常 | 67.4 MB（未优化 Release） |
 | **M2** Win 网络化 + 体积 DCE + 硬化 ✅ | Strategies/CurlResourceLoader/NetworkingContext/Session、完成状态机、超时；DCE 三件套 + /O1；ICU 数据与 converter 裁剪；无脚本网络闭包；JSC 地址空间收缩；ANGLE 仅 delay-load 且不分发 | ✅ 网络/WebP/XML/XSLT/7 编码像素/无脚本请求；仅 10 个导出；1000×render RSS 基线 27.1→峰值 29.2 MB、增长 2.1 MB；Shot/JSC reserve 增量 32.6 MiB | **shot.dll 39,545,856 bytes**；**shotcli 48,640 bytes**；direct tar.xz **17,299,500 bytes**，解压 57.97 MiB / 27 文件；无运行时解压或缓存 |
-| **M3** Linux 🚧 | OptionsShot Linux 段（Fontconfig/FreeType/Generic RunLoop）；Ubuntu CI 固定字体包；full LTO 构建与发布闭包 | ✅ 本机 WSL Ubuntu 24.04 构建；PNG/WebP/网络/无脚本/XML-XSLT 冒烟通过；CI 待跑 | 非 LTO strip **54,528,248 bytes**；xz **12,114,536 bytes**（临时基线） |
-| **M4** macOS | mac 段（CG/CT/CFNetwork/ResourceHandle 路径）；LoaderStrategy 的 mac 分支 | 同 fixture，容差放宽 | 待填 |
+| **M3** Linux ✅ | OptionsShot Linux 段（Fontconfig/FreeType/Generic RunLoop）；Ubuntu CI 固定字体包；full LTO 构建与发布闭包 | ✅ Ubuntu 24.04 hosted CI：PNG/WebP/网络/无脚本/ABI/RPATH/发布包通过（run 29567755576） | 非 LTO strip **54,528,248 bytes**；xz **12,114,536 bytes**（临时基线；full LTO hosted 产物待下载登记） |
+| **M4** macOS 🚧 | mac 段（CG/CT/CFNetwork/ResourceHandle 路径）；LoaderStrategy 的 mac 分支 | hosted macOS CI 接入中 | 待填 |
 | **M5** 交付硬化 | ABI 冻结、Node/Python/Go smoke 绑定、三平台 CI、鲁棒性（大页面/循环重定向）、泄漏（重复 render 1000 次 RSS 平稳）、**CI 体积预算门槛**（4.5④） | CI 全绿，体积不超预算 | 预算冻结 |
 
 **为什么从 Windows 起步**：开发机是 Windows；Win 官方端口本就是 curl+OpenSSL+Skia+HarfBuzz+DirectWrite 的活跃 CI 组合，OptionsShot 的 Win 段基本是 OptionsWin.cmake 的减法；WebKitRequirements 预构建包一次解决全部系统依赖。
@@ -414,6 +414,7 @@ CLI（`shotcli`）是 ABI 的薄封装：一次性模式为 `shotcli --url <u> |
 
 | 文件 | 改动 | 原因 | 里程碑 |
 |---|---|---|---|
+| `Source/WebCore/loader/EmptyClients.{h,cpp}` | 仅在 `PLATFORM(SHOT) && PLATFORM(COCOA)` 下给空 Frame 网络上下文注入私有 `NetworkStorageSession` 并使上下文有效 | Cocoa `ResourceHandle` 会拒绝无 frame/无 session 的默认空上下文；Shot 单进程子资源需复用同一个内存 CFNetwork session | M4/macOS 🚧 已改，CI 验证中 |
 | `Source/cmake/WebKitCommon.cmake` | `ALL_PORTS` 加 `Shot` | 端口注册 | M0 ✅ 已改 |
 | `Source/WebCore/CMakeLists.txt` | GL 库块的 `else()` 改为 `elseif (USE_TEXTURE_MAPPER OR USE_EGL)` | 纯软件光栅端口无 GPU 后端，原逻辑无条件要求不存在的 `OpenGL::GLES` 目标 | M0 ✅ 已改 |
 | `Source/WebCore/bindings/scripts/CodeGenerator.pm` | `IDLFileForInterface` 的 `chomp` 改为 `s/[\r\n]+$//`（CRLF 容错） | Windows 上生成的 IDL 列表 .tmp 是 CRLF，Git 自带 perl 的 chomp 只去 `\n`，残留 `\r` 使接口名映射键损坏，报 "Could NOT find IDL file for interface"。此为通用健壮性修复 | M0 ✅ 已改 |

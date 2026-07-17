@@ -5,9 +5,6 @@
 #include "config.h"
 #include "ShotSession.h"
 
-#include <WebCore/Cookie.h>
-#include <WebCore/CookieUtil.h>
-#include <WebCore/CurlResponse.h>
 #include <WebCore/HTTPHeaderNames.h>
 #include <WebCore/ResourceRequest.h>
 #include <wtf/URL.h>
@@ -17,11 +14,49 @@
 #include <wtf/text/MakeString.h>
 #include <wtf/text/StringBuilder.h>
 
+#if USE(CURL)
+#include <WebCore/Cookie.h>
+#include <WebCore/CookieUtil.h>
+#include <WebCore/CurlResponse.h>
+#endif
+
+#if PLATFORM(COCOA)
+#include <WebCore/EmptyClients.h>
+#include <WebCore/NetworkStorageSession.h>
+#include <pal/SessionID.h>
+#include <wtf/CompletionHandler.h>
+#include <wtf/RetainPtr.h>
+#endif
+
 namespace ShotKit {
 
 using namespace WebCore;
 
 namespace {
+
+#if PLATFORM(COCOA)
+std::unique_ptr<NetworkStorageSession>& cocoaStorageSession()
+{
+    static NeverDestroyed<std::unique_ptr<NetworkStorageSession>> session;
+    return session.get();
+}
+
+NetworkStorageSession& ensureCocoaStorageSession()
+{
+    auto& session = cocoaStorageSession();
+    if (!session) {
+        NetworkStorageSession::permitProcessToUseCookieAPI(true);
+        auto identifier = "ShotKit-InMemory"_s.createCFString();
+        auto platformSession = NetworkStorageSession::createCFStorageSessionForIdentifier(identifier.get(), NetworkStorageSession::ShouldDisableCFURLCache::Yes);
+        auto cookieStorage = adoptCF(_CFURLStorageSessionCopyCookieStorage(kCFAllocatorDefault, platformSession.get()));
+        session = makeUnique<NetworkStorageSession>(PAL::SessionID::defaultSessionID(), WTF::move(platformSession), WTF::move(cookieStorage), NetworkStorageSession::IsInMemoryCookieStore::Yes);
+        setEmptyFrameNetworkingContextStorageSession(session.get());
+    }
+    return *session;
+}
+#endif
+
+#if USE(CURL)
 
 struct StoredCookie {
     Cookie cookie;
@@ -57,16 +92,31 @@ bool isExpired(const Cookie& cookie)
 {
     return cookie.expires && *cookie.expires <= WallTime::now().secondsSinceEpoch().milliseconds();
 }
+#endif
 
 } // anonymous namespace
 
 void beginRenderSession()
 {
+#if PLATFORM(COCOA)
+    ensureCocoaStorageSession().deleteAllCookies([] { });
+#else
     cookies().clear();
+#endif
+}
+
+NetworkStorageSession* activeNetworkStorageSession()
+{
+#if PLATFORM(COCOA)
+    return &ensureCocoaStorageSession();
+#else
+    return nullptr;
+#endif
 }
 
 void appendRequestCookies(ResourceRequest& request)
 {
+#if USE(CURL)
     auto& storage = cookies();
     storage.removeAllMatching([](auto& stored) { return isExpired(stored.cookie); });
 
@@ -85,10 +135,14 @@ void appendRequestCookies(ResourceRequest& request)
     }
     if (!header.isEmpty())
         request.addHTTPHeaderField(HTTPHeaderName::Cookie, header.toString());
+#else
+    UNUSED_PARAM(request);
+#endif
 }
 
 void storeResponseCookies(const ResourceRequest&, const CurlResponse& response)
 {
+#if USE(CURL)
     static constexpr auto setCookieHeader = "set-cookie: "_s;
     auto host = response.url.host().toString().convertToASCIILowercase();
 
@@ -118,6 +172,9 @@ void storeResponseCookies(const ResourceRequest&, const CurlResponse& response)
         if (!isExpired(*parsed))
             storage.append({ WTF::move(*parsed), hostOnly });
     }
+#else
+    UNUSED_PARAM(response);
+#endif
 }
 
 } // namespace ShotKit

@@ -5,7 +5,9 @@
 #include "config.h"
 #include "ShotLoaderStrategy.h"
 
+#if USE(CURL)
 #include "ShotCurlResourceLoader.h"
+#endif
 #include <WebCore/CachedResource.h>
 #include <WebCore/FetchOptions.h>
 #include <WebCore/ResourceLoader.h>
@@ -56,6 +58,10 @@ void ShotLoaderStrategy::loadResource(LocalFrame& frame, CachedResource& resourc
 
 void ShotLoaderStrategy::startLoad(ResourceLoader& loader)
 {
+#if PLATFORM(COCOA)
+    // ResourceHandleCocoa is a complete CFNetwork-backed implementation.
+    loader.start();
+#else
     auto& url = loader.request().url();
     // data:/blob:/about: 走 ResourceLoader 内置路径（start() 内部 loadDataURL 短路，不触 ResourceHandle）。
     if (url.protocolIsData() || url.protocolIsBlob() || url.protocolIsAbout()) {
@@ -66,15 +72,21 @@ void ShotLoaderStrategy::startLoad(ResourceLoader& loader)
     auto handle = ShotCurlResourceLoader::create(loader, *this);
     m_handles.add(&loader, handle.copyRef());
     handle->start();
+#endif
 }
 
 void ShotLoaderStrategy::didCompleteLoad(ResourceLoader& loader)
 {
+#if USE(CURL)
     m_handles.remove(&loader);
+#else
+    UNUSED_PARAM(loader);
+#endif
 }
 
 void ShotLoaderStrategy::remove(ResourceLoader* loader)
 {
+#if USE(CURL)
     if (!loader)
         return;
     auto it = m_handles.find(loader);
@@ -83,6 +95,9 @@ void ShotLoaderStrategy::remove(ResourceLoader* loader)
     Ref<ShotCurlResourceLoader> handle = it->value;
     m_handles.remove(it);
     handle->cancel();
+#else
+    UNUSED_PARAM(loader);
+#endif
 }
 
 void ShotLoaderStrategy::loadResourceSynchronously(FrameLoader&, ResourceLoaderIdentifier, const ResourceRequest&, ClientCredentialPolicy, const FetchOptions&, const HTTPHeaderMap&, ResourceError& error, ResourceResponse&, Vector<uint8_t>&)

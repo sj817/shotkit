@@ -1,0 +1,117 @@
+name: macOS
+
+on:
+  push:
+    branches: [main, codex/linux-macos-port]
+  pull_request:
+  workflow_dispatch:
+
+concurrency:
+  group: macos-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    runs-on: macos-15
+    timeout-minutes: 360
+
+    steps:
+      - name: Checkout the ShotKit build closure
+        uses: actions/checkout@v7
+        with:
+          fetch-depth: 1
+          sparse-checkout-cone-mode: false
+          sparse-checkout: |
+            /.github/
+            /Source/
+            /Tools/
+            /WebKitLibraries/
+            /CMakeLists.txt
+            /CMakePresets.json
+            /Makefile
+            /Makefile.shared
+            /AGENTS.md
+            /ReadMe.md
+
+      - name: Install build dependencies
+        run: |
+          brew install bison cmake gperf icu4c ninja
+          echo "$(brew --prefix bison)/bin" >> "$GITHUB_PATH"
+          echo "$(brew --prefix icu4c)/bin" >> "$GITHUB_PATH"
+          echo "CMAKE_PREFIX_PATH=$(brew --prefix icu4c)" >> "$GITHUB_ENV"
+          cmake --version
+          ninja --version
+          clang --version
+
+      - name: Configure ShotKit
+        run: |
+          cmake -S . -B WebKitBuild/shot-macos -G Ninja \
+            -DPORT=Shot \
+            -DCMAKE_BUILD_TYPE=MinSizeRel \
+            -DCMAKE_PREFIX_PATH="$CMAKE_PREFIX_PATH" \
+            -DLTO_MODE=OFF
+
+      - name: Build ShotKit
+        run: ninja -C WebKitBuild/shot-macos -j3 shotcli
+
+      - name: Smoke test PNG and WebP
+        run: |
+          printf '%s\n' '<!doctype html><meta charset=utf-8><style>body{background:#eef2f7;font:32px sans-serif}h1{color:#246}</style><h1>ShotKit macOS CI</h1>' > "$RUNNER_TEMP/shot-smoke.html"
+          WebKitBuild/shot-macos/bin/shotcli --html "$RUNNER_TEMP/shot-smoke.html" --out "$RUNNER_TEMP/shot-smoke.png" --width 640 --height 360
+          WebKitBuild/shot-macos/bin/shotcli --html "$RUNNER_TEMP/shot-smoke.html" --out "$RUNNER_TEMP/shot-smoke.webp" --format webp --quality 82 --width 640 --height 360
+          test "$(stat -f %z "$RUNNER_TEMP/shot-smoke.png")" -gt 100
+          test "$(stat -f %z "$RUNNER_TEMP/shot-smoke.webp")" -gt 100
+
+      - name: Verify CFNetwork, scripts, and XML/XSLT
+        run: |
+          python3 Source/WebKitShot/tests/fixture_server.py 8988 > "$RUNNER_TEMP/fixture.log" 2>&1 &
+          server_pid=$!
+          trap 'kill "$server_pid" 2>/dev/null || true' EXIT
+          for attempt in $(seq 1 50); do
+            if curl -fsS http://127.0.0.1:8988/reset-counts >/dev/null; then break; fi
+            sleep 0.1
+          done
+          curl -fsS http://127.0.0.1:8988/reset-counts >/dev/null
+          WebKitBuild/shot-macos/bin/shotcli --url http://127.0.0.1:8988/script-network --out "$RUNNER_TEMP/no-script-network.png" --timeout 5000
+          counts=$(curl -fsS http://127.0.0.1:8988/request-counts)
+          python3 -c 'import json,sys; counts=json.loads(sys.argv[1]); assert counts == {"/script-network": 1}, counts' "$counts"
+          WebKitBuild/shot-macos/bin/shotcli --url http://127.0.0.1:8988/document.xml --out "$RUNNER_TEMP/xslt.png" --timeout 5000
+          test "$(stat -f %z "$RUNNER_TEMP/xslt.png")" -gt 100
+
+      - name: Verify ABI and relocatable CLI
+        run: |
+          exports=$(nm -gU WebKitBuild/shot-macos/lib/libshot.dylib | awk '{print $NF}' | grep '^_shot_' | sort)
+          test "$(printf '%s\n' "$exports" | grep -c '^_shot_')" -eq 10
+          otool -l WebKitBuild/shot-macos/bin/shotcli | grep -F '@loader_path/../lib'
+          ls -lh WebKitBuild/shot-macos/lib/libshot.dylib WebKitBuild/shot-macos/bin/shotcli
+
+      - name: Package release archive
+        run: |
+          version="0.1.0-ci.${GITHUB_RUN_NUMBER}"
+          arch=$(uname -m)
+          name="shotkit-${version}-macos-${arch}"
+          stage="WebKitBuild/releases/${name}"
+          mkdir -p "$stage/bin" "$stage/lib" "$stage/include"
+          cp WebKitBuild/shot-macos/bin/shotcli "$stage/bin/"
+          cp WebKitBuild/shot-macos/lib/libshot.dylib "$stage/lib/"
+          cp Source/WebKitShot/capi/shot.h "$stage/include/"
+          strip -x "$stage/bin/shotcli" "$stage/lib/libshot.dylib"
+          otool -L "$stage/lib/libshot.dylib" > "$stage/DEPENDENCIES.txt"
+          cp ReadMe.md "$stage/README.md"
+          tar -C WebKitBuild/releases -cJf "WebKitBuild/releases/${name}.tar.xz" "$name"
+          shasum -a 256 "WebKitBuild/releases/${name}.tar.xz" > "WebKitBuild/releases/${name}.tar.xz.sha256"
+          ls -lh "$stage/bin/shotcli" "$stage/lib/libshot.dylib" "WebKitBuild/releases/${name}.tar.xz"
+
+      - name: Upload compressed release
+        uses: actions/upload-artifact@v7
+        with:
+          name: shotkit-macos
+          path: |
+            WebKitBuild/releases/*.tar.xz
+            WebKitBuild/releases/*.tar.xz.sha256
+          if-no-files-found: error
+          compression-level: 0
+          retention-days: 7
