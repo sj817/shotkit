@@ -15,7 +15,11 @@ if (APPLE)
     set(WEBKIT_PLATFORM_NAME "MacOSX")
     # PlatformEnableCocoa derives these as ON on macOS even when their parent
     # feature is OFF. Shot has no media source or notification surface.
-    add_definitions(-DENABLE_COCOA_WEBM_PLAYER=0 -DENABLE_NOTIFICATION_EVENT=0)
+    add_definitions(
+        -DENABLE_COCOA_WEBM_PLAYER=0
+        -DENABLE_DECLARATIVE_WEB_PUSH=0
+        -DENABLE_NOTIFICATION_EVENT=0
+    )
     # Xcode 16.4 rejects the current annotate_type placement on declarations.
     # NODELETE is analyzer metadata only and is already empty on Win/Linux Shot.
     add_definitions(-DNODELETE=)
