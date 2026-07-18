@@ -414,6 +414,7 @@ CLI（`shotcli`）是 ABI 的薄封装：一次性模式为 `shotcli --url <u> |
 
 | 文件 | 改动 | 原因 | 里程碑 |
 |---|---|---|---|
+| `Source/WebCore/platform/graphics/ca/GraphicsLayerCA.cpp` | 视频关闭时把 `setContentsToVideoElement` 保留为空 ABI 实现，并门控 `HTMLVideoElement.h` | CoreAnimation 图层类型仍需满足 `GraphicsLayer` 虚接口，但 `HTMLVideoElement` 的完整定义只在 `ENABLE_VIDEO` 下存在 | M4/macOS 🚧 已改，CI 验证中 |
 | `Source/WTF/wtf/PlatformHave.h` | Cocoa 的 `HAVE_AVASSETREADER` 默认值改为仅在端口未显式定义时启用 | Shot 关闭视频并排除 AVFoundation 解码链，只保留 CoreGraphics/ImageIO；原无条件宏使端口无法关闭该能力并继续引用已裁实现 | M4/macOS 🚧 已改，CI 验证中 |
 | `Source/WebCore/platform/audio/PlatformMediaSessionManager.cpp` | `PLATFORM(SHOT)` 在 Cocoa 上也启用通用空 media-session manager 工厂 | Shot 关闭视频/WebAudio/媒体流并排除 Cocoa CoreAudio manager，但 Page 配置仍需要进程内 manager 对象 | M4/macOS 🚧 已改，CI 验证中 |
 | `Source/WebCore/platform/mac/ScrollAnimatorMac.mm` | 直接用 wheel phase 判断动量滚动结束，不调用仅随完整异步滚动声明的便捷方法 | Shot 只保留 Mac animator ABI 所需的 kinetic phase 类型，仍关闭异步滚动；直接判断与该便捷方法语义一致 | M4/macOS 🚧 已改，CI 验证中 |
