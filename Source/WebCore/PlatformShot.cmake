@@ -11,6 +11,7 @@ elseif (APPLE)
     # Those types are absent with ENABLE_VIDEO=OFF; static document networking
     # uses ResourceHandleCocoa (NSURLConnection/CFNetwork) instead.
     list(REMOVE_ITEM WebCore_SOURCES
+        platform/network/cocoa/RangeResponseGenerator.mm
         platform/network/cocoa/WebCoreNSURLSession.mm
         platform/mediastream/cocoa/ScreenCaptureKitCaptureSource.mm
         platform/mediastream/cocoa/ScreenCaptureKitSharingSessionManager.mm
@@ -27,6 +28,7 @@ elseif (APPLE)
         "(^|/)platform/graphics/cocoa/(AV1UtilitiesCocoa|AudioTrackPrivateWebM|CMUtilities|CVPixelBufferUtilities|H264UtilitiesCocoa|HEVCUtilitiesCocoa|ISOBMFFPreParser|ISOBMFFTrackInfoParser|MediaPlayer.*|PlatformMediaEngineConfigurationFactoryCocoa|PlatformTimeRangesCocoa|ShareableCVPixelBuffer|ShareableCVPixelFormat|SourceBufferParser.*|TextTrackRepresentationCocoa|VP9UtilitiesCocoa|VideoMediaSampleRenderer|VideoTargetFactory|VideoTrackPrivateWebM|WebCoreDecompressionSession|WebMAudioUtilitiesCocoa)"
         "(^|/)platform/ios/(PlaybackSession|VideoPresentation|WebAVPlayer|WebVideoFullscreen)"
         "(^|/)platform/mediastream/cocoa/ScreenCaptureKit(CaptureSource|SharingSessionManager)"
+        "(^|/)platform/network/cocoa/(RangeResponseGenerator|WebCoreNSURLSession)"
         "SerializedPlatformDataCue"
     )
     list(FILTER WebCore_SOURCES EXCLUDE REGEX "(^|/)platform/audio/(cocoa|ios|mac)/")
@@ -35,6 +37,7 @@ elseif (APPLE)
     list(FILTER WebCore_SOURCES EXCLUDE REGEX "(^|/)platform/graphics/cocoa/(AV1UtilitiesCocoa|AudioTrackPrivateWebM|CMUtilities|CVPixelBufferUtilities|H264UtilitiesCocoa|HEVCUtilitiesCocoa|ISOBMFFPreParser|ISOBMFFTrackInfoParser|MediaPlayer.*|PlatformMediaEngineConfigurationFactoryCocoa|PlatformTimeRangesCocoa|ShareableCVPixelBuffer|ShareableCVPixelFormat|SourceBufferParser.*|TextTrackRepresentationCocoa|VP9UtilitiesCocoa|VideoMediaSampleRenderer|VideoTargetFactory|VideoTrackPrivateWebM|WebCoreDecompressionSession|WebMAudioUtilitiesCocoa)")
     list(FILTER WebCore_SOURCES EXCLUDE REGEX "(^|/)platform/ios/(PlaybackSession|VideoPresentation|WebAVPlayer|WebVideoFullscreen)")
     list(FILTER WebCore_SOURCES EXCLUDE REGEX "(^|/)platform/mediastream/cocoa/ScreenCaptureKit(CaptureSource|SharingSessionManager)")
+    list(FILTER WebCore_SOURCES EXCLUDE REGEX "(^|/)platform/network/cocoa/(RangeResponseGenerator|WebCoreNSURLSession)")
     list(FILTER WebCore_SOURCES EXCLUDE REGEX "SerializedPlatformDataCue")
 else ()
     include(platform/Adwaita.cmake)
