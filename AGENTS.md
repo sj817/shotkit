@@ -414,6 +414,7 @@ CLI（`shotcli`）是 ABI 的薄封装：一次性模式为 `shotcli --url <u> |
 
 | 文件 | 改动 | 原因 | 里程碑 |
 |---|---|---|---|
+| `Source/WebCore/PlatformShot.cmake` | macOS Shot 排除两个 ScreenCaptureKit 采集实现 | Shot 关闭媒体流；这两个实现未用 `ENABLE_MEDIA_STREAM` 包住，却依赖只在媒体流开启时存在的采集类型 | M4/macOS 🚧 已改，CI 验证中 |
 | `Source/{cmake/OptionsShot.cmake,WTF/wtf/PlatformHave.h,WebCore/platform/mac/PlatformScreenMac.mm}` | Shot 显式关闭 `HAVE_AVPLAYER_VIDEORANGEOVERRIDE`，平台默认值允许端口覆盖，并按该能力门控 AVFoundation 头 | Shot 不提供视频或 HDR 播放策略；无条件包含 AVFoundation SPI 会在精简 PAL 闭包中引用不存在的 `AVOutputContext` | M4/macOS 🚧 已改，CI 验证中 |
 | `Source/WebCore/platform/mac/ScrollingEffectsController.mm` | 直接用 wheel phase 判断动量事件与动量滚动结束 | Shot 关闭异步滚动，而原便捷方法只在 `ENABLE_ASYNC_SCROLLING` 下声明；直接判断与便捷方法语义一致 | M4/macOS 🚧 已改，CI 验证中 |
 | `Source/WebCore/platform/mediacapabilities/PlatformMediaEngineConfigurationFactory.cpp` | `PLATFORM(SHOT)` 不注册 Cocoa 媒体解码能力工厂 | Shot 不提供音视频，Cocoa 实现依赖已裁掉的 `MediaPlayer` 类型；保留空工厂集合可让任何残余查询按「不支持」返回 | M4/macOS 🚧 已改，CI 验证中 |
