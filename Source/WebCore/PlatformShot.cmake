@@ -21,13 +21,13 @@ elseif (APPLE)
         "(^|/)platform/graphics/avfoundation/"
         "(^|/)platform/graphics/cv/"
         "(^|/)platform/cocoa/(CoreVideoSoftLink|MediaRemoteSoftLink|SharedVideoFrameInfo|VideoFullscreenCaptions|VideoToolboxSoftLink|WebAVPlayerLayer)"
-        "PlatformMediaEngineConfigurationFactoryCocoa"
+        "(^|/)platform/graphics/cocoa/(AV1UtilitiesCocoa|AudioTrackPrivateWebM|CMUtilities|CVPixelBufferUtilities|H264UtilitiesCocoa|HEVCUtilitiesCocoa|ISOBMFFPreParser|ISOBMFFTrackInfoParser|MediaPlayer.*|PlatformMediaEngineConfigurationFactoryCocoa|PlatformTimeRangesCocoa|ShareableCVPixelBuffer|ShareableCVPixelFormat|SourceBufferParser.*|TextTrackRepresentationCocoa|VP9UtilitiesCocoa|VideoMediaSampleRenderer|VideoTargetFactory|VideoTrackPrivateWebM|WebCoreDecompressionSession|WebMAudioUtilitiesCocoa)"
         "SerializedPlatformDataCue"
     )
     list(FILTER WebCore_SOURCES EXCLUDE REGEX "(^|/)platform/audio/(cocoa|mac)/")
     list(FILTER WebCore_SOURCES EXCLUDE REGEX "(^|/)platform/graphics/(avfoundation|cv)/")
     list(FILTER WebCore_SOURCES EXCLUDE REGEX "(^|/)platform/cocoa/(CoreVideoSoftLink|MediaRemoteSoftLink|SharedVideoFrameInfo|VideoFullscreenCaptions|VideoToolboxSoftLink|WebAVPlayerLayer)")
-    list(FILTER WebCore_SOURCES EXCLUDE REGEX "PlatformMediaEngineConfigurationFactoryCocoa")
+    list(FILTER WebCore_SOURCES EXCLUDE REGEX "(^|/)platform/graphics/cocoa/(AV1UtilitiesCocoa|AudioTrackPrivateWebM|CMUtilities|CVPixelBufferUtilities|H264UtilitiesCocoa|HEVCUtilitiesCocoa|ISOBMFFPreParser|ISOBMFFTrackInfoParser|MediaPlayer.*|PlatformMediaEngineConfigurationFactoryCocoa|PlatformTimeRangesCocoa|ShareableCVPixelBuffer|ShareableCVPixelFormat|SourceBufferParser.*|TextTrackRepresentationCocoa|VP9UtilitiesCocoa|VideoMediaSampleRenderer|VideoTargetFactory|VideoTrackPrivateWebM|WebCoreDecompressionSession|WebMAudioUtilitiesCocoa)")
     list(FILTER WebCore_SOURCES EXCLUDE REGEX "SerializedPlatformDataCue")
 else ()
     include(platform/Adwaita.cmake)
