@@ -11,6 +11,7 @@ elseif (APPLE)
     # Those types are absent with ENABLE_VIDEO=OFF; static document networking
     # uses ResourceHandleCocoa (NSURLConnection/CFNetwork) instead.
     list(REMOVE_ITEM WebCore_SOURCES
+        dom/DataTransferMac.mm
         platform/network/cocoa/RangeResponseGenerator.mm
         platform/network/cocoa/WebCoreNSURLSession.mm
         platform/mediastream/cocoa/ScreenCaptureKitCaptureSource.mm
@@ -19,6 +20,7 @@ elseif (APPLE)
     list(APPEND WebCore_UNIFIED_SOURCE_EXCLUDES
         "(^|/)Modules/applepay(-ams-ui)?/"
         "(^|/)Modules/WebGPU/"
+        "(^|/)dom/DataTransferMac\\.mm$"
         "(^|/)platform/audio/cocoa/"
         "(^|/)platform/audio/ios/"
         "(^|/)platform/audio/mac/"
@@ -32,6 +34,7 @@ elseif (APPLE)
         "SerializedPlatformDataCue"
     )
     list(FILTER WebCore_SOURCES EXCLUDE REGEX "(^|/)platform/audio/(cocoa|ios|mac)/")
+    list(FILTER WebCore_SOURCES EXCLUDE REGEX "(^|/)dom/DataTransferMac\\.mm$")
     list(FILTER WebCore_SOURCES EXCLUDE REGEX "(^|/)platform/graphics/(avfoundation|cv)/")
     list(FILTER WebCore_SOURCES EXCLUDE REGEX "(^|/)platform/cocoa/(CoreVideoSoftLink|MediaRemoteSoftLink|SharedVideoFrameInfo|VideoFullscreenCaptions|VideoToolboxSoftLink|WebAVPlayerLayer)")
     list(FILTER WebCore_SOURCES EXCLUDE REGEX "(^|/)platform/graphics/cocoa/(AV1UtilitiesCocoa|AudioTrackPrivateWebM|CMUtilities|CVPixelBufferUtilities|H264UtilitiesCocoa|HEVCUtilitiesCocoa|ISOBMFFPreParser|ISOBMFFTrackInfoParser|MediaPlayer.*|PlatformMediaEngineConfigurationFactoryCocoa|PlatformTimeRangesCocoa|ShareableCVPixelBuffer|ShareableCVPixelFormat|SourceBufferParser.*|TextTrackRepresentationCocoa|VP9UtilitiesCocoa|VideoMediaSampleRenderer|VideoTargetFactory|VideoTrackPrivateWebM|WebCoreDecompressionSession|WebMAudioUtilitiesCocoa)")

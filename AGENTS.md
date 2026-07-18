@@ -414,6 +414,8 @@ CLI（`shotcli`）是 ABI 的薄封装：一次性模式为 `shotcli --url <u> |
 
 | 文件 | 改动 | 原因 | 里程碑 |
 |---|---|---|---|
+| `Source/WebCore/PlatformShot.cmake` | macOS Shot 从直接源与 `SourcesCocoa.txt` 输入两路排除 `DataTransferMac.mm` | Shot 关闭拖拽；该 Mac 实现只定义 drag image 方法，而方法与成员在 `ENABLE_DRAG_SUPPORT=OFF` 时不存在 | M4/macOS 🚧 已改，CI 验证中 |
+| `Source/WebCore/editing/cocoa/EditingHTMLConverter.mm` | HTML attachment 头文件、辅助函数与转换分支增加 `ENABLE_ATTACHMENT_ELEMENT` 门控 | Shot 不启用 WebKit attachment element，但仍保留普通 HTML/图片的 Cocoa attributed-string 转换 | M4/macOS 🚧 已改，CI 验证中 |
 | `Source/cmake/OptionsShot.cmake` | macOS Shot 显式关闭 Cocoa 根据 VisionKit 自动开启的 image analysis 及派生能力 | Shot 不提供 OCR/Live Text/机器可读码分析；该分支还会在视频关闭后引用不完整的 `HTMLMediaElement` | M4/macOS 🚧 已改，CI 验证中 |
 | `Source/cmake/OptionsShot.cmake` | macOS Shot 对齐 Mac 默认开启 accessibility isolated tree，并关闭脱离 `MODEL_ELEMENT` 被 Cocoa 头强开的 model accessibility | `PlatformMac.cmake` 的 AX wrapper 需要 isolated-tree API；Shot 不启用 model element，不应编译其 AX 分支 | M4/macOS 🚧 已改，CI 验证中 |
 | `Source/WebCore/bindings/js/BindingsJSTZoneImpls.cpp` | WebAssembly provider 的头文件和 TZone allocator 实现增加 `ENABLE_WEBASSEMBLY` 门控 | 对应类型只在 WebAssembly 开启时声明；Shot 关闭 WASM，原无条件实例化会引用不存在的类型 | M4/macOS 🚧 已改，CI 验证中 |
