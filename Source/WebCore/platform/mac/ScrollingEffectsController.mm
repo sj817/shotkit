@@ -149,7 +149,8 @@ bool ScrollingEffectsController::handleWheelEvent(const PlatformWheelEvent& whee
     if (wheelEvent.phase() == PlatformWheelEventPhase::MayBegin || wheelEvent.phase() == PlatformWheelEventPhase::Cancelled)
         return false;
 
-    if (wheelEvent.isEndOfNonMomentumScroll() || wheelEvent.isEndOfMomentumScroll())
+    bool isEndOfMomentumScroll = wheelEvent.phase() == PlatformWheelEventPhase::None && wheelEvent.momentumPhase() == PlatformWheelEventPhase::Ended;
+    if (wheelEvent.isEndOfNonMomentumScroll() || isEndOfMomentumScroll)
         m_client.didStopWheelEventScroll();
     else if (wheelEvent.isGestureStart() || wheelEvent.isTransitioningToMomentumScroll())
         m_client.willStartWheelEventScroll();
@@ -189,7 +190,7 @@ bool ScrollingEffectsController::handleWheelEvent(const PlatformWheelEvent& whee
         return true;
     }
 
-    bool isMomentumScrollEvent = wheelEvent.isMomentumEvent();
+    bool isMomentumScrollEvent = wheelEvent.momentumPhase() != PlatformWheelEventPhase::None && wheelEvent.momentumPhase() != PlatformWheelEventPhase::WillBegin;
     if (m_ignoreMomentumScrolls && (isMomentumScrollEvent || m_isAnimatingRubberBand)) {
         if (wheelEvent.momentumPhase() == PlatformWheelEventPhase::Ended) {
             m_ignoreMomentumScrolls = false;
@@ -917,7 +918,7 @@ void ScrollingEffectsController::updateGestureInProgressState(const PlatformWhee
 {
     if (wheelEvent.isGestureStart() || wheelEvent.isTransitioningToMomentumScroll())
         m_inScrollGesture = true;
-    else if (wheelEvent.isEndOfNonMomentumScroll() || wheelEvent.isGestureCancel() || wheelEvent.isEndOfMomentumScroll())
+    else if (wheelEvent.isEndOfNonMomentumScroll() || wheelEvent.isGestureCancel() || (wheelEvent.phase() == PlatformWheelEventPhase::None && wheelEvent.momentumPhase() == PlatformWheelEventPhase::Ended))
         m_inScrollGesture = false;
 
     updateRubberBandingState();

@@ -38,10 +38,11 @@
 #import <ColorSync/ColorSync.h>
 #import <pal/cocoa/OpenGLSoftLinkCocoa.h>
 #import <pal/spi/cg/CoreGraphicsSPI.h>
+#if HAVE(AVPLAYER_VIDEORANGEOVERRIDE)
 #import <pal/spi/cocoa/AVFoundationSPI.h>
-#import <wtf/ProcessPrivilege.h>
-
 #import <pal/cocoa/AVFoundationSoftLink.h>
+#endif
+#import <wtf/ProcessPrivilege.h>
 
 #if USE(MEDIATOOLBOX)
 #import <pal/cocoa/MediaToolboxSoftLink.h>
