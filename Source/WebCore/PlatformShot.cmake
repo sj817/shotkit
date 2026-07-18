@@ -17,17 +17,20 @@ elseif (APPLE)
         "(^|/)Modules/applepay(-ams-ui)?/"
         "(^|/)Modules/WebGPU/"
         "(^|/)platform/audio/cocoa/"
+        "(^|/)platform/audio/ios/"
         "(^|/)platform/audio/mac/"
         "(^|/)platform/graphics/avfoundation/"
         "(^|/)platform/graphics/cv/"
         "(^|/)platform/cocoa/(CoreVideoSoftLink|MediaRemoteSoftLink|SharedVideoFrameInfo|VideoFullscreenCaptions|VideoToolboxSoftLink|WebAVPlayerLayer)"
         "(^|/)platform/graphics/cocoa/(AV1UtilitiesCocoa|AudioTrackPrivateWebM|CMUtilities|CVPixelBufferUtilities|H264UtilitiesCocoa|HEVCUtilitiesCocoa|ISOBMFFPreParser|ISOBMFFTrackInfoParser|MediaPlayer.*|PlatformMediaEngineConfigurationFactoryCocoa|PlatformTimeRangesCocoa|ShareableCVPixelBuffer|ShareableCVPixelFormat|SourceBufferParser.*|TextTrackRepresentationCocoa|VP9UtilitiesCocoa|VideoMediaSampleRenderer|VideoTargetFactory|VideoTrackPrivateWebM|WebCoreDecompressionSession|WebMAudioUtilitiesCocoa)"
+        "(^|/)platform/ios/(PlaybackSession|VideoPresentation|WebAVPlayer|WebVideoFullscreen)"
         "SerializedPlatformDataCue"
     )
-    list(FILTER WebCore_SOURCES EXCLUDE REGEX "(^|/)platform/audio/(cocoa|mac)/")
+    list(FILTER WebCore_SOURCES EXCLUDE REGEX "(^|/)platform/audio/(cocoa|ios|mac)/")
     list(FILTER WebCore_SOURCES EXCLUDE REGEX "(^|/)platform/graphics/(avfoundation|cv)/")
     list(FILTER WebCore_SOURCES EXCLUDE REGEX "(^|/)platform/cocoa/(CoreVideoSoftLink|MediaRemoteSoftLink|SharedVideoFrameInfo|VideoFullscreenCaptions|VideoToolboxSoftLink|WebAVPlayerLayer)")
     list(FILTER WebCore_SOURCES EXCLUDE REGEX "(^|/)platform/graphics/cocoa/(AV1UtilitiesCocoa|AudioTrackPrivateWebM|CMUtilities|CVPixelBufferUtilities|H264UtilitiesCocoa|HEVCUtilitiesCocoa|ISOBMFFPreParser|ISOBMFFTrackInfoParser|MediaPlayer.*|PlatformMediaEngineConfigurationFactoryCocoa|PlatformTimeRangesCocoa|ShareableCVPixelBuffer|ShareableCVPixelFormat|SourceBufferParser.*|TextTrackRepresentationCocoa|VP9UtilitiesCocoa|VideoMediaSampleRenderer|VideoTargetFactory|VideoTrackPrivateWebM|WebCoreDecompressionSession|WebMAudioUtilitiesCocoa)")
+    list(FILTER WebCore_SOURCES EXCLUDE REGEX "(^|/)platform/ios/(PlaybackSession|VideoPresentation|WebAVPlayer|WebVideoFullscreen)")
     list(FILTER WebCore_SOURCES EXCLUDE REGEX "SerializedPlatformDataCue")
 else ()
     include(platform/Adwaita.cmake)
