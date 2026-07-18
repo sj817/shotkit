@@ -19,6 +19,7 @@ if (APPLE)
         -DENABLE_COCOA_WEBM_PLAYER=0
         -DENABLE_DECLARATIVE_WEB_PUSH=0
         -DENABLE_NOTIFICATION_EVENT=0
+        -DHAVE_AVASSETREADER=0
     )
     # ScrollAnimatorMac's ABI uses wheel phases even though Shot never sends
     # wheel events. Keep async scrolling OFF; expose only those phase types.
