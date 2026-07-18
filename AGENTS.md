@@ -414,6 +414,7 @@ CLI（`shotcli`）是 ABI 的薄封装：一次性模式为 `shotcli --url <u> |
 
 | 文件 | 改动 | 原因 | 里程碑 |
 |---|---|---|---|
+| `Source/cmake/OptionsShot.cmake` | macOS Shot 对齐 Mac 默认开启 accessibility isolated tree，并关闭脱离 `MODEL_ELEMENT` 被 Cocoa 头强开的 model accessibility | `PlatformMac.cmake` 的 AX wrapper 需要 isolated-tree API；Shot 不启用 model element，不应编译其 AX 分支 | M4/macOS 🚧 已改，CI 验证中 |
 | `Source/WebCore/bindings/js/BindingsJSTZoneImpls.cpp` | WebAssembly provider 的头文件和 TZone allocator 实现增加 `ENABLE_WEBASSEMBLY` 门控 | 对应类型只在 WebAssembly 开启时声明；Shot 关闭 WASM，原无条件实例化会引用不存在的类型 | M4/macOS 🚧 已改，CI 验证中 |
 | `Source/WebCore/PlatformShot.cmake` | macOS Shot 从直接源与 `SourcesCocoa.txt` 输入两路排除 `WebCoreNSURLSession`、`RangeResponseGenerator` | 两者只服务 `PlatformMediaResource`；Shot 关闭视频后类型不存在，静态文档网络继续使用 `ResourceHandleCocoa` | M4/macOS 🚧 已改，CI 验证中 |
 | `Source/WebCore/PlatformShot.cmake` | macOS Shot 排除两个 ScreenCaptureKit 采集实现 | Shot 关闭媒体流；这两个实现未用 `ENABLE_MEDIA_STREAM` 包住，却依赖只在媒体流开启时存在的采集类型 | M4/macOS 🚧 已改，CI 验证中 |
