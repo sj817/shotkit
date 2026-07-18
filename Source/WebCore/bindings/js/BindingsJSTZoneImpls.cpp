@@ -28,8 +28,10 @@
 #include "CachedScriptSourceProvider.h"
 #include "DOMPromiseProxy.h"
 #include "ScriptBufferSourceProvider.h"
+#if ENABLE(WEBASSEMBLY)
 #include "WebAssemblyCachedScriptSourceProvider.h"
 #include "WebAssemblyScriptBufferSourceProvider.h"
+#endif
 #include <wtf/TZoneMallocInlines.h>
 
 namespace WebCore {
@@ -37,8 +39,10 @@ namespace WebCore {
 WTF_MAKE_TZONE_ALLOCATED_IMPL(CachedScriptSourceProvider);
 WTF_MAKE_TZONE_ALLOCATED_IMPL(DOMPromiseDeferredBase);
 WTF_MAKE_TZONE_ALLOCATED_IMPL(ScriptBufferSourceProvider);
+#if ENABLE(WEBASSEMBLY)
 WTF_MAKE_TZONE_ALLOCATED_IMPL(WebAssemblyCachedScriptSourceProvider);
 WTF_MAKE_TZONE_ALLOCATED_IMPL(WebAssemblyScriptBufferSourceProvider);
+#endif
 
 #define TZONE_TEMPLATE_PARAMS
 #define TZONE_TYPE DOMPromiseProxy<IDLUndefined>
