@@ -414,6 +414,7 @@ CLI（`shotcli`）是 ABI 的薄封装：一次性模式为 `shotcli --url <u> |
 
 | 文件 | 改动 | 原因 | 里程碑 |
 |---|---|---|---|
+| `Source/WebCore/PlatformShot.cmake` | macOS Shot 从直接源与 `SourcesCocoa.txt` 输入两路排除 `GPUCanvasContextCocoa.mm` | Shot 同时关闭 WebGPU 和 OffscreenCanvas；该实现只服务 GPU canvas，不影响 CoreGraphics 2D Canvas | M4/macOS 🚧 已改，CI 验证中 |
 | `Source/WebCore/editing/cocoa/WebContentReaderCocoa.mm` | attachment-off 分支的 `UNUSED_PARAM(blob)` 改为函数实际未使用的 4 个参数 | 原分支引用不存在的局部变量，只在 `ENABLE_ATTACHMENT_ELEMENT=OFF` 时暴露 | M4/macOS 🚧 已改，CI 验证中 |
 | `Source/WebCore/PlatformShot.cmake` | macOS Shot 从直接源与 `SourcesCocoa.txt` 输入两路排除 `DataTransferMac.mm` | Shot 关闭拖拽；该 Mac 实现只定义 drag image 方法，而方法与成员在 `ENABLE_DRAG_SUPPORT=OFF` 时不存在 | M4/macOS 🚧 已改，CI 验证中 |
 | `Source/WebCore/editing/cocoa/EditingHTMLConverter.mm` | HTML attachment 头文件、辅助函数与转换分支增加 `ENABLE_ATTACHMENT_ELEMENT` 门控 | Shot 不启用 WebKit attachment element，但仍保留普通 HTML/图片的 Cocoa attributed-string 转换 | M4/macOS 🚧 已改，CI 验证中 |
