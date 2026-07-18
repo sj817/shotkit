@@ -289,7 +289,10 @@ static Ref<DocumentFragment> createFragmentForImageAttachment(LocalFrame& frame,
     }
     return fragment;
 #else
-    UNUSED_PARAM(blob);
+    UNUSED_PARAM(frame);
+    UNUSED_PARAM(buffer);
+    UNUSED_PARAM(contentType);
+    UNUSED_PARAM(preferredSize);
     return document.createDocumentFragment();
 #endif
 }
