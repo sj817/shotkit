@@ -414,6 +414,7 @@ CLI（`shotcli`）是 ABI 的薄封装：一次性模式为 `shotcli --url <u> |
 
 | 文件 | 改动 | 原因 | 里程碑 |
 |---|---|---|---|
+| `Source/WebCore/platform/mediacapabilities/PlatformMediaEngineConfigurationFactory.cpp` | `PLATFORM(SHOT)` 不注册 Cocoa 媒体解码能力工厂 | Shot 不提供音视频，Cocoa 实现依赖已裁掉的 `MediaPlayer` 类型；保留空工厂集合可让任何残余查询按「不支持」返回 | M4/macOS 🚧 已改，CI 验证中 |
 | `Source/WebCore/platform/graphics/ca/GraphicsLayerCA.cpp` | 视频关闭时把 `setContentsToVideoElement` 保留为空 ABI 实现，并门控 `HTMLVideoElement.h` | CoreAnimation 图层类型仍需满足 `GraphicsLayer` 虚接口，但 `HTMLVideoElement` 的完整定义只在 `ENABLE_VIDEO` 下存在 | M4/macOS 🚧 已改，CI 验证中 |
 | `Source/WTF/wtf/PlatformHave.h` | Cocoa 的 `HAVE_AVASSETREADER` 默认值改为仅在端口未显式定义时启用 | Shot 关闭视频并排除 AVFoundation 解码链，只保留 CoreGraphics/ImageIO；原无条件宏使端口无法关闭该能力并继续引用已裁实现 | M4/macOS 🚧 已改，CI 验证中 |
 | `Source/WebCore/platform/audio/PlatformMediaSessionManager.cpp` | `PLATFORM(SHOT)` 在 Cocoa 上也启用通用空 media-session manager 工厂 | Shot 关闭视频/WebAudio/媒体流并排除 Cocoa CoreAudio manager，但 Page 配置仍需要进程内 manager 对象 | M4/macOS 🚧 已改，CI 验证中 |

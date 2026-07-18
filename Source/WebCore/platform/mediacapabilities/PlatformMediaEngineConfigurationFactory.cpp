@@ -38,7 +38,7 @@
 #include <wtf/NeverDestroyed.h>
 #include <wtf/Vector.h>
 
-#if PLATFORM(COCOA)
+#if PLATFORM(COCOA) && !PLATFORM(SHOT)
 #include "PlatformMediaEngineConfigurationFactoryCocoa.h"
 #endif
 
@@ -58,7 +58,7 @@ using MediaEngineFactoryVector = Vector<PlatformMediaEngineConfigurationFactory:
 static MediaEngineFactoryVector defaultFactories()
 {
     MediaEngineFactoryVector factories;
-#if PLATFORM(COCOA)
+#if PLATFORM(COCOA) && !PLATFORM(SHOT)
     factories.append({ &createMediaPlayerDecodingConfigurationCocoa, nullptr });
 #endif
 #if USE(GSTREAMER)

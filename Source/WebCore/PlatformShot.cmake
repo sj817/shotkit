@@ -21,11 +21,13 @@ elseif (APPLE)
         "(^|/)platform/graphics/avfoundation/"
         "(^|/)platform/graphics/cv/"
         "(^|/)platform/cocoa/(CoreVideoSoftLink|MediaRemoteSoftLink|SharedVideoFrameInfo|VideoFullscreenCaptions|VideoToolboxSoftLink|WebAVPlayerLayer)"
+        "PlatformMediaEngineConfigurationFactoryCocoa"
         "SerializedPlatformDataCue"
     )
     list(FILTER WebCore_SOURCES EXCLUDE REGEX "(^|/)platform/audio/(cocoa|mac)/")
     list(FILTER WebCore_SOURCES EXCLUDE REGEX "(^|/)platform/graphics/(avfoundation|cv)/")
     list(FILTER WebCore_SOURCES EXCLUDE REGEX "(^|/)platform/cocoa/(CoreVideoSoftLink|MediaRemoteSoftLink|SharedVideoFrameInfo|VideoFullscreenCaptions|VideoToolboxSoftLink|WebAVPlayerLayer)")
+    list(FILTER WebCore_SOURCES EXCLUDE REGEX "PlatformMediaEngineConfigurationFactoryCocoa")
     list(FILTER WebCore_SOURCES EXCLUDE REGEX "SerializedPlatformDataCue")
 else ()
     include(platform/Adwaita.cmake)
