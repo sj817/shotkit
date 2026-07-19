@@ -39,8 +39,6 @@ Navigator includes NavigatorPlugins;
 Navigator includes NavigatorServiceWorker;
 Navigator includes NavigatorShare;
 Navigator includes NavigatorStorage;
-#if defined(ENABLE_WEBGPU) && ENABLE_WEBGPU
 Navigator includes NavigatorGPU;
-#endif
 Navigator includes NavigatorGlobalPrivacyControl;
 [EnabledByQuirk=needsNavigatorUserAgentData] Navigator includes NavigatorUA;

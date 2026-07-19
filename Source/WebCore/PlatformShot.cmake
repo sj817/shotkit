@@ -21,6 +21,7 @@ elseif (APPLE)
     )
     list(APPEND WebCore_UNIFIED_SOURCE_EXCLUDES
         "(^|/)Modules/applepay(-ams-ui)?/"
+        "(^|/)Modules/WebGPU/"
         "(^|/)dom/DataTransferMac\\.mm"
         "(^|/)html/canvas/GPUCanvasContextCocoa\\.mm"
         "(^|/)loader/cocoa/DiskCacheMonitorCocoa\\.mm"
@@ -37,6 +38,7 @@ elseif (APPLE)
         "(^|/)platform/network/cocoa/(RangeResponseGenerator|WebCoreNSURLSession)"
         "SerializedPlatformDataCue"
     )
+    list(APPEND WebCore_SOURCES Modules/WebGPU/GPUUncapturedErrorEvent.cpp)
     list(FILTER WebCore_SOURCES EXCLUDE REGEX "(^|/)platform/audio/(cocoa|ios|mac)/")
     list(FILTER WebCore_SOURCES EXCLUDE REGEX "(^|/)dom/DataTransferMac\\.mm")
     list(FILTER WebCore_SOURCES EXCLUDE REGEX "(^|/)html/canvas/GPUCanvasContextCocoa\\.mm")
@@ -124,7 +126,4 @@ else ()
 
     list(APPEND WebCore_PRIVATE_LIBRARIES ${SHARPYUV_LIBS})
 endif ()
-
-list(APPEND WebCore_UNIFIED_SOURCE_EXCLUDES "(^|/)Modules/WebGPU/")
-list(FILTER WebCore_SOURCES EXCLUDE REGEX "(^|/)Modules/WebGPU/")
 include(${CMAKE_CURRENT_SOURCE_DIR}/ShotPruning.cmake)
