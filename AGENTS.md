@@ -447,6 +447,7 @@ CLI（`shotcli`）是 ABI 的薄封装：一次性模式为 `shotcli --url <u> |
 | `Source/cmake/WebKitMacros.cmake` | framework 链接宏比较 `LINKED_INTO` 时给可能为空的展开值加引号 | Cocoa OBJECT WebCore 没有 `LINKED_INTO` 属性，未加引号会生成语法不完整的 `if(... STREQUAL )` 并阻断配置；不改变非空值语义 | M4/macOS 🚧 已改，CI 验证中 |
 | `Source/cmake/WebKitXcodeSDK.cmake` | Apple host 上把 `PORT=Shot` 加入 macOS SDK 自动解析和宿主架构分支 | SDK 解析早于 `OptionsShot.cmake`，未登记时会拒绝 Shot；把 Shot 当交叉端口还会固定 C/C++ 为 SDK 首架构 `x86_64`，与 arm64 runner 上默认的 Swift 对象不匹配 | M4/macOS 🚧 已改，CI 验证中 |
 | `Source/WebCore/loader/EmptyClients.{h,cpp}` | 仅在 `PLATFORM(SHOT) && PLATFORM(COCOA)` 下给空 Frame 网络上下文注入私有 `NetworkStorageSession` 并使上下文有效 | Cocoa `ResourceHandle` 会拒绝无 frame/无 session 的默认空上下文；Shot 单进程子资源需复用同一个内存 CFNetwork session | M4/macOS 🚧 已改，CI 验证中 |
+| `Source/WebCore/dom/EventInterfaces.in` | `GPUUncapturedErrorEvent` 增加 `WEBGPU` 生成条件 | Shot 关闭并裁掉 WebGPU 实现；原无条件 Event 工厂仍引用该事件的 TZone allocator，导致 dylib 留下未定义符号 | M4/macOS 🚧 已改，CI 验证中 |
 | `Source/WebKitShot/ShotKit/ShotPage.cpp` | macOS 主资源请求以临时 `URL` 构造 CFNetwork `ResourceRequest` | Cocoa 平台构造函数只接受 `URL&&`；保留原 URL 供响应缺少最终 URL 时回退 | M4/macOS 🚧 已改，CI 验证中 |
 | `Source/cmake/WebKitCommon.cmake` | `ALL_PORTS` 加 `Shot` | 端口注册 | M0 ✅ 已改 |
 | `Source/WebCore/CMakeLists.txt` | GL 库块的 `else()` 改为 `elseif (USE_TEXTURE_MAPPER OR USE_EGL)` | 纯软件光栅端口无 GPU 后端，原逻辑无条件要求不存在的 `OpenGL::GLES` 目标 | M0 ✅ 已改 |
