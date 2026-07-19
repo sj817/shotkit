@@ -41,6 +41,8 @@ WorkerNavigator includes NavigatorLocks;
 WorkerNavigator includes NavigatorOnLine;
 WorkerNavigator includes NavigatorServiceWorker;
 WorkerNavigator includes NavigatorStorage;
+#if defined(ENABLE_WEBGPU) && ENABLE_WEBGPU
 WorkerNavigator includes NavigatorGPU;
+#endif
 WorkerNavigator includes NavigatorUA;
 WorkerNavigator includes NavigatorGlobalPrivacyControl;
