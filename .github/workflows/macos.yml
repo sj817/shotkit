@@ -63,6 +63,14 @@ jobs:
       - name: Build ShotKit
         run: ninja -C WebKitBuild/shot-macos -j3 shotcli
 
+      - name: Verify internal link closure
+        run: |
+          unresolved=$(nm -u WebKitBuild/shot-macos/lib/libshot.dylib | awk '{print $NF}' | grep -E '^_+ZN7WebCore|^_OBJC_(CLASS|METACLASS)_\$_Web' || true)
+          if [[ -n "$unresolved" ]]; then
+            printf '%s\n' "$unresolved"
+            exit 1
+          fi
+
       - name: Smoke test PNG and WebP
         run: |
           printf '%s\n' '<!doctype html><meta charset=utf-8><style>body{background:#eef2f7;font:32px sans-serif}h1{color:#246}</style><h1>ShotKit macOS CI</h1>' > "$RUNNER_TEMP/shot-smoke.html"
