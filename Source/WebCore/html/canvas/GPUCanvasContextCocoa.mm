@@ -173,7 +173,11 @@ GPUCanvasContext::CanvasType GPUCanvasContextCocoa::htmlOrOffscreenCanvas() cons
 {
     if (RefPtr canvas = htmlCanvas())
         return canvas.releaseNonNull();
+#if ENABLE(OFFSCREEN_CANVAS)
     return downcast<OffscreenCanvas>(canvasBase());
+#else
+    RELEASE_ASSERT_NOT_REACHED();
+#endif
 }
 
 GPUCanvasContextCocoa::GPUCanvasContextCocoa(CanvasBase& canvas, Ref<GPUCompositorIntegration>&& compositorIntegration, Ref<GPUPresentationContext>&& presentationContext, Document* document)
