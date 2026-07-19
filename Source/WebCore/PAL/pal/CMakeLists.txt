@@ -108,7 +108,7 @@ if (SWIFT_REQUIRED AND NOT (PORT STREQUAL GTK OR PORT STREQUAL WPE))
         ${PAL_DIR}/pal/crypto/CryptoKitShim.swift
     )
 
-    if (APPLE)
+    if (APPLE AND NOT PORT STREQUAL "Shot")
         # Swift compiles transitively load system frameworks whose PCM builds
         # need our project -Xcc flags. Explicit modules let libSwiftScan
         # pre-build PCMs with the right context.
