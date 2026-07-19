@@ -451,6 +451,7 @@ CLI（`shotcli`）是 ABI 的薄封装：一次性模式为 `shotcli --url <u> |
 | `Source/WebCore/PlatformShot.cmake` | macOS Shot 保留 `CoreVideoSoftLink.cpp`、`VideoToolboxSoftLink.cpp`、`MediaRemoteSoftLink.cpp` | CoreGraphics 静态图像、IOSurface、像素转换与 Cocoa 系统会话基础闭包仍引用对应平台 API；保留系统框架软链接实现不启用视频播放链 | M4/macOS 🚧 已改，CI 验证中 |
 | `Source/WebCore/PlatformShot.cmake` | macOS Shot 回加 `CVPixelBufferUtilities.cpp`、`ShareableCVPixelBuffer.cpp`、`MediaPlayerEnumsCocoa.mm` | 保留的 gain-map、CoreAnimation 与像素转换路径直接引用这些基础 helper；不回加 MediaPlayer 后端 | M4/macOS 🚧 已改，CI 验证中 |
 | `Source/WTF/wtf/PlatformUse.h` | Cocoa 的 `USE_AUDIO_SESSION` 默认值改为仅在端口未显式定义时启用 | Shot 已显式关闭 audio session；原无条件重定义为 1 会把 `AudioSessionMac` 和 now-playing 闭包重新拉回 | M4/macOS 🚧 已改，CI 验证中 |
+| `Source/cmake/OptionsShot.cmake` | macOS Shot 显式关闭 `ENABLE_DOM_AUDIO_SESSION` | Cocoa 默认开启 DOM Audio Session；底层 audio session 已关闭时继续生成其绑定会引用被裁掉的 observer/type，截图内核也不需要该媒体 API | M4/macOS 🚧 已改，CI 验证中 |
 | `Source/WebCore/platform/NowPlayingManager.cpp` | Shot 在 Cocoa 上也使用无平台 now-playing 空行为 | Shot 无媒体会话；原 `PLATFORM(COCOA)` 分支无条件引用已裁掉的 `MediaSessionManagerCocoa` | M4/macOS 🚧 已改，CI 验证中 |
 | `Source/WebCore/rendering/RenderLayerCompositor.cpp` | 显式包含 `RenderElementStyleInlines.h` | 该编译单元直接调用其中定义的 `createsGroupForStyle`；依赖统一源传递 include 会让 OBJECT dylib 留下未定义 inline 符号 | M4/macOS 🚧 已改，CI 验证中 |
 | `Source/WebKitShot/ShotKit/ShotPage.cpp` | macOS 主资源请求以临时 `URL` 构造 CFNetwork `ResourceRequest` | Cocoa 平台构造函数只接受 `URL&&`；保留原 URL 供响应缺少最终 URL 时回退 | M4/macOS 🚧 已改，CI 验证中 |
