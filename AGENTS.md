@@ -448,7 +448,7 @@ CLI（`shotcli`）是 ABI 的薄封装：一次性模式为 `shotcli --url <u> |
 | `Source/cmake/WebKitXcodeSDK.cmake` | Apple host 上把 `PORT=Shot` 加入 macOS SDK 自动解析和宿主架构分支 | SDK 解析早于 `OptionsShot.cmake`，未登记时会拒绝 Shot；把 Shot 当交叉端口还会固定 C/C++ 为 SDK 首架构 `x86_64`，与 arm64 runner 上默认的 Swift 对象不匹配 | M4/macOS 🚧 已改，CI 验证中 |
 | `Source/WebCore/loader/EmptyClients.{h,cpp}` | 仅在 `PLATFORM(SHOT) && PLATFORM(COCOA)` 下给空 Frame 网络上下文注入私有 `NetworkStorageSession` 并使上下文有效 | Cocoa `ResourceHandle` 会拒绝无 frame/无 session 的默认空上下文；Shot 单进程子资源需复用同一个内存 CFNetwork session | M4/macOS 🚧 已改，CI 验证中 |
 | `Source/WebCore/PlatformShot.cmake` | macOS Shot 排除 WebGPU 实现闭包时单独保留 `GPUUncapturedErrorEvent.cpp` | WebGPU IDL 只有运行时 setting、没有编译期条件，通用 JS/Event 绑定仍需要该事件的 TZone allocator 与类型实现；保留单个事件文件不启用 WebGPU | M4/macOS 🚧 已改，CI 验证中 |
-| `Source/WebCore/PlatformShot.cmake` | macOS Shot 保留 `CoreVideoSoftLink.cpp`、`VideoToolboxSoftLink.cpp` | CoreGraphics 静态图像、IOSurface 与 Cocoa 像素转换闭包仍引用 CVPixelBuffer/VTSession API；保留系统框架软链接实现不启用视频播放链 | M4/macOS 🚧 已改，CI 验证中 |
+| `Source/WebCore/PlatformShot.cmake` | macOS Shot 保留 `CoreVideoSoftLink.cpp`、`VideoToolboxSoftLink.cpp`、`MediaRemoteSoftLink.cpp` | CoreGraphics 静态图像、IOSurface、像素转换与 Cocoa 系统会话基础闭包仍引用对应平台 API；保留系统框架软链接实现不启用视频播放链 | M4/macOS 🚧 已改，CI 验证中 |
 | `Source/WebKitShot/ShotKit/ShotPage.cpp` | macOS 主资源请求以临时 `URL` 构造 CFNetwork `ResourceRequest` | Cocoa 平台构造函数只接受 `URL&&`；保留原 URL 供响应缺少最终 URL 时回退 | M4/macOS 🚧 已改，CI 验证中 |
 | `Source/cmake/WebKitCommon.cmake` | `ALL_PORTS` 加 `Shot` | 端口注册 | M0 ✅ 已改 |
 | `Source/WebCore/CMakeLists.txt` | GL 库块的 `else()` 改为 `elseif (USE_TEXTURE_MAPPER OR USE_EGL)` | 纯软件光栅端口无 GPU 后端，原逻辑无条件要求不存在的 `OpenGL::GLES` 目标 | M0 ✅ 已改 |
