@@ -21,7 +21,6 @@ elseif (APPLE)
     )
     list(APPEND WebCore_UNIFIED_SOURCE_EXCLUDES
         "(^|/)Modules/applepay(-ams-ui)?/"
-        "(^|/)Modules/WebGPU/"
         "(^|/)dom/DataTransferMac\\.mm"
         "(^|/)html/canvas/GPUCanvasContextCocoa\\.mm"
         "(^|/)loader/cocoa/DiskCacheMonitorCocoa\\.mm"
@@ -125,4 +124,7 @@ else ()
 
     list(APPEND WebCore_PRIVATE_LIBRARIES ${SHARPYUV_LIBS})
 endif ()
+
+list(APPEND WebCore_UNIFIED_SOURCE_EXCLUDES "(^|/)Modules/WebGPU/")
+list(FILTER WebCore_SOURCES EXCLUDE REGEX "(^|/)Modules/WebGPU/")
 include(${CMAKE_CURRENT_SOURCE_DIR}/ShotPruning.cmake)
