@@ -14,8 +14,10 @@ if (APPLE)
     set(WEBKIT_SDK_NAME "macosx")
     set(WEBKIT_PLATFORM_NAME "MacOSX")
     # PlatformEnableCocoa derives these as ON on macOS even when their parent
-    # feature is OFF. Shot has no media source or notification surface.
+    # feature is OFF. Shot has no media, payment, or notification surface.
     add_definitions(
+        -DENABLE_APPLE_PAY=0
+        -DENABLE_APPLE_PAY_AMS_UI=0
         -DENABLE_COCOA_WEBM_PLAYER=0
         -DENABLE_DECLARATIVE_WEB_PUSH=0
         -DENABLE_IMAGE_ANALYSIS=0
