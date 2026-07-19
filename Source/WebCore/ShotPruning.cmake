@@ -10,7 +10,7 @@
 
 set(_shot_original_idl_files ${WebCore_IDL_FILES} ${WebCore_SUPPLEMENTAL_IDL_FILES})
 
-set(_shot_js_only_module_regex "(webdatabase|websockets)")
+set(_shot_pruned_module_regex "(WebGPU|webdatabase|websockets)")
 
 foreach (_shot_idl_list
     WebCore_NON_SVG_IDL_FILES
@@ -18,7 +18,7 @@ foreach (_shot_idl_list
     WebCore_SUPPLEMENTAL_IDL_FILES
 )
     if (DEFINED ${_shot_idl_list})
-        list(FILTER ${_shot_idl_list} EXCLUDE REGEX "(^|/)Modules/${_shot_js_only_module_regex}/")
+        list(FILTER ${_shot_idl_list} EXCLUDE REGEX "(^|/)Modules/${_shot_pruned_module_regex}/")
     endif ()
 endforeach ()
 
@@ -51,4 +51,4 @@ unset(_shot_idl_name_regex)
 unset(_shot_original_idl_files)
 unset(_shot_retained_idl_files)
 unset(_shot_internal_idl_files)
-unset(_shot_js_only_module_regex)
+unset(_shot_pruned_module_regex)
