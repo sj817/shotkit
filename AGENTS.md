@@ -414,6 +414,7 @@ CLI（`shotcli`）是 ABI 的薄封装：一次性模式为 `shotcli --url <u> |
 
 | 文件 | 改动 | 原因 | 里程碑 |
 |---|---|---|---|
+| `Source/WebCore/{PlatformShot.cmake,loader/cocoa/SubresourceLoaderCocoa.mm}` | macOS Shot 排除 `DiskCacheMonitorCocoa`，并按 `ENABLE_SHAREABLE_RESOURCE` 门控子资源缓存回调中的监视器调用 | 磁盘映射监视器只为跨进程共享响应数据；Shot 是单进程且关闭 shareable resource，普通 CFNetwork 缓存策略与子资源加载继续保留 | M4/macOS 🚧 已改，CI 验证中 |
 | `Source/cmake/OptionsShot.cmake` | macOS Shot 显式关闭 Apple Pay 及 Cocoa 默认开启的 AMS UI 支付处理器 | Shot 不提供支付交互；对应实现已从精简源闭包排除，继续编译 `Page` 的支付 session 分支会引用不完整的 handler 类型 | M4/macOS 🚧 已改，CI 验证中 |
 | `Source/WebCore/PlatformShot.cmake` | macOS Shot 从直接源与 `SourcesCocoa.txt` 输入两路排除 `GPUCanvasContextCocoa.mm` | Shot 同时关闭 WebGPU 和 OffscreenCanvas；该实现只服务 GPU canvas，不影响 CoreGraphics 2D Canvas | M4/macOS 🚧 已改，CI 验证中 |
 | `Source/WebCore/editing/cocoa/WebContentReaderCocoa.mm` | attachment-off 分支的 `UNUSED_PARAM(blob)` 改为函数实际未使用的 4 个参数 | 原分支引用不存在的局部变量，只在 `ENABLE_ATTACHMENT_ELEMENT=OFF` 时暴露 | M4/macOS 🚧 已改，CI 验证中 |

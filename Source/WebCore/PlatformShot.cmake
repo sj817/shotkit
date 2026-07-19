@@ -13,6 +13,7 @@ elseif (APPLE)
     list(REMOVE_ITEM WebCore_SOURCES
         dom/DataTransferMac.mm
         html/canvas/GPUCanvasContextCocoa.mm
+        loader/cocoa/DiskCacheMonitorCocoa.mm
         platform/network/cocoa/RangeResponseGenerator.mm
         platform/network/cocoa/WebCoreNSURLSession.mm
         platform/mediastream/cocoa/ScreenCaptureKitCaptureSource.mm
@@ -23,6 +24,7 @@ elseif (APPLE)
         "(^|/)Modules/WebGPU/"
         "(^|/)dom/DataTransferMac\\.mm"
         "(^|/)html/canvas/GPUCanvasContextCocoa\\.mm"
+        "(^|/)loader/cocoa/DiskCacheMonitorCocoa\\.mm"
         "(^|/)platform/audio/cocoa/"
         "(^|/)platform/audio/ios/"
         "(^|/)platform/audio/mac/"
@@ -38,6 +40,7 @@ elseif (APPLE)
     list(FILTER WebCore_SOURCES EXCLUDE REGEX "(^|/)platform/audio/(cocoa|ios|mac)/")
     list(FILTER WebCore_SOURCES EXCLUDE REGEX "(^|/)dom/DataTransferMac\\.mm")
     list(FILTER WebCore_SOURCES EXCLUDE REGEX "(^|/)html/canvas/GPUCanvasContextCocoa\\.mm")
+    list(FILTER WebCore_SOURCES EXCLUDE REGEX "(^|/)loader/cocoa/DiskCacheMonitorCocoa\\.mm")
     list(FILTER WebCore_SOURCES EXCLUDE REGEX "(^|/)platform/graphics/(avfoundation|cv)/")
     list(FILTER WebCore_SOURCES EXCLUDE REGEX "(^|/)platform/cocoa/(CoreVideoSoftLink|MediaRemoteSoftLink|SharedVideoFrameInfo|VideoFullscreenCaptions|VideoToolboxSoftLink|WebAVPlayerLayer)")
     list(FILTER WebCore_SOURCES EXCLUDE REGEX "(^|/)platform/graphics/cocoa/(AV1UtilitiesCocoa|AudioTrackPrivateWebM|CMUtilities|CVPixelBufferUtilities|H264UtilitiesCocoa|HEVCUtilitiesCocoa|ISOBMFFPreParser|ISOBMFFTrackInfoParser|MediaPlayer.*|PlatformMediaEngineConfigurationFactoryCocoa|PlatformTimeRangesCocoa|ShareableCVPixelBuffer|ShareableCVPixelFormat|SourceBufferParser.*|TextTrackRepresentationCocoa|VP9UtilitiesCocoa|VideoMediaSampleRenderer|VideoTargetFactory|VideoTrackPrivateWebM|WebCoreDecompressionSession|WebMAudioUtilitiesCocoa)")

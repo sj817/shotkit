@@ -27,7 +27,9 @@
 #import "SubresourceLoader.h"
 
 #import "CachedResource.h"
+#if ENABLE(SHAREABLE_RESOURCE)
 #import "DiskCacheMonitorCocoa.h"
+#endif
 #import "ResourceHandle.h"
 #import "ResourceLoader.h"
 #import "SharedBuffer.h"
@@ -38,7 +40,9 @@ namespace WebCore {
 void SubresourceLoader::willCacheResponseAsync(ResourceHandle* handle, NSCachedURLResponse* response, CompletionHandler<void(NSCachedURLResponse *)>&& completionHandler)
 {
     RefPtr resource = m_resource;
+#if ENABLE(SHAREABLE_RESOURCE)
     DiskCacheMonitor::monitorFileBackingStoreCreation(request(), resource->sessionID(), [response _CFCachedURLResponse]);
+#endif
     if (!resource->shouldCacheResponse(response.response))
         return completionHandler(nullptr);
     ResourceLoader::willCacheResponseAsync(handle, response, WTF::move(completionHandler));
