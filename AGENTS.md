@@ -414,6 +414,7 @@ CLI（`shotcli`）是 ABI 的薄封装：一次性模式为 `shotcli --url <u> |
 
 | 文件 | 改动 | 原因 | 里程碑 |
 |---|---|---|---|
+| `Source/cmake/OptionsShot.cmake` | macOS Shot 保留 `OptionsCocoa` 的 Swift/CryptoKit PAL 互操作闭包 | 当前 Cocoa `CryptoDigest` 依赖生成的 `PALSwift-Generated.h`，且 CSP/SRI/字体校验等静态加载路径需要 digest；Linux 的 Swift 原型特性仍关闭 | M4/macOS 🚧 已改，CI 验证中 |
 | `Source/WebCore/PAL/pal/PlatformShot.cmake` | macOS Shot 从 PAL Cocoa 源输入排除 AVFoundation `OutputContext.mm`、`OutputDevice.mm` | 两者只服务音视频输出路由，Shot 关闭媒体；保留通用 AVFoundation soft-link 供 CoreAnimation 平台图层类型识别 | M4/macOS 🚧 已改，CI 验证中 |
 | `Source/WebCore/PlatformShot.cmake` | macOS Shot 从直接源与 `SourcesCocoa.txt` 输入两路排除 `page/scrolling/cocoa`、`page/scrolling/mac` 异步滚动树 | Shot 关闭 async scrolling；基础 `ScrollingCoordinator` 已提供同步实现，Mac 异步树依赖未编译的 state/tree 类型且不参与无头截图 | M4/macOS 🚧 已改，CI 验证中 |
 | `Source/WebCore/platform/PlatformWheelEvent.h` | wheel phase 的锁定、手势延续和动量辅助方法在 `ENABLE_KINETIC_SCROLLING` 下也提供 | Shot 保留 macOS 同步滚动 ABI 所需的 phase，但关闭 async scrolling；这些方法只读取 phase，Mac 的同步 EventHandler 与 delta filter 仍需要它们 | M4/macOS 🚧 已改，CI 验证中 |

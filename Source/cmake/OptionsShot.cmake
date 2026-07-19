@@ -176,7 +176,9 @@ if (APPLE)
     # single-process, OBJECT-library shape below. Page scripts and browser-only
     # features remain governed by the Shot option matrix above.
     include(OptionsCocoa)
-    set(SWIFT_REQUIRED OFF)
+    # Cocoa PAL implements CryptoDigest through its generated Swift/CryptoKit
+    # bridge. Static loading paths use the digest even when page JS is disabled.
+    set(SWIFT_REQUIRED ON)
     set(ENABLE_WEBKIT OFF)
     set(ENABLE_WEBKIT_LEGACY OFF)
     set(USE_LIBWEBRTC OFF)
