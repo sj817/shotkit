@@ -44,7 +44,7 @@ function(WEBKIT_RESOLVE_SDK)
                 # we default to building for all architectures supported by the device 
                 # (for iOS devices, just arm64e). For simulators, we query the system for
                 # created simulator targets and match their architecture (usually arm64).
-                if (PORT STREQUAL "Mac" OR PORT STREQUAL "JSCOnly")
+                if (PORT STREQUAL "Mac" OR PORT STREQUAL "JSCOnly" OR PORT STREQUAL "Shot")
                     # When building for the host machine CMAKE_HOST_SYSTEM_PROCESSOR 
                     # isn't populated until `project()` is called, so consult `uname -m`.
                     # Only set _arch if SDK supports arm64e otherwise let `project()`

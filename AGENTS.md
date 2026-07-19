@@ -445,7 +445,7 @@ CLI（`shotcli`）是 ABI 的薄封装：一次性模式为 `shotcli --url <u> |
 | `Source/JavaScriptCore/API/JSRemoteInspector.cpp` | `ENABLE_REMOTE_INSPECTOR=OFF` 时默认检查状态查询直接返回 false | Cocoa 源清单始终编译兼容 C API，但原实现无条件引用仅在远程检查器开启时声明的 `RemoteInspector` | M4/macOS 🚧 已改，CI 验证中 |
 | `Source/WTF/wtf/PlatformEnableCocoa.h` | 给 `ENABLE_VIDEO_PRESENTATION_MODE` 的平台析取补括号 | 原条件受 `&&`/`||` 优先级影响，在 macOS 上即使 cmakeconfig 已定义为 0 仍强制重定义为 1；Shot 已关闭视频 | M4/macOS 🚧 已改，CI 验证中 |
 | `Source/cmake/WebKitMacros.cmake` | framework 链接宏比较 `LINKED_INTO` 时给可能为空的展开值加引号 | Cocoa OBJECT WebCore 没有 `LINKED_INTO` 属性，未加引号会生成语法不完整的 `if(... STREQUAL )` 并阻断配置；不改变非空值语义 | M4/macOS 🚧 已改，CI 验证中 |
-| `Source/cmake/WebKitXcodeSDK.cmake` | Apple host 上把 `PORT=Shot` 加入 macOS SDK 自动解析分支 | SDK 解析早于 `OptionsShot.cmake`，未登记时 CMake 会在读取端口选项前直接拒绝 Shot | M4/macOS 🚧 已改，CI 验证中 |
+| `Source/cmake/WebKitXcodeSDK.cmake` | Apple host 上把 `PORT=Shot` 加入 macOS SDK 自动解析和宿主架构分支 | SDK 解析早于 `OptionsShot.cmake`，未登记时会拒绝 Shot；把 Shot 当交叉端口还会固定 C/C++ 为 SDK 首架构 `x86_64`，与 arm64 runner 上默认的 Swift 对象不匹配 | M4/macOS 🚧 已改，CI 验证中 |
 | `Source/WebCore/loader/EmptyClients.{h,cpp}` | 仅在 `PLATFORM(SHOT) && PLATFORM(COCOA)` 下给空 Frame 网络上下文注入私有 `NetworkStorageSession` 并使上下文有效 | Cocoa `ResourceHandle` 会拒绝无 frame/无 session 的默认空上下文；Shot 单进程子资源需复用同一个内存 CFNetwork session | M4/macOS 🚧 已改，CI 验证中 |
 | `Source/WebKitShot/ShotKit/ShotPage.cpp` | macOS 主资源请求以临时 `URL` 构造 CFNetwork `ResourceRequest` | Cocoa 平台构造函数只接受 `URL&&`；保留原 URL 供响应缺少最终 URL 时回退 | M4/macOS 🚧 已改，CI 验证中 |
 | `Source/cmake/WebKitCommon.cmake` | `ALL_PORTS` 加 `Shot` | 端口注册 | M0 ✅ 已改 |
