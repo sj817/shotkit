@@ -414,7 +414,7 @@ CLI（`shotcli`）是 ABI 的薄封装：一次性模式为 `shotcli --url <u> |
 
 | 文件 | 改动 | 原因 | 里程碑 |
 |---|---|---|---|
-| `Source/WebCore/PAL/pal/CMakeLists.txt` | Shot 的 PAL Swift 生成头显式选择 `@_expose(Cxx)` 声明并允许 internal 最低可见性 | Xcode 26.3 默认生成头不包含 internal 的 exposed C++ API，导致 `pal::AesGcm` 等桥接类型缺失 | M4/macOS 🚧 已改，CI 验证中 |
+| `Source/WebCore/PAL/pal/CMakeLists.txt` | Shot 的 PAL Swift 生成头显式选择 `@_expose(Cxx)` 声明 | Xcode 26.3 默认生成头未选择 exposed C++ API，导致 `pal::AesGcm` 等桥接类型缺失 | M4/macOS 🚧 已改，CI 验证中 |
 | `Source/WebCore/PAL/pal/CMakeLists.txt` | Shot 的 PAL Swift target 保留 strict memory safety 模式，但不将该组诊断提升为错误；其他 fatal diagnostics 不变 | 当前 `CryptoKit+UnsafeOverlays.swift` 已登记 unsafe FIXME；保留模式才能生成完整 C++ interop API，Shot 允许这些已知项作为警告 | M4/macOS 🚧 已改，CI 验证中 |
 | `Source/WebCore/PAL/pal/CMakeLists.txt` | Shot 的 PAL Swift target 使用隐式系统模块缓存，其他 Apple 端口继续使用 explicit module build | Xcode 26.3 的 EMB 扫描在 `_DarwinFoundation3` 与 `CxxStdlib` 间形成模块依赖环；Shot 仅需单个 PAL Swift 模块 | M4/macOS 🚧 已改，CI 验证中 |
 | `Source/cmake/OptionsShot.cmake` | macOS Shot 将显式关闭的 Cocoa 派生 `ENABLE_*`/`HAVE_*` 同时写入 `cmakeconfig.h` | Swift platform-argument 生成不继承目录 `add_definitions`；C++ 与 Swift 必须看到同一精简 feature matrix，避免默认开启 WebM/通知等分支 | M4/macOS 🚧 已改，CI 验证中 |

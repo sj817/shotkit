@@ -140,7 +140,6 @@ if (SWIFT_REQUIRED AND NOT (PORT STREQUAL GTK OR PORT STREQUAL WPE))
     if (PORT STREQUAL "Shot")
         target_compile_options(PAL PRIVATE
             "$<$<COMPILE_LANGUAGE:Swift>:SHELL:-Xfrontend -clang-header-expose-decls=has-expose-attr>"
-            "$<$<COMPILE_LANGUAGE:Swift>:SHELL:-Xfrontend -emit-clang-header-min-access -Xfrontend internal>"
         )
     endif ()
 endif ()
