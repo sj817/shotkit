@@ -128,7 +128,6 @@ if (SWIFT_REQUIRED AND NOT (PORT STREQUAL GTK OR PORT STREQUAL WPE))
     # https://bugs.webkit.org/show_bug.cgi?id=312105
     target_compile_options(PAL PRIVATE
         "$<$<COMPILE_LANGUAGE:Swift>:-import-underlying-module>"
-        "$<$<COMPILE_LANGUAGE:Swift>:-strict-memory-safety>"
         "$<$<COMPILE_LANGUAGE:Swift>:SHELL:-swift-version 6>"
         "$<$<COMPILE_LANGUAGE:Swift>:SHELL:-Xcc -I${PAL_FRAMEWORK_HEADERS_DIR}>"
         "$<$<COMPILE_LANGUAGE:Swift>:SHELL:-Xcc -I${CMAKE_BINARY_DIR}/WTF/Headers>"
@@ -137,6 +136,9 @@ if (SWIFT_REQUIRED AND NOT (PORT STREQUAL GTK OR PORT STREQUAL WPE))
         "$<$<COMPILE_LANGUAGE:Swift>:SHELL:-Xcc -I${CMAKE_BINARY_DIR}>"
         "$<$<COMPILE_LANGUAGE:Swift>:SHELL:-Xcc -I${PAL_DERIVED_SOURCES_DIR}>"
     )
+    if (NOT PORT STREQUAL "Shot")
+        target_compile_options(PAL PRIVATE "$<$<COMPILE_LANGUAGE:Swift>:-strict-memory-safety>")
+    endif ()
 endif ()
 
 WEBKIT_FRAMEWORK(PAL)

@@ -414,6 +414,7 @@ CLI（`shotcli`）是 ABI 的薄封装：一次性模式为 `shotcli --url <u> |
 
 | 文件 | 改动 | 原因 | 里程碑 |
 |---|---|---|---|
+| `Source/WebCore/PAL/pal/CMakeLists.txt` | Shot 的 PAL Swift target 不传 `-strict-memory-safety`，其他端口保持上游参数 | hosted macOS 15 的 Xcode 16.4 Swift 不识别该更新工具链参数；保留 Swift 6 模式与现有 fatal diagnostics | M4/macOS 🚧 已改，CI 验证中 |
 | `Source/cmake/OptionsShot.cmake` | macOS Shot 将显式关闭的 Cocoa 派生 `ENABLE_*`/`HAVE_*` 同时写入 `cmakeconfig.h` | Swift platform-argument 生成不继承目录 `add_definitions`；C++ 与 Swift 必须看到同一精简 feature matrix，避免默认开启 WebM/通知等分支 | M4/macOS 🚧 已改，CI 验证中 |
 | `Source/cmake/OptionsShot.cmake` | macOS Shot 保留 `OptionsCocoa` 的 Swift/CryptoKit PAL 互操作闭包 | 当前 Cocoa `CryptoDigest` 依赖生成的 `PALSwift-Generated.h`，且 CSP/SRI/字体校验等静态加载路径需要 digest；Linux 的 Swift 原型特性仍关闭 | M4/macOS 🚧 已改，CI 验证中 |
 | `Source/WebCore/PAL/pal/PlatformShot.cmake` | macOS Shot 从 PAL Cocoa 源输入排除 AVFoundation `OutputContext.mm`、`OutputDevice.mm` | 两者只服务音视频输出路由，Shot 关闭媒体；保留通用 AVFoundation soft-link 供 CoreAnimation 平台图层类型识别 | M4/macOS 🚧 已改，CI 验证中 |
