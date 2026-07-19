@@ -33,9 +33,9 @@ private enum LocalErrors: Error {
 }
 
 @_expose(Cxx)
-final class AesGcm {
+public final class AesGcm {
     @_expose(Cxx)
-    static func encrypt(
+    public static func encrypt(
         key: PAL.Crypto.SpanConstUInt8,
         iv: PAL.Crypto.SpanConstUInt8,
         ad: PAL.Crypto.SpanConstUInt8,
@@ -70,9 +70,9 @@ final class AesGcm {
 }
 
 @_expose(Cxx)
-final class AesKw {
+public final class AesKw {
     @_expose(Cxx)
-    static func wrap(
+    public static func wrap(
         keyToWrap: PAL.Crypto.SpanConstUInt8,
         using: PAL.Crypto.SpanConstUInt8
     ) -> PAL.Crypto.CryptoOperationReturnValue {
@@ -88,7 +88,7 @@ final class AesKw {
     }
 
     @_expose(Cxx)
-    static func unwrap(
+    public static func unwrap(
         wrappedKey: PAL.Crypto.SpanConstUInt8,
         using: PAL.Crypto.SpanConstUInt8
     ) -> PAL.Crypto.CryptoOperationReturnValue {
@@ -108,7 +108,7 @@ final class AesKw {
 }
 
 @_expose(Cxx)
-final class Digest {
+public final class Digest {
     private var ctx: any CryptoKit.HashFunction
 
     private init<T: CryptoKit.HashFunction>(_: T.Type) {
@@ -116,52 +116,52 @@ final class Digest {
     }
 
     @_expose(Cxx)
-    static func sha1Init() -> Digest {
+    public static func sha1Init() -> Digest {
         Self(Insecure.SHA1.self)
     }
 
     @_expose(Cxx)
-    static func sha256Init() -> Digest {
+    public static func sha256Init() -> Digest {
         Self(SHA256.self)
     }
 
     @_expose(Cxx)
-    static func sha384Init() -> Digest {
+    public static func sha384Init() -> Digest {
         Self(SHA384.self)
     }
 
     @_expose(Cxx)
-    static func sha512Init() -> Digest {
+    public static func sha512Init() -> Digest {
         Self(SHA512.self)
     }
 
     @_expose(Cxx)
-    func update(_ data: PAL.Crypto.SpanConstUInt8) {
+    public func update(_ data: PAL.Crypto.SpanConstUInt8) {
         unsafe ctx.update(data: data)
     }
 
     @_expose(Cxx)
-    func finalize() -> PAL.Crypto.VectorUInt8 {
+    public func finalize() -> PAL.Crypto.VectorUInt8 {
         ctx.finalize().copyToVectorUInt8()
     }
 
     @_expose(Cxx)
-    static func sha1(_ data: PAL.Crypto.SpanConstUInt8) -> PAL.Crypto.VectorUInt8 {
+    public static func sha1(_ data: PAL.Crypto.SpanConstUInt8) -> PAL.Crypto.VectorUInt8 {
         unsafe digest(data, t: Insecure.SHA1.self)
     }
 
     @_expose(Cxx)
-    static func sha256(_ data: PAL.Crypto.SpanConstUInt8) -> PAL.Crypto.VectorUInt8 {
+    public static func sha256(_ data: PAL.Crypto.SpanConstUInt8) -> PAL.Crypto.VectorUInt8 {
         unsafe digest(data, t: SHA256.self)
     }
 
     @_expose(Cxx)
-    static func sha384(_ data: PAL.Crypto.SpanConstUInt8) -> PAL.Crypto.VectorUInt8 {
+    public static func sha384(_ data: PAL.Crypto.SpanConstUInt8) -> PAL.Crypto.VectorUInt8 {
         unsafe digest(data, t: SHA384.self)
     }
 
     @_expose(Cxx)
-    static func sha512(_ data: PAL.Crypto.SpanConstUInt8) -> PAL.Crypto.VectorUInt8 {
+    public static func sha512(_ data: PAL.Crypto.SpanConstUInt8) -> PAL.Crypto.VectorUInt8 {
         unsafe digest(data, t: SHA512.self)
     }
 
@@ -214,11 +214,11 @@ private enum ECKeyInternal {
 }
 
 @_expose(Cxx)
-struct ECKey {
+public struct ECKey {
     private let key: ECKeyInternal
 
     @_expose(Cxx)
-    init(curve: PAL.Crypto.ECNamedCurve) {
+    public init(curve: PAL.Crypto.ECNamedCurve) {
         switch curve {
         case .P256:
             key = .privateKey(.p256(P256.Signing.PrivateKey(compactRepresentable: true)))
@@ -244,7 +244,7 @@ struct ECKey {
     }
 
     @_expose(Cxx)
-    func toPub() -> ECKey {
+    public func toPub() -> ECKey {
         switch key {
         case .publicKey:
             return self
@@ -261,7 +261,7 @@ struct ECKey {
     }
 
     @_expose(Cxx)
-    static func importX963Pub(data: PAL.Crypto.SpanConstUInt8, curve: PAL.Crypto.ECNamedCurve) -> ECKey? {
+    public static func importX963Pub(data: PAL.Crypto.SpanConstUInt8, curve: PAL.Crypto.ECNamedCurve) -> ECKey? {
         do {
             return switch curve {
             case .P256:
@@ -279,7 +279,7 @@ struct ECKey {
     }
 
     @_expose(Cxx)
-    func exportX963Pub() -> PAL.Crypto.CryptoOperationReturnValue {
+    public func exportX963Pub() -> PAL.Crypto.CryptoOperationReturnValue {
         var returnValue = PAL.Crypto.CryptoOperationReturnValue()
         do {
             switch try getInternalPublic() {
@@ -298,7 +298,7 @@ struct ECKey {
     }
 
     @_expose(Cxx)
-    static func importCompressedPub(data: PAL.Crypto.SpanConstUInt8, curve: PAL.Crypto.ECNamedCurve) -> ECKey? {
+    public static func importCompressedPub(data: PAL.Crypto.SpanConstUInt8, curve: PAL.Crypto.ECNamedCurve) -> ECKey? {
         do {
             return switch curve {
             case .P256:
@@ -316,7 +316,7 @@ struct ECKey {
     }
 
     @_expose(Cxx)
-    static func importX963Private(data: PAL.Crypto.SpanConstUInt8, curve: PAL.Crypto.ECNamedCurve) -> ECKey? {
+    public static func importX963Private(data: PAL.Crypto.SpanConstUInt8, curve: PAL.Crypto.ECNamedCurve) -> ECKey? {
         do {
             return switch curve {
             case .P256:
@@ -334,7 +334,7 @@ struct ECKey {
     }
 
     @_expose(Cxx)
-    func exportX963Private() -> PAL.Crypto.CryptoOperationReturnValue {
+    public func exportX963Private() -> PAL.Crypto.CryptoOperationReturnValue {
         var returnValue = PAL.Crypto.CryptoOperationReturnValue()
         do {
             switch try getInternalPrivate() {
@@ -353,7 +353,7 @@ struct ECKey {
     }
 
     @_expose(Cxx)
-    func sign(
+    public func sign(
         message: PAL.Crypto.SpanConstUInt8,
         hashFunction: PAL.Crypto.CryptoDigestHashFunction
     ) -> PAL.Crypto.CryptoOperationReturnValue {
@@ -381,7 +381,7 @@ struct ECKey {
     }
 
     @_expose(Cxx)
-    func verify(
+    public func verify(
         message: PAL.Crypto.SpanConstUInt8,
         signature: PAL.Crypto.SpanConstUInt8,
         hashFunction: PAL.Crypto.CryptoDigestHashFunction
@@ -437,7 +437,7 @@ struct ECKey {
     }
 
     @_expose(Cxx)
-    func deriveBits(publicKey: ECKey) -> PAL.Crypto.CryptoOperationReturnValue {
+    public func deriveBits(publicKey: ECKey) -> PAL.Crypto.CryptoOperationReturnValue {
         var returnValue = PAL.Crypto.CryptoOperationReturnValue()
         do {
             let internalPrivate = try getInternalPrivate()
@@ -495,9 +495,9 @@ struct ECKey {
 }
 
 @_expose(Cxx)
-final class EdKey {
+public final class EdKey {
     @_expose(Cxx)
-    static func generatePrivateKey(algo: PAL.Crypto.EdSigningAlgorithm) -> PAL.Crypto.VectorUInt8 {
+    public static func generatePrivateKey(algo: PAL.Crypto.EdSigningAlgorithm) -> PAL.Crypto.VectorUInt8 {
         switch algo {
         case .ED25519:
             Curve25519.Signing.PrivateKey().rawRepresentation.copyToVectorUInt8()
@@ -509,7 +509,7 @@ final class EdKey {
     }
 
     @_expose(Cxx)
-    static func generatePrivateKeyKeyAgreement(algo: PAL.Crypto.EdKeyAgreementAlgorithm) -> PAL.Crypto.VectorUInt8 {
+    public static func generatePrivateKeyKeyAgreement(algo: PAL.Crypto.EdKeyAgreementAlgorithm) -> PAL.Crypto.VectorUInt8 {
         switch algo {
         case .X25519:
             Curve25519.KeyAgreement.PrivateKey().rawRepresentation.copyToVectorUInt8()
@@ -521,7 +521,7 @@ final class EdKey {
     }
 
     @_expose(Cxx)
-    static func privateToPublic(
+    public static func privateToPublic(
         algo: PAL.Crypto.EdSigningAlgorithm,
         privateKey: PAL.Crypto.SpanConstUInt8
     ) -> PAL.Crypto.CryptoOperationReturnValue {
@@ -550,7 +550,7 @@ final class EdKey {
     }
 
     @_expose(Cxx)
-    static func privateToPublicKeyAgreement(
+    public static func privateToPublicKeyAgreement(
         algo: PAL.Crypto.EdKeyAgreementAlgorithm,
         privateKey: PAL.Crypto.SpanConstUInt8
     ) -> PAL.Crypto.CryptoOperationReturnValue {
@@ -579,7 +579,7 @@ final class EdKey {
     }
 
     @_expose(Cxx)
-    static func validateKeyPair(
+    public static func validateKeyPair(
         algo: PAL.Crypto.EdSigningAlgorithm,
         privateKey: PAL.Crypto.SpanConstUInt8,
         publicKey: PAL.Crypto.SpanConstUInt8
@@ -604,7 +604,7 @@ final class EdKey {
     }
 
     @_expose(Cxx)
-    static func validateKeyPairKeyAgreement(
+    public static func validateKeyPairKeyAgreement(
         algo: PAL.Crypto.EdKeyAgreementAlgorithm,
         privateKey: PAL.Crypto.SpanConstUInt8,
         publicKey: PAL.Crypto.SpanConstUInt8
@@ -629,7 +629,7 @@ final class EdKey {
     }
 
     @_expose(Cxx)
-    static func sign(
+    public static func sign(
         algo: PAL.Crypto.EdSigningAlgorithm,
         privateKey: PAL.Crypto.SpanConstUInt8,
         data: PAL.Crypto.SpanConstUInt8
@@ -653,7 +653,7 @@ final class EdKey {
     }
 
     @_expose(Cxx)
-    static func verify(
+    public static func verify(
         algo: PAL.Crypto.EdSigningAlgorithm,
         publicKey: PAL.Crypto.SpanConstUInt8,
         signature: PAL.Crypto.SpanConstUInt8,
@@ -679,7 +679,7 @@ final class EdKey {
     }
 
     @_expose(Cxx)
-    static func deriveBits(
+    public static func deriveBits(
         algo: PAL.Crypto.EdKeyAgreementAlgorithm,
         privateKey: PAL.Crypto.SpanConstUInt8,
         publicKey: PAL.Crypto.SpanConstUInt8
@@ -704,9 +704,9 @@ final class EdKey {
 }
 
 @_expose(Cxx)
-final class HMAC {
+public final class HMAC {
     @_expose(Cxx)
-    static func sign(
+    public static func sign(
         key: PAL.Crypto.SpanConstUInt8,
         data: PAL.Crypto.SpanConstUInt8,
         hashFunction: PAL.Crypto.CryptoDigestHashFunction
@@ -728,7 +728,7 @@ final class HMAC {
     }
 
     @_expose(Cxx)
-    static func verify(
+    public static func verify(
         mac: PAL.Crypto.SpanConstUInt8,
         key: PAL.Crypto.SpanConstUInt8,
         data: PAL.Crypto.SpanConstUInt8,
@@ -763,9 +763,9 @@ private let hkdfInputSizeLimitSHA384 = 255 * SHA384.byteCount * 8
 private let hkdfInputSizeLimitSHA512 = 255 * SHA512.byteCount * 8
 
 @_expose(Cxx)
-final class HKDF {
+public final class HKDF {
     @_expose(Cxx)
-    static func deriveBits(
+    public static func deriveBits(
         key: PAL.Crypto.SpanConstUInt8,
         salt: PAL.Crypto.SpanConstUInt8,
         info: PAL.Crypto.SpanConstUInt8,
