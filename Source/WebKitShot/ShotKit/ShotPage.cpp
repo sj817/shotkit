@@ -359,7 +359,7 @@ bool renderURLToImage(const WTF::String& urlString, const RenderOptions& options
 
     // 抓主资源。
 #if PLATFORM(COCOA)
-    ResourceRequest request(url);
+    ResourceRequest request(URL { url });
     request.setTimeoutInterval(std::max(0.001, options.timeoutMs / 1000.0));
     ResourceError error;
     ResourceResponse response;

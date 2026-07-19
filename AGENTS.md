@@ -447,6 +447,7 @@ CLI（`shotcli`）是 ABI 的薄封装：一次性模式为 `shotcli --url <u> |
 | `Source/cmake/WebKitMacros.cmake` | framework 链接宏比较 `LINKED_INTO` 时给可能为空的展开值加引号 | Cocoa OBJECT WebCore 没有 `LINKED_INTO` 属性，未加引号会生成语法不完整的 `if(... STREQUAL )` 并阻断配置；不改变非空值语义 | M4/macOS 🚧 已改，CI 验证中 |
 | `Source/cmake/WebKitXcodeSDK.cmake` | Apple host 上把 `PORT=Shot` 加入 macOS SDK 自动解析分支 | SDK 解析早于 `OptionsShot.cmake`，未登记时 CMake 会在读取端口选项前直接拒绝 Shot | M4/macOS 🚧 已改，CI 验证中 |
 | `Source/WebCore/loader/EmptyClients.{h,cpp}` | 仅在 `PLATFORM(SHOT) && PLATFORM(COCOA)` 下给空 Frame 网络上下文注入私有 `NetworkStorageSession` 并使上下文有效 | Cocoa `ResourceHandle` 会拒绝无 frame/无 session 的默认空上下文；Shot 单进程子资源需复用同一个内存 CFNetwork session | M4/macOS 🚧 已改，CI 验证中 |
+| `Source/WebKitShot/ShotKit/ShotPage.cpp` | macOS 主资源请求以临时 `URL` 构造 CFNetwork `ResourceRequest` | Cocoa 平台构造函数只接受 `URL&&`；保留原 URL 供响应缺少最终 URL 时回退 | M4/macOS 🚧 已改，CI 验证中 |
 | `Source/cmake/WebKitCommon.cmake` | `ALL_PORTS` 加 `Shot` | 端口注册 | M0 ✅ 已改 |
 | `Source/WebCore/CMakeLists.txt` | GL 库块的 `else()` 改为 `elseif (USE_TEXTURE_MAPPER OR USE_EGL)` | 纯软件光栅端口无 GPU 后端，原逻辑无条件要求不存在的 `OpenGL::GLES` 目标 | M0 ✅ 已改 |
 | `Source/WebCore/bindings/scripts/CodeGenerator.pm` | `IDLFileForInterface` 的 `chomp` 改为 `s/[\r\n]+$//`（CRLF 容错） | Windows 上生成的 IDL 列表 .tmp 是 CRLF，Git 自带 perl 的 chomp 只去 `\n`，残留 `\r` 使接口名映射键损坏，报 "Could NOT find IDL file for interface"。此为通用健壮性修复 | M0 ✅ 已改 |
