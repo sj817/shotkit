@@ -31,7 +31,7 @@ elseif (APPLE)
         "(^|/)platform/audio/mac/"
         "(^|/)platform/graphics/avfoundation/"
         "(^|/)platform/graphics/cv/"
-        "(^|/)platform/cocoa/(MediaRemoteSoftLink|SharedVideoFrameInfo|VideoFullscreenCaptions|VideoToolboxSoftLink|WebAVPlayerLayer)"
+        "(^|/)platform/cocoa/(MediaRemoteSoftLink|SharedVideoFrameInfo|VideoFullscreenCaptions|WebAVPlayerLayer)"
         "(^|/)platform/graphics/cocoa/(AV1UtilitiesCocoa|AudioTrackPrivateWebM|CMUtilities|CVPixelBufferUtilities|H264UtilitiesCocoa|HEVCUtilitiesCocoa|ISOBMFFPreParser|ISOBMFFTrackInfoParser|MediaPlayer.*|PlatformMediaEngineConfigurationFactoryCocoa|PlatformTimeRangesCocoa|ShareableCVPixelBuffer|ShareableCVPixelFormat|SourceBufferParser.*|TextTrackRepresentationCocoa|VP9UtilitiesCocoa|VideoMediaSampleRenderer|VideoTargetFactory|VideoTrackPrivateWebM|WebCoreDecompressionSession|WebMAudioUtilitiesCocoa)"
         "(^|/)platform/ios/(PlaybackSession|VideoPresentation|WebAVPlayer|WebVideoFullscreen)"
         "(^|/)platform/mediastream/cocoa/ScreenCaptureKit(CaptureSource|SharingSessionManager)"
@@ -45,7 +45,7 @@ elseif (APPLE)
     list(FILTER WebCore_SOURCES EXCLUDE REGEX "(^|/)loader/cocoa/DiskCacheMonitorCocoa\\.mm")
     list(FILTER WebCore_SOURCES EXCLUDE REGEX "(^|/)page/scrolling/(cocoa|mac)/")
     list(FILTER WebCore_SOURCES EXCLUDE REGEX "(^|/)platform/graphics/(avfoundation|cv)/")
-    list(FILTER WebCore_SOURCES EXCLUDE REGEX "(^|/)platform/cocoa/(MediaRemoteSoftLink|SharedVideoFrameInfo|VideoFullscreenCaptions|VideoToolboxSoftLink|WebAVPlayerLayer)")
+    list(FILTER WebCore_SOURCES EXCLUDE REGEX "(^|/)platform/cocoa/(MediaRemoteSoftLink|SharedVideoFrameInfo|VideoFullscreenCaptions|WebAVPlayerLayer)")
     list(FILTER WebCore_SOURCES EXCLUDE REGEX "(^|/)platform/graphics/cocoa/(AV1UtilitiesCocoa|AudioTrackPrivateWebM|CMUtilities|CVPixelBufferUtilities|H264UtilitiesCocoa|HEVCUtilitiesCocoa|ISOBMFFPreParser|ISOBMFFTrackInfoParser|MediaPlayer.*|PlatformMediaEngineConfigurationFactoryCocoa|PlatformTimeRangesCocoa|ShareableCVPixelBuffer|ShareableCVPixelFormat|SourceBufferParser.*|TextTrackRepresentationCocoa|VP9UtilitiesCocoa|VideoMediaSampleRenderer|VideoTargetFactory|VideoTrackPrivateWebM|WebCoreDecompressionSession|WebMAudioUtilitiesCocoa)")
     list(FILTER WebCore_SOURCES EXCLUDE REGEX "(^|/)platform/ios/(PlaybackSession|VideoPresentation|WebAVPlayer|WebVideoFullscreen)")
     list(FILTER WebCore_SOURCES EXCLUDE REGEX "(^|/)platform/mediastream/cocoa/ScreenCaptureKit(CaptureSource|SharingSessionManager)")
