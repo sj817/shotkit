@@ -27,7 +27,7 @@
 #include "NowPlayingManager.h"
 #include <wtf/TZoneMallocInlines.h>
 
-#if PLATFORM(COCOA)
+#if PLATFORM(COCOA) && !PLATFORM(SHOT)
 #include "MediaSessionManagerCocoa.h"
 #endif
 
@@ -70,7 +70,7 @@ void NowPlayingManager::clearNowPlayingInfo()
 
 void NowPlayingManager::clearNowPlayingInfoPrivate()
 {
-#if PLATFORM(COCOA)
+#if PLATFORM(COCOA) && !PLATFORM(SHOT)
     MediaSessionManagerCocoa::clearNowPlayingInfo();
 #endif
 }
@@ -117,7 +117,7 @@ bool NowPlayingManager::setNowPlayingInfo(const NowPlayingInfo& nowPlayingInfo)
 void NowPlayingManager::setNowPlayingInfoPrivate(const NowPlayingInfo& nowPlayingInfo, bool shouldUpdateNowPlayingSuppression)
 {
     setSupportsSeeking(nowPlayingInfo.supportsSeeking);
-#if PLATFORM(COCOA)
+#if PLATFORM(COCOA) && !PLATFORM(SHOT)
     if (nowPlayingInfo.metadata.artwork && !nowPlayingInfo.metadata.artwork->image) {
         ASSERT(m_nowPlayingInfoArtwork, "cached value must have been initialized");
         NowPlayingInfo nowPlayingInfoRebuilt = nowPlayingInfo;

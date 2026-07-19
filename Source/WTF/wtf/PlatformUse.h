@@ -208,7 +208,7 @@
 #define USE_INSERTION_UNDO_GROUPING 1
 #endif
 
-#if PLATFORM(COCOA)
+#if PLATFORM(COCOA) && !defined(USE_AUDIO_SESSION)
 #define USE_AUDIO_SESSION 1
 #endif
 

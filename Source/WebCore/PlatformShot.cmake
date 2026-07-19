@@ -12,7 +12,6 @@ elseif (APPLE)
     # uses ResourceHandleCocoa (NSURLConnection/CFNetwork) instead.
     list(REMOVE_ITEM WebCore_SOURCES
         dom/DataTransferMac.mm
-        html/canvas/GPUCanvasContextCocoa.mm
         loader/cocoa/DiskCacheMonitorCocoa.mm
         platform/network/cocoa/RangeResponseGenerator.mm
         platform/network/cocoa/WebCoreNSURLSession.mm
@@ -21,9 +20,7 @@ elseif (APPLE)
     )
     list(APPEND WebCore_UNIFIED_SOURCE_EXCLUDES
         "(^|/)Modules/applepay(-ams-ui)?/"
-        "(^|/)Modules/WebGPU/"
         "(^|/)dom/DataTransferMac\\.mm"
-        "(^|/)html/canvas/GPUCanvasContextCocoa\\.mm"
         "(^|/)loader/cocoa/DiskCacheMonitorCocoa\\.mm"
         "(^|/)page/scrolling/(cocoa|mac)/"
         "(^|/)platform/audio/cocoa/"
@@ -38,10 +35,8 @@ elseif (APPLE)
         "(^|/)platform/network/cocoa/(RangeResponseGenerator|WebCoreNSURLSession)"
         "SerializedPlatformDataCue"
     )
-    list(APPEND WebCore_SOURCES Modules/WebGPU/GPUUncapturedErrorEvent.cpp)
     list(FILTER WebCore_SOURCES EXCLUDE REGEX "(^|/)platform/audio/(cocoa|ios|mac)/")
     list(FILTER WebCore_SOURCES EXCLUDE REGEX "(^|/)dom/DataTransferMac\\.mm")
-    list(FILTER WebCore_SOURCES EXCLUDE REGEX "(^|/)html/canvas/GPUCanvasContextCocoa\\.mm")
     list(FILTER WebCore_SOURCES EXCLUDE REGEX "(^|/)loader/cocoa/DiskCacheMonitorCocoa\\.mm")
     list(FILTER WebCore_SOURCES EXCLUDE REGEX "(^|/)page/scrolling/(cocoa|mac)/")
     list(FILTER WebCore_SOURCES EXCLUDE REGEX "(^|/)platform/graphics/(avfoundation|cv)/")
@@ -51,6 +46,11 @@ elseif (APPLE)
     list(FILTER WebCore_SOURCES EXCLUDE REGEX "(^|/)platform/mediastream/cocoa/ScreenCaptureKit(CaptureSource|SharingSessionManager)")
     list(FILTER WebCore_SOURCES EXCLUDE REGEX "(^|/)platform/network/cocoa/(RangeResponseGenerator|WebCoreNSURLSession)")
     list(FILTER WebCore_SOURCES EXCLUDE REGEX "SerializedPlatformDataCue")
+    list(APPEND WebCore_SOURCES
+        platform/graphics/cocoa/CVPixelBufferUtilities.cpp
+        platform/graphics/cocoa/MediaPlayerEnumsCocoa.mm
+        platform/graphics/cocoa/ShareableCVPixelBuffer.cpp
+    )
 else ()
     include(platform/Adwaita.cmake)
     include(platform/Curl.cmake)
