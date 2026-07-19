@@ -155,7 +155,7 @@ public:
     std::optional<FloatSize> rawPlatformDelta() const { return m_rawPlatformDelta; }
 #endif
 
-#if ENABLE(ASYNC_SCROLLING)
+#if ENABLE(ASYNC_SCROLLING) || ENABLE(KINETIC_SCROLLING)
     bool useLatchedEventElement() const;
     bool isGestureContinuation() const; // The fingers-down part of the gesture excluding momentum.
     bool shouldResetLatching() const;
@@ -211,7 +211,7 @@ protected:
 #endif
 };
 
-#if ENABLE(ASYNC_SCROLLING)
+#if ENABLE(ASYNC_SCROLLING) || ENABLE(KINETIC_SCROLLING)
 
 inline bool PlatformWheelEvent::useLatchedEventElement() const
 {
@@ -240,7 +240,7 @@ inline bool PlatformWheelEvent::isEndOfMomentumScroll() const
 
 inline bool PlatformWheelEvent::isMomentumEvent() const { return momentumPhase() != PlatformWheelEventPhase::None && momentumPhase() != PlatformWheelEventPhase::WillBegin; }
 
-#endif // ENABLE(ASYNC_SCROLLING)
+#endif // ENABLE(ASYNC_SCROLLING) || ENABLE(KINETIC_SCROLLING)
 
 #if ENABLE(KINETIC_SCROLLING)
 
