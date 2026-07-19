@@ -6,7 +6,7 @@ ShotKit 是一个从 WebKit 裁切而来的纯静态截图内核：输入 HTML �
 
 项目面向服务端截图、报告生成、邮件与模板预览、静态页面测试，以及需要通过 C ABI 嵌入原生程序的场景。
 
-当前状态：**Windows x64 可用；Linux 与 macOS 端口尚在开发。**
+当前状态：**Windows x64、Linux x64 与 macOS arm64 端口均已接入构建和运行回归。** 三个平台使用同一套 C ABI 与 CLI；图形和网络后端按平台选择，因此像素结果可能存在细微差异。
 
 仓库使用两条代码线：`main` 是无上游历史的精简发布快照，只保留 ShotKit 的构建闭包；`shotkit` 保留完整 WebKit 历史，供上游对照和必要的同步工作使用。日常开发、Issue 与 Pull Request 均以 `main` 为准。
 
@@ -40,11 +40,11 @@ ShotKit 的取舍很明确：牺牲客户端应用和交互网页能力，换取
 - 窗口、用户输入、DevTools 与浏览器扩展；
 - 依赖客户端渲染的 SPA/CSR 页面。
 
-iframe 目前也尚未支持，详见“已知限制”。
+iframe 目前也尚未支持，详见「已知限制」。
 
 ## 快速开始
 
-当前预编译运行时仅提供 Windows x64。取得发布归档后，先完整解压再运行；ShotKit 不会在运行时解压自身，也不会向 `%LOCALAPPDATA%` 写入内核缓存。
+GitHub Actions 会为通过回归的提交生成 Windows x64、Linux x64 和 macOS arm64 归档。CI artifact 只保留 7 天，用于验证当前提交，不属于稳定版本发布。取得归档后应先完整解压；ShotKit 不会在运行时解压自身，也不会写入内核缓存。
 
 ```powershell
 tar.exe -xf shotkit-0.1.0-windows-x64.tar.xz
@@ -63,6 +63,15 @@ cd shotkit-0.1.0-windows-x64
 # stdin
 Get-Content .\page.html -Raw | .\shotcli.exe --stdin --out stdin.png
 ```
+
+Linux 和 macOS 归档使用相同参数，CLI 位于 `bin/`：
+
+```bash
+./bin/shotcli --url https://example.com/ --out example.png --full-page
+./bin/shotcli --html ./page.html --out page.webp --format webp --quality 82
+```
+
+归档布局、平台依赖和源码构建命令见 [入门指南](Source/WebKitShot/docs/getting-started.md)。
 
 完整 CLI 形式：
 
@@ -126,7 +135,7 @@ npm run pack:win
 
 ## C ABI
 
-公开头文件位于 [`Source/WebKitShot/capi/shot.h`](Source/WebKitShot/capi/shot.h)。`shot.dll` 只导出 10 个 `shot_*` 符号，适合通过 Python ctypes/cffi、Go cgo、Rust FFI 等方式嵌入。
+公开头文件位于 [`Source/WebKitShot/capi/shot.h`](Source/WebKitShot/capi/shot.h)。`shot.dll`、`libshot.so` 和 `libshot.dylib` 均只导出 10 个 `shot_*` 符号，适合通过 Python ctypes/cffi、Go cgo、Rust FFI 等方式嵌入。
 
 典型调用顺序：
 
@@ -144,20 +153,26 @@ npm run pack:win
 ```text
 HTML / XML / URL
        │
-       ├── curl + OpenSSL ── CSS / image / webfont / XSLT
+       ├── Windows/Linux: curl + OpenSSL
+       └── macOS: CFNetwork
        │
        ▼
 WebCore layout and painting
        │
+       ├── Windows/Linux: Skia CPU
+       └── macOS: CoreGraphics/CoreText
+       │
        ▼
-Skia CPU rasterization ── PNG / WebP
+PNG / WebP
 ```
 
 - ShotKit 直接在单进程中嵌入 WebCore，不构建 WebKit 的 UI/Web/Network 多进程层；
 - JavaScriptCore 保留为 WebCore DOM、GC 与正则基础设施，但只构建 C-loop LLInt，JIT 与 WebAssembly 均关闭；
 - 页面脚本在设置、解析预加载和最终网络调度等多层被拒绝，不执行也不下载；
 - bmalloc、WTF、JavaScriptCore、PAL 和 WebCore 作为 OBJECT 库汇入 `shot.dll`，仅 C ABI 对外可见；
-- Windows 使用 Skia CPU、DirectWrite、curl 与 OpenSSL；默认截图路径不需要 GPU 或 ANGLE 运行库。
+- Windows 使用 Skia CPU、DirectWrite、curl 与 OpenSSL；默认截图路径不需要 GPU 或 ANGLE 运行库；
+- Linux 使用 Skia CPU、Fontconfig/FreeType、curl 与 OpenSSL；
+- macOS 使用 CoreGraphics/CoreText 与 CFNetwork，WebP 输出由静态链接的 libwebp 编码。
 
 更完整的设计、裁剪依据与里程碑记录见 [`AGENTS.md`](AGENTS.md)。网络接入点见 [network-integration-map.md](Source/WebKitShot/docs/network-integration-map.md)。
 
@@ -167,9 +182,9 @@ Windows x64、MinSizeRel、full LTO 的当前基线：
 
 | 项目 | 实测值 |
 |---|---:|
-| `shot.dll` | 39,545,856 bytes |
-| 完整解压目录 | 57.97 MiB / 27 files |
-| `tar.xz` 发布包 | 17,299,500 bytes |
+| `shot.dll` | 39,421,440 bytes |
+| 完整解压目录 | 57.77 MiB / 27 files |
+| `tar.xz` 发布包 | 17,260,888 bytes |
 | 1000 次 480×320 PNG 连续渲染 | 66.8 images/s |
 | 压力测试峰值 RSS | 30.3 MiB |
 
@@ -179,7 +194,7 @@ Windows x64、MinSizeRel、full LTO 的当前基线：
 
 ## 从源码构建
 
-Windows 构建当前使用以下工具链：
+Windows 构建使用以下工具链：
 
 - Visual Studio C++ Build Tools 与 Windows SDK；
 - LLVM/clang-cl、CMake、Ninja；
@@ -192,9 +207,32 @@ Windows 构建当前使用以下工具链：
 pwsh Source/WebKitShot/build-shot.ps1 -Configure -Build
 ```
 
-[`build-shot.ps1`](Source/WebKitShot/build-shot.ps1) 会从脚本位置解析仓库根目录，并自动发现 Visual Studio、LLVM 与 vcpkg；也可通过 `-Root`、`-LlvmBin`、`-VcpkgRoot`、`-VcpkgInstalledDir` 显式指定。GitHub Actions 使用受限并行的 ThinLTO 配置，避免标准托管 runner 承担本地 full LTO 的峰值内存。
+[`build-shot.ps1`](Source/WebKitShot/build-shot.ps1) 会从脚本位置解析仓库根目录，并自动发现 Visual Studio、LLVM 与 vcpkg；也可通过 `-Root`、`-LlvmBin`、`-VcpkgRoot`、`-VcpkgInstalledDir` 显式指定。Windows hosted CI 使用受限并行和单线程 full LTO 链接，降低标准 runner 的内存峰值。
 
-Windows CI 上传的是与正式发布相同的 `tar.xz` 固实压缩包及 SHA-256，而不是把解压目录交给 GitHub ZIP 再压缩。Linux 与 macOS 尚未接入构建 CI：当前 Shot 平台层仍是 Windows 实现，两个平台会在各自端口完成后加入，避免用必然失败的占位任务冒充跨平台支持。
+三个平台的 CI 都上传 `tar.xz` 与 SHA-256，不把解压目录交给 GitHub ZIP 再次压缩。这些归档是当前提交的验证产物，不等同于稳定版本发布。
+
+Linux 使用 Ubuntu 24.04、clang-18、lld-18 和系统开发包构建：
+
+```bash
+cmake -S . -B WebKitBuild/shot-linux -G Ninja \
+  -DPORT=Shot -DCMAKE_BUILD_TYPE=MinSizeRel \
+  -DCMAKE_C_COMPILER=clang-18 -DCMAKE_CXX_COMPILER=clang++-18 \
+  -DLTO_MODE=full
+ninja -C WebKitBuild/shot-linux -j2 shotcli
+```
+
+macOS 使用 Xcode 26.3、CMake、Ninja、ICU 与 WebP 构建：
+
+```bash
+brew install bison cmake gperf icu4c ninja webp
+export CMAKE_PREFIX_PATH="$(brew --prefix icu4c);$(brew --prefix webp)"
+cmake -S . -B WebKitBuild/shot-macos -G Ninja \
+  -DPORT=Shot -DCMAKE_BUILD_TYPE=MinSizeRel \
+  -DCMAKE_PREFIX_PATH="$CMAKE_PREFIX_PATH" -DLTO_MODE=OFF
+ninja -C WebKitBuild/shot-macos -j3 shotcli
+```
+
+Windows、Linux 与 macOS CI 均检查 PNG/WebP、脚本零请求、10 个 C ABI 导出、可重定位 CLI 和发布归档。macOS 还检查内部链接完整性、CFNetwork 与 XML/XSLT；Linux hosted 构建使用 full LTO，Windows hosted 构建使用受限并行和单线程链接。
 
 生成传统解压即用的 Windows 发布包：
 
@@ -220,7 +258,8 @@ pwsh Source/WebKitShot/tools/package-release.ps1 -Version 0.1.0
 - **iframe 尚未支持**：主文档中的 iframe 当前不会完成独立导航；
 - **不是安全沙箱**：ShotKit 为单进程解析与渲染内核，不提供浏览器级进程隔离。处理不可信远程内容时，应由调用方放入受限账户、容器或独立进程，并设置资源与时间限制；
 - **单线程 API**：同一实例不能从多个线程并发调用；并行任务使用多进程；
-- **平台状态**：当前仅 Windows x64 完成实现和回归测试；Linux/macOS 尚无发布产物；
+- **平台差异**：Windows/Linux 使用 Skia，macOS 使用 CoreGraphics/CoreText；字体回退、抗锯齿与颜色管理可能产生像素差异；
+- **产物状态**：GitHub Actions artifact 是当前提交的短期构建快照，不提供稳定版本兼容性承诺；macOS hosted artifact 当前为 arm64；
 - `extra_font_dir` 与 `background_rgba` 已保留在 ABI 中，但目前尚未接线。
 
 ## 路线图
@@ -228,8 +267,8 @@ pwsh Source/WebKitShot/tools/package-release.ps1 -Version 0.1.0
 - [x] Windows：HTML/URL → PNG/WebP、网络子资源、XML/XSLT、C ABI、CLI、Node.js；
 - [x] 体积 DCE、ICU 数据裁剪、无脚本网络闭包、重复渲染压力测试；
 - [x] 参数化 Windows bootstrap，并建立公开 CI 与可复现构建产物；
-- [ ] Linux：Fontconfig/FreeType + Generic RunLoop；
-- [ ] macOS：CoreGraphics/CoreText + CFNetwork；
+- [x] Linux：Fontconfig/FreeType + Generic RunLoop；
+- [x] macOS：CoreGraphics/CoreText + CFNetwork；
 - [ ] iframe；
 - [ ] Python / Go / Rust 的正式绑定与示例。
 
