@@ -47,6 +47,9 @@ set(libshot_FRAMEWORKS
 )
 
 set(libshot_PRIVATE_INCLUDE_DIRECTORIES ${_shotkit_includes})
+if (APPLE)
+    list(APPEND libshot_PRIVATE_INCLUDE_DIRECTORIES ${SHOT_WEBP_INCLUDE_DIR})
+endif ()
 
 set(libshot_LIBRARIES
     ICU::data ICU::i18n ICU::uc
@@ -57,6 +60,9 @@ if (WIN32)
     list(APPEND libshot_LIBRARIES dwrite delayimp)
 else ()
     list(APPEND libshot_LIBRARIES Threads::Threads ${CMAKE_DL_LIBS})
+endif ()
+if (APPLE)
+    list(APPEND libshot_LIBRARIES ${SHOT_WEBP_LIBRARY} ${SHOT_SHARPYUV_LIBRARY})
 endif ()
 
 WEBKIT_LIBRARY_DECLARE(libshot)

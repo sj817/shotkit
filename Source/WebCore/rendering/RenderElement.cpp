@@ -138,6 +138,20 @@ float opacity(const RenderElement& renderer)
     return renderer.opacity();
 }
 
+bool RenderElement::createsGroupForStyle(const Style::ComputedStyle& style)
+{
+    return !style.opacity().isOpaque()
+        || Style::hasImageInAnyLayer(style.maskLayers())
+        || !style.maskBorderSource().isNone()
+        || !style.clipPath().isNone()
+        || !style.filter().isNone()
+        || !style.backdropFilter().isNone()
+#if HAVE(CORE_MATERIAL)
+        || style.appleVisualEffect() != AppleVisualEffect::None
+#endif
+        || style.blendMode() != BlendMode::Normal;
+}
+
 static_assert(sizeof(RenderElement) == sizeof(SameSizeAsRenderElement), "RenderElement should stay small");
 
 inline RenderElement::RenderElement(Type type, ContainerNode& elementOrDocument, Style::ComputedStyle&& style, OptionSet<TypeFlag> flags, TypeSpecificFlags typeSpecificFlags)

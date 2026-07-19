@@ -84,6 +84,15 @@ if (NOT APPLE)
     find_package(Brotli REQUIRED COMPONENTS dec)
 endif ()
 
+if (APPLE)
+    # ImageIO decodes WebP on macOS 15 but does not provide a WebP encoder.
+    # Link the small encoder closure statically so release archives do not
+    # acquire a Homebrew dylib dependency.
+    find_path(SHOT_WEBP_INCLUDE_DIR NAMES webp/encode.h REQUIRED)
+    find_file(SHOT_WEBP_LIBRARY NAMES libwebp.a PATH_SUFFIXES lib REQUIRED)
+    find_file(SHOT_SHARPYUV_LIBRARY NAMES libsharpyuv.a PATH_SUFFIXES lib REQUIRED)
+endif ()
+
 if (CMAKE_SYSTEM_NAME MATCHES "Linux")
     find_package(EGL REQUIRED)
     find_package(Fontconfig REQUIRED)

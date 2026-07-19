@@ -13,6 +13,7 @@ elseif (APPLE)
     list(REMOVE_ITEM WebCore_SOURCES
         dom/DataTransferMac.mm
         loader/cocoa/DiskCacheMonitorCocoa.mm
+        platform/graphics/cocoa/ShareableGainMap.cpp
         platform/network/cocoa/RangeResponseGenerator.mm
         platform/network/cocoa/WebCoreNSURLSession.mm
         platform/mediastream/cocoa/ScreenCaptureKitCaptureSource.mm
@@ -31,6 +32,7 @@ elseif (APPLE)
         "(^|/)platform/graphics/cv/"
         "(^|/)platform/cocoa/(SharedVideoFrameInfo|VideoFullscreenCaptions|WebAVPlayerLayer)"
         "(^|/)platform/graphics/cocoa/(AV1UtilitiesCocoa|AudioTrackPrivateWebM|CMUtilities|CVPixelBufferUtilities|H264UtilitiesCocoa|HEVCUtilitiesCocoa|ISOBMFFPreParser|ISOBMFFTrackInfoParser|MediaPlayer.*|PlatformMediaEngineConfigurationFactoryCocoa|PlatformTimeRangesCocoa|ShareableCVPixelBuffer|ShareableCVPixelFormat|SourceBufferParser.*|TextTrackRepresentationCocoa|VP9UtilitiesCocoa|VideoMediaSampleRenderer|VideoTargetFactory|VideoTrackPrivateWebM|WebCoreDecompressionSession|WebMAudioUtilitiesCocoa)"
+        "(^|/)platform/graphics/cocoa/ShareableGainMap\\.cpp"
         "(^|/)platform/ios/(PlaybackSession|VideoPresentation|WebAVPlayer|WebVideoFullscreen)"
         "(^|/)platform/mediastream/cocoa/ScreenCaptureKit(CaptureSource|SharingSessionManager)"
         "(^|/)platform/network/cocoa/(RangeResponseGenerator|WebCoreNSURLSession)"
@@ -44,6 +46,7 @@ elseif (APPLE)
     list(FILTER WebCore_SOURCES EXCLUDE REGEX "(^|/)platform/graphics/(avfoundation|cv)/")
     list(FILTER WebCore_SOURCES EXCLUDE REGEX "(^|/)platform/cocoa/(SharedVideoFrameInfo|VideoFullscreenCaptions|WebAVPlayerLayer)")
     list(FILTER WebCore_SOURCES EXCLUDE REGEX "(^|/)platform/graphics/cocoa/(AV1UtilitiesCocoa|AudioTrackPrivateWebM|CMUtilities|CVPixelBufferUtilities|H264UtilitiesCocoa|HEVCUtilitiesCocoa|ISOBMFFPreParser|ISOBMFFTrackInfoParser|MediaPlayer.*|PlatformMediaEngineConfigurationFactoryCocoa|PlatformTimeRangesCocoa|ShareableCVPixelBuffer|ShareableCVPixelFormat|SourceBufferParser.*|TextTrackRepresentationCocoa|VP9UtilitiesCocoa|VideoMediaSampleRenderer|VideoTargetFactory|VideoTrackPrivateWebM|WebCoreDecompressionSession|WebMAudioUtilitiesCocoa)")
+    list(FILTER WebCore_SOURCES EXCLUDE REGEX "(^|/)platform/graphics/cocoa/ShareableGainMap\\.cpp")
     list(FILTER WebCore_SOURCES EXCLUDE REGEX "(^|/)platform/ios/(PlaybackSession|VideoPresentation|WebAVPlayer|WebVideoFullscreen)")
     list(FILTER WebCore_SOURCES EXCLUDE REGEX "(^|/)platform/mediastream/cocoa/ScreenCaptureKit(CaptureSource|SharingSessionManager)")
     list(FILTER WebCore_SOURCES EXCLUDE REGEX "(^|/)platform/network/cocoa/(RangeResponseGenerator|WebCoreNSURLSession)")
@@ -52,6 +55,8 @@ elseif (APPLE)
         platform/graphics/cocoa/CVPixelBufferUtilities.cpp
         platform/graphics/cocoa/MediaPlayerEnumsCocoa.mm
         platform/graphics/cocoa/ShareableCVPixelBuffer.cpp
+        platform/graphics/cocoa/ShareableCVPixelFormat.cpp
+        platform/shot/ShareableGainMapShot.cpp
     )
 else ()
     include(platform/Adwaita.cmake)

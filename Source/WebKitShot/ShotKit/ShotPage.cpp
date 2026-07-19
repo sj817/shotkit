@@ -47,6 +47,7 @@
 #endif
 #include <WebCore/Page.h>
 #include <WebCore/PageConfiguration.h>
+#include <WebCore/PixelBuffer.h>
 #include <WebCore/PixelFormat.h>
 #include <WebCore/ResourceError.h>
 #include <WebCore/ResourceRequest.h>
@@ -61,6 +62,9 @@
 #include <wtf/Seconds.h>
 #include <wtf/StdLibExtras.h>
 #include <wtf/URL.h>
+#if PLATFORM(COCOA)
+#include <webp/encode.h>
+#endif
 
 namespace ShotKit {
 
@@ -127,7 +131,30 @@ static void pumpUntilLoaded(LocalFrame& frame, const RenderOptions& options)
     }
 }
 
-// ---- 把已备好的文档字节喂进 frame、等加载、截图、编码 PNG ----
+#if PLATFORM(COCOA)
+static Vector<uint8_t> encodeWebP(ImageBuffer& imageBuffer, OutputFormat outputFormat, double quality)
+{
+    auto logicalSize = imageBuffer.truncatedLogicalSize();
+    RefPtr pixelBuffer = imageBuffer.getPixelBuffer({ AlphaPremultiplication::Unpremultiplied, PixelFormat::BGRA8, DestinationColorSpace::SRGB() }, { { }, logicalSize });
+    if (!pixelBuffer)
+        return { };
+
+    auto size = pixelBuffer->size();
+    uint8_t* encodedData = nullptr;
+    size_t encodedSize = outputFormat == OutputFormat::WebPLossless
+        ? WebPEncodeLosslessBGRA(pixelBuffer->bytes().data(), size.width(), size.height(), size.width() * 4, &encodedData)
+        : WebPEncodeBGRA(pixelBuffer->bytes().data(), size.width(), size.height(), size.width() * 4, std::clamp(quality, 0.0, 0.99) * 100, &encodedData);
+    if (!encodedSize || !encodedData)
+        return { };
+
+    Vector<uint8_t> result;
+    result.append(unsafeMakeSpan(encodedData, encodedSize));
+    WebPFree(encodedData);
+    return result;
+}
+#endif
+
+// ---- 把已备好的文档字节喂进 frame、等加载、截图、编码图像 ----
 static bool writeAndSnapshot(LocalFrame& frame, const URL& baseURL, const String& mimeType, Ref<SharedBuffer>&& data, const RenderOptions& options, WTF::Vector<uint8_t>& outImage)
 {
     Ref loader = frame.loader();
@@ -184,6 +211,13 @@ static bool writeAndSnapshot(LocalFrame& frame, const URL& baseURL, const String
     RefPtr<ImageBuffer> imageBuffer = snapshotFrameRect(frame, IntRect(IntPoint(), snapshotSize), WTF::move(snapshotOptions));
     if (!imageBuffer)
         return false;
+
+#if PLATFORM(COCOA)
+    if (options.outputFormat != OutputFormat::PNG) {
+        outImage = encodeWebP(*imageBuffer, options.outputFormat, options.outputQuality);
+        return !outImage.isEmpty();
+    }
+#endif
 
     String outputMIMEType = "image/png"_s;
     std::optional<double> outputQuality;

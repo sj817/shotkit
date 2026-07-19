@@ -33,7 +33,7 @@
 #include "PlatformStrategies.h"
 #include <wtf/NeverDestroyed.h>
 
-#if PLATFORM(COCOA)
+#if PLATFORM(COCOA) && USE(AUDIO_SESSION)
 #include "MediaSessionManagerCocoa.h"
 #endif
 

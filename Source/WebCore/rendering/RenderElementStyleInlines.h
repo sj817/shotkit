@@ -93,20 +93,6 @@ inline bool RenderElement::canContainFixedPositionObjects(const Style::ComputedS
         || (isRenderBlock() && style.willChange().createsContainingBlockForOutOfFlowPositioned(isDocumentElementRenderer()));
 }
 
-inline bool RenderElement::createsGroupForStyle(const Style::ComputedStyle& style)
-{
-    return !style.opacity().isOpaque()
-        || Style::hasImageInAnyLayer(style.maskLayers())
-        || !style.maskBorderSource().isNone()
-        || !style.clipPath().isNone()
-        || !style.filter().isNone()
-        || !style.backdropFilter().isNone()
-#if HAVE(CORE_MATERIAL)
-        || style.appleVisualEffect() != AppleVisualEffect::None
-#endif
-        || style.blendMode() != BlendMode::Normal;
-}
-
 inline bool RenderElement::shouldApplyAnyContainment() const
 {
     RefPtr element = this->element();
