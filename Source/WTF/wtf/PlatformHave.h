@@ -987,8 +987,11 @@
 #define HAVE_CORE_LOCATION 1
 #endif
 
-#if PLATFORM(COCOA)
+#if PLATFORM(COCOA) && !defined(HAVE_WEBGPU_IMPLEMENTATION)
 #define HAVE_WEBGPU_IMPLEMENTATION 1
+#endif
+
+#if PLATFORM(COCOA)
 // FIXME: PlatformHave.h should not depend or defined ENABLE macros.
 #if !defined(ENABLE_WEBGPU_SWIFT)
 #define ENABLE_WEBGPU_SWIFT 0

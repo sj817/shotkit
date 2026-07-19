@@ -20,6 +20,7 @@ elseif (APPLE)
     )
     list(APPEND WebCore_UNIFIED_SOURCE_EXCLUDES
         "(^|/)Modules/applepay(-ams-ui)?/"
+        "(^|/)Modules/WebGPU/Implementation/"
         "(^|/)dom/DataTransferMac\\.mm"
         "(^|/)loader/cocoa/DiskCacheMonitorCocoa\\.mm"
         "(^|/)page/scrolling/(cocoa|mac)/"
@@ -35,6 +36,7 @@ elseif (APPLE)
         "(^|/)platform/network/cocoa/(RangeResponseGenerator|WebCoreNSURLSession)"
         "SerializedPlatformDataCue"
     )
+    list(FILTER WebCore_SOURCES EXCLUDE REGEX "(^|/)Modules/WebGPU/Implementation/")
     list(FILTER WebCore_SOURCES EXCLUDE REGEX "(^|/)platform/audio/(cocoa|ios|mac)/")
     list(FILTER WebCore_SOURCES EXCLUDE REGEX "(^|/)dom/DataTransferMac\\.mm")
     list(FILTER WebCore_SOURCES EXCLUDE REGEX "(^|/)loader/cocoa/DiskCacheMonitorCocoa\\.mm")
