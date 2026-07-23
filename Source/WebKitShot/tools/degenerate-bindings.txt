@@ -1680,3 +1680,24 @@ WebGLRenderingContext
 WebXRSession
 WorkerNavigator
 XPathResult
+# ---- 二期 2b 第一批（2026-07-24）：Custom 文件实现属性/操作成员的接口。
+# strip-custom = 同时剥掉接口级 Custom* 扩展属性，生成代码不再引用手写
+# JS*Custom.cpp，该文件由 Source/WebCore/PlatformShot.cmake 排除编译
+# （两处清单必须同步维护）。入选前提：树内无非生成代码引用其生成类成员
+# （已审计；PDFJS 引用在 ENABLE_PDFJS=OFF 下不编译）。
+# 缓行：DOMWindow/Location（跨源属性机制）、HTMLElement（eventHandlerScope
+# 被 JSLazyEventListener 引用）、EventTarget/Node/Event（核心对象模型）。
+Document strip-custom
+Element strip-custom
+History strip-custom
+MessageEvent strip-custom
+PopStateEvent strip-custom
+Navigator strip-custom
+XMLHttpRequest strip-custom
+KeyframeEffect strip-custom
+ShadowRoot strip-custom
+IDBCursor strip-custom
+IDBCursorWithValue strip-custom
+IDBRequest strip-custom
+IDBRecord strip-custom
+WorkerGlobalScope strip-custom

@@ -151,6 +151,7 @@ sub new
 # unreachable at runtime; not emitting it removes the only references anchoring
 # large JS-only WebCore subsystems, letting full LTO sweep them.
 my %shotDegenerateInterfaces;
+my %shotStripCustomInterfaces;
 my $shotDegenerateInterfacesLoaded = 0;
 
 sub ShotLoadDegenerateInterfaces
@@ -164,7 +165,13 @@ sub ShotLoadDegenerateInterfaces
     while (my $line = <$fh>) {
         $line =~ s/#.*//;
         $line =~ s/^\s+|\s+$//g;
-        $shotDegenerateInterfaces{$line} = 1 if length $line;
+        next unless length $line;
+        my ($name, $flag) = split(/\s+/, $line, 2);
+        $shotDegenerateInterfaces{$name} = 1;
+        # "Name strip-custom" additionally removes the interface-level Custom*
+        # extended attributes, so the generated code makes no reference to the
+        # hand-written JS*Custom.cpp (which the build then excludes).
+        $shotStripCustomInterfaces{$name} = 1 if $flag && $flag eq 'strip-custom';
     }
     close $fh;
 }
@@ -191,6 +198,15 @@ sub ShotDegenerateInterfaceIfRequested
     $interface->asyncIterable(undef);
     $interface->mapLike(undef);
     $interface->setLike(undef);
+
+    if ($shotStripCustomInterfaces{$interface->type->name}) {
+        delete $interface->extendedAttributes->{$_} foreach qw(
+            JSCustomMarkFunction JSCustomFinalize JSCustomHeader JSCustomToNativeObject
+            CustomGetOwnPropertySlot CustomPut CustomDefineOwnProperty CustomDeleteProperty
+            CustomGetOwnPropertyNames CustomPreventExtensions CustomGetPrototype
+            CustomProxyToJSObject CustomToJSObject CustomIsReachable CustomGetCallData
+            CustomHeapSnapshot);
+    }
 }
 
 sub GenerateEnumeration
