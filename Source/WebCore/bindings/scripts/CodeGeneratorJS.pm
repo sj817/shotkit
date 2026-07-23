@@ -4732,6 +4732,12 @@ sub GenerateImplementation
     my $interfaceName = $interface->type->name;
     my $className = "JS$interfaceName";
 
+    # ShotKit degenerate bindings drop the operation glue whose generation used
+    # to pull in JSDOMPromiseDeferred.h. Sibling files inside the same unified
+    # source bundle (and impl headers holding Ref<DeferredPromise> members)
+    # historically relied on that transitive include, so keep emitting it.
+    AddToImplIncludes("JSDOMPromiseDeferred.h") if $shotDegenerateInterfaces{$interfaceName} && !$interface->isCallback;
+
     my $hasParent = $interface->parentType || $interface->extendedAttributes->{JSLegacyParent};
     my $parentClassName = GetParentClassName($interface);
     my $visibleInterfaceName = $codeGenerator->GetVisibleInterfaceName($interface);
