@@ -1,0 +1,72 @@
+name: Commit Lint
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+concurrency:
+  group: commit-lint-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+  pull-requests: read
+
+jobs:
+  lint:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+
+    steps:
+      - name: Validate commit subjects
+        uses: actions/github-script@v8
+        with:
+          script: |
+            // 与 .githooks/commit-msg 同一套规则：`<type>: <中文标题>`。
+            const prefixed = /^(feat|fix|perf|refactor|build|ci|docs|test|chore|revert)(\([^()\s]+\))?: (.+)$/u;
+            const exempt = /^(Merge |Revert |fixup! |squash! )/;
+
+            let commits;
+            if (context.eventName === 'pull_request') {
+              const listed = await github.paginate(github.rest.pulls.listCommits, {
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                pull_number: context.payload.pull_request.number,
+                per_page: 100,
+              });
+              commits = listed.map((c) => ({
+                sha: c.sha,
+                subject: c.commit.message.split('\n')[0],
+                isMerge: c.parents.length > 1,
+              }));
+            } else {
+              commits = (context.payload.commits ?? []).map((c) => ({
+                sha: c.id,
+                subject: c.message.split('\n')[0],
+                isMerge: false,
+              }));
+            }
+
+            const failures = [];
+            for (const { sha, subject, isMerge } of commits) {
+              if (isMerge || exempt.test(subject)) continue;
+              const problems = [];
+              const match = subject.match(prefixed);
+              if (!match) {
+                problems.push('缺少标准前缀 `<type>: <中文标题>`（type ∈ feat|fix|perf|refactor|build|ci|docs|test|chore|revert）');
+              } else if (!/\p{Script=Han}/u.test(match[3])) {
+                problems.push('标题必须使用中文');
+              }
+              if (subject.length > 72) problems.push('标题超过 72 字符');
+              if (match && /[。.]$/.test(match[3])) problems.push('标题结尾不要加句号');
+              for (const problem of problems) {
+                failures.push(`${sha.slice(0, 12)} ${problem}: ${subject}`);
+              }
+            }
+
+            if (failures.length) {
+              core.setFailed('提交信息不符合规范（本地启用 git config core.hooksPath .githooks 可在提交时拦截）:\n' + failures.join('\n'));
+            } else {
+              core.info(`检查了 ${commits.length} 个提交，全部符合规范`);
+            }

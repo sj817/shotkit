@@ -1,0 +1,43 @@
+#!/bin/sh
+# ShotKit 提交信息检查：标题必须为 `<type>: <中文标题>`。
+# 启用（每个克隆一次）：git config core.hooksPath .githooks
+# 规则详见 AGENTS.md 第 10 节"提交规范"。
+exec perl -CSD -e '
+    use strict;
+    use warnings;
+    use utf8;
+    binmode STDERR, ":encoding(UTF-8)";
+
+    open(my $fh, "<:encoding(UTF-8)", $ARGV[0]) or die "commit-msg hook: cannot read $ARGV[0]: $!\n";
+    my $subject = <$fh>;
+    close $fh;
+    $subject = "" unless defined $subject;
+    $subject =~ s/[\r\n]+$//;
+
+    # git 自动生成的合并/回滚/rebase 标题不受约束。
+    exit 0 if $subject =~ /^(?:Merge |Revert |fixup! |squash! )/;
+
+    my @problems;
+    my $title;
+    if ($subject =~ /^(?:feat|fix|perf|refactor|build|ci|docs|test|chore|revert)(?:\([^()\s]+\))?: (.+)$/) {
+        $title = $1;
+    } else {
+        push @problems, "缺少标准前缀，要求 `<type>: <中文标题>`，type ∈ feat|fix|perf|refactor|build|ci|docs|test|chore|revert（可选 `type(scope):`，冒号后一个空格）";
+    }
+    if (defined $title && $title !~ /\p{Han}/) {
+        push @problems, "标题必须使用中文";
+    }
+    if (length($subject) > 72) {
+        push @problems, "标题超过 72 字符（建议 50 以内）";
+    }
+    if (defined $title && $title =~ /[。.]$/) {
+        push @problems, "标题结尾不要加句号";
+    }
+    exit 0 unless @problems;
+
+    print STDERR "提交被拒绝：提交信息不符合规范\n";
+    print STDERR "  标题: $subject\n";
+    print STDERR "  - $_\n" for @problems;
+    print STDERR "示例: fix(network): 修复子资源重定向后 cookie 丢失\n";
+    exit 1;
+' "$1"

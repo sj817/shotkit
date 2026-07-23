@@ -359,6 +359,7 @@ CLI（`shotcli`）是 ABI 的薄封装：一次性模式为 `shotcli --url <u> |
 - **macOS 托管 CI**（2026-07-19）：macOS 15 arm64 + Xcode 26.3 非 LTO 构建完成内部链接完整性、PNG/WebP、CFNetwork、无脚本网络、XML/XSLT、10 个 C ABI 导出、RPATH 和发布归档检查。run `29687395027`：strip 后 `libshot.dylib` **41,069,504 bytes**，`shotcli` **57,192 bytes**，`tar.xz` **9,540,040 bytes**。WebP 由静态链接 libwebp 编码，发布包不依赖 Homebrew dylib。
 - **跨浏览器基准**（2026-07-14）：`demo/browser-benchmark/` 已迁移为 TypeScript ESM + `tsx`，对比 Puppeteer Chrome/Firefox、Playwright Chromium/Firefox/WebKit 与 ShotKit 的进程冷启动和常驻热请求；场景为本机 HTTP 静态 fixture、真实公网 `https://example.com/`、本地 `file://` + 外链 CSS，均为 1280×800 DPR1 full-page PNG，每次隔离页面/网络状态。每个“引擎×场景×冷/热”截图 3 次并取最快，108 个正式样本全部成功。Windows i9-14900KF 上 ShotKit 三场景冷/热最快值分别为 HTTP 186.4/91.1 ms、example.com 345.9/128.1 ms、file 158.1/66.4 ms；常驻 RSS 45.0 MB、完整分发 64.1 MB。原始样本与表格见 demo 的 `results/latest.json` / `results/latest.md`。
 - **Node.js SDK**（2026-07-14）：`Source/WebKitShot/bindings/node/` 提供 `@shotkit/node@0.1.0`，用 JSONL 封装 `shotcli --serve` 常驻进程，支持 ESM + CommonJS、Promise、并发安全串行、PNG/WebP Buffer、URL/HTML/file 输入，无 node-gyp/N-API 编译且生产依赖为 0。源码测试 4/4、严格类型检查与 npm audit 全绿；带完整 Windows x64 runtime 的 tgz 为 28.9 MB（解压 67.3 MB），已在全新 npm 项目中安装并实测公网 URL/HTML 的 PNG/WebP 与 CJS。构建与 SHA-256 见 `bindings/node/RELEASE.md`；Python/Go 等语言可直接使用 `docs/language-bindings.md` 的同一 JSONL 协议或 C ABI。
+- **CI 平台矩阵扩展**（2026-07-23，首轮验证中）：Linux 增加 arm64（`ubuntu-24.04-arm`）、macOS 增加 x64/Intel（`macos-15-intel`，Xcode 选择自适应 26.3→26.x→16.4）、Windows 增加 arm64（`windows-11-arm`，**实验性 `continue-on-error`**——arm64 镜像预装工具链不全，workflow 内含 choco/vcpkg 兜底安装）。`build-shot.ps1`（-Arch）、`package-release.ps1`（-Architecture，arm64 不用 x86-BCJ 滤镜）、`collect-dist.ps1`/`verify_no_script_network.ps1`（-VcpkgTriplet）、dumpbin 按 host 架构选择均已参数化；arm64-windows-webkit triplet 为上游快照自带。各架构首轮通过后把体积基线补进第 7 节表格。
 - **待办（非核心，可后置）**：iframe（本版 `EmptyFrameLoaderClient` 方法全 `final`，需从零手写约 100 个方法的 `LocalFrameLoaderClient`，**列为已知限制**，见风险 R6 同级）；上面尚未物理摘除的高风险裁点。
 
 | 里程碑 | 内容 | 验证标准 | 体积基线（strip 后，实测填写） |
@@ -408,6 +409,7 @@ CLI（`shotcli`）是 ABI 的薄封装：一次性模式为 `shotcli --url <u> |
 4. 新增代码风格遵循 WebKit 上游（WTF 智能指针、`_s` 字符串字面量、无异常）；`Source/WebKitShot/` 内部可用 C++ 标准库但边界处转换为 WTF 类型。
 5. 测试 fixture 放 `Source/WebKitShot/tests/`，golden 图按平台分目录（Win/Linux 同 Skia 可共享，mac 独立）。
 6. **体积纪律**：引入任何新依赖、打开任何 ENABLE_/USE_ 开关前，先回答"值多少 KB"；里程碑完成必须更新第 7 节体积基线列；体积跳涨 >5% 必须用 bloaty 归因后才能合入。
+7. **提交规范（强制）**：提交信息标题必须为 `<type>: <中文标题>`，type ∈ `feat|fix|perf|refactor|build|ci|docs|test|chore|revert`，可带作用域 `type(scope):`，冒号后一个空格；标题必须含中文、≤72 字符（建议 ≤50）、结尾不加句号；正文自由。git 自动生成的 `Merge `/`Revert `/`fixup! `/`squash! ` 标题豁免，历史英文提交不追溯。本地拦截：每个克隆执行一次 `git config core.hooksPath .githooks`（钩子在 `.githooks/commit-msg`）；远端由 `.github/workflows/commit-lint.yml` 强制，规则改动必须两处同步。示例：`fix(network): 修复子资源重定向后 cookie 丢失`。
 
 ### 上游偏离清单（快照模式账本）
 
