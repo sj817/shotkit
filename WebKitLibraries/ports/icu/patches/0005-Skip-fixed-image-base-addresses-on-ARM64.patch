@@ -1,0 +1,41 @@
+From: ShotKit <sfmoting@gmail.com>
+Subject: [PATCH] Skip fixed image base addresses on ARM64
+
+ARM64 PE images cannot be based below 4GB; link.exe fails with LNK1355
+for the legacy 0x4axxxxx base addresses. They are no-ops under ASLR
+anyway, so keep them only for x86/x64.
+---
+ source/icudefs.cmake | 17 +++++++++++------
+ 1 file changed, 11 insertions(+), 6 deletions(-)
+
+diff --git a/source/icudefs.cmake b/source/icudefs.cmake
+--- a/source/icudefs.cmake
++++ b/source/icudefs.cmake
+@@ -212,15 +212,20 @@
+     list(APPEND CPPFLAGS _CRT_SECURE_NO_DEPRECATE)
+     # list(APPEND DEFS WIN32)
+
+     # These are the library specific LDFLAGS The NOENTRY option is required for creating a resource-only
+     # DLL.
+-    set(LDFLAGSICUDT "${LDFLAGSICUDT} -base:\"0x4ad00000\" -NOENTRY")
+-    set(LDFLAGSICUUC "${LDFLAGSICUUC} -base:\"0x4a800000\"") # in-uc = 1MB
+-    set(LDFLAGSICUI18N "${LDFLAGSICUI18N} -base:\"0x4a900000\"") # io-in = 2MB
+-    set(LDFLAGSICUIO "${LDFLAGSICUIO} -base:\"0x4ab00000\"") # le-io = 1MB
+-    set(LDFLAGSICULX "${LDFLAGSICULX} -base:\"0x4ac80000\"")
+-    # set(LDFLAGSCTESTFW "") # Unused for now. Same as layout. Layout and tools probably won't mix.
+-    set(LDFLAGSICUTOOLUTIL "${LDFLAGSICUTOOLUTIL} -base:\"0x4ac00000\"")
++    set(LDFLAGSICUDT "${LDFLAGSICUDT} -NOENTRY")
++    # ARM64 images cannot be based below 4GB (LNK1355), and fixed base
++    # addresses are no-ops under ASLR anyway; keep them for x86/x64 only.
++    if(NOT (MSVC_C_ARCHITECTURE_ID MATCHES "^ARM" OR CMAKE_SYSTEM_PROCESSOR MATCHES "^(ARM64|arm64|aarch64)"))
++        set(LDFLAGSICUDT "${LDFLAGSICUDT} -base:\"0x4ad00000\"")
++        set(LDFLAGSICUUC "${LDFLAGSICUUC} -base:\"0x4a800000\"") # in-uc = 1MB
++        set(LDFLAGSICUI18N "${LDFLAGSICUI18N} -base:\"0x4a900000\"") # io-in = 2MB
++        set(LDFLAGSICUIO "${LDFLAGSICUIO} -base:\"0x4ab00000\"") # le-io = 1MB
++        set(LDFLAGSICULX "${LDFLAGSICULX} -base:\"0x4ac80000\"")
++        # set(LDFLAGSCTESTFW "") # Unused for now. Same as layout. Layout and tools probably won't mix.
++        set(LDFLAGSICUTOOLUTIL "${LDFLAGSICUTOOLUTIL} -base:\"0x4ac00000\"")
++    endif()
+
+     if(WINDOWS_STORE)
+         list(APPEND CPPFLAGS U_PLATFORM_HAS_WINUWP_API=1)

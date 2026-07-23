@@ -49,6 +49,10 @@ if (CMAKE_HOST_SYSTEM_NAME STREQUAL "Linux")
 else ()
     set(ENV{CC} cl.exe)
     set(ENV{CXX} cl.exe)
+
+    # ShotKit only consumes MinSizeRel; skipping debug halves the port builds
+    # on the hosted arm64 runners.
+    set(VCPKG_BUILD_TYPE release)
 endif ()
 
 set(CMAKE_EXECUTABLE_SUFFIX_C ".exe")

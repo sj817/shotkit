@@ -60,7 +60,7 @@ jobs:
         uses: actions/cache/restore@v6
         with:
           path: ${{ runner.temp }}\vcpkg-binary-cache
-          key: vcpkg-windows-shot-${{ matrix.arch }}-${{ hashFiles('vcpkg.json', 'vcpkg-configuration.json', format('WebKitLibraries/triplets/{0}.cmake', matrix.triplet)) }}
+          key: vcpkg-windows-shot-${{ matrix.arch }}-${{ hashFiles('vcpkg.json', 'vcpkg-configuration.json', 'WebKitLibraries/ports/**', format('WebKitLibraries/triplets/{0}.cmake', matrix.triplet)) }}
 
       - name: Ensure the arm64 host toolchain
         if: matrix.arch == 'arm64'
@@ -175,7 +175,7 @@ jobs:
         uses: actions/cache/save@v6
         with:
           path: ${{ runner.temp }}\vcpkg-binary-cache
-          key: vcpkg-windows-shot-${{ matrix.arch }}-${{ hashFiles('vcpkg.json', 'vcpkg-configuration.json', format('WebKitLibraries/triplets/{0}.cmake', matrix.triplet)) }}
+          key: vcpkg-windows-shot-${{ matrix.arch }}-${{ hashFiles('vcpkg.json', 'vcpkg-configuration.json', 'WebKitLibraries/ports/**', format('WebKitLibraries/triplets/{0}.cmake', matrix.triplet)) }}
 
       - name: Configure and build ShotKit
         shell: pwsh

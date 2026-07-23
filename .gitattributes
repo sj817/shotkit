@@ -29,6 +29,9 @@ objc/*.h diff=objcppheader
 # Git hooks are POSIX sh scripts and must keep LF endings on every platform.
 .githooks/* text eol=lf
 
+# vcpkg overlay-port patches are applied with git apply against LF sources.
+WebKitLibraries/ports/**/*.patch text eol=lf
+
 # Exclude these git specific files from archives created via git-archive.
 .gitignore      export-ignore
 .gitattributes  export-ignore

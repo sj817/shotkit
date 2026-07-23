@@ -21,6 +21,9 @@
       ]
     }
   ],
+  "overlay-ports": [
+    "./WebKitLibraries/ports"
+  ],
   "overlay-triplets": [
     "./WebKitLibraries/triplets"
   ]
