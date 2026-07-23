@@ -15,7 +15,21 @@ permissions:
 
 jobs:
   build:
-    runs-on: windows-2022
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - arch: x64
+            runner: windows-2022
+            triplet: x64-windows-webkit
+            experimental: false
+          - arch: arm64
+            runner: windows-11-arm
+            triplet: arm64-windows-webkit
+            experimental: true
+
+    runs-on: ${{ matrix.runner }}
+    continue-on-error: ${{ matrix.experimental }}
     timeout-minutes: 360
 
     env:
@@ -46,7 +60,29 @@ jobs:
         uses: actions/cache/restore@v6
         with:
           path: ${{ runner.temp }}\vcpkg-binary-cache
-          key: vcpkg-windows-shot-${{ hashFiles('vcpkg.json', 'vcpkg-configuration.json', 'WebKitLibraries/triplets/x64-windows-webkit.cmake') }}
+          key: vcpkg-windows-shot-${{ matrix.arch }}-${{ hashFiles('vcpkg.json', 'vcpkg-configuration.json', format('WebKitLibraries/triplets/{0}.cmake', matrix.triplet)) }}
+
+      - name: Ensure the arm64 host toolchain
+        if: matrix.arch == 'arm64'
+        shell: pwsh
+        run: |
+          # The windows-11-arm hosted image carries fewer preinstalled tools
+          # than windows-2022; install anything the WebKit build needs that is
+          # missing. x64 tools run under emulation where no arm64 build exists.
+          $missing = @()
+          if (-not (Get-Command clang-cl.exe -ErrorAction SilentlyContinue)) { $missing += 'llvm' }
+          if (-not (Get-Command ruby.exe -ErrorAction SilentlyContinue)) { $missing += 'ruby' }
+          if (-not (Get-Command perl.exe -ErrorAction SilentlyContinue)) { $missing += 'strawberryperl' }
+          if (-not (Get-Command cmake.exe -ErrorAction SilentlyContinue)) { $missing += 'cmake' }
+          if (-not (Get-Command ninja.exe -ErrorAction SilentlyContinue)) { $missing += 'ninja' }
+          if ($missing) { choco install @missing -y --no-progress }
+          foreach ($candidate in @(
+            'C:\Program Files\LLVM\bin',
+            'C:\Strawberry\perl\bin',
+            'C:\Program Files\CMake\bin'
+          ) + @(Get-ChildItem 'C:\tools\ruby*\bin' -ErrorAction SilentlyContinue | ForEach-Object FullName)) {
+            if (Test-Path $candidate) { $candidate | Out-File -FilePath $env:GITHUB_PATH -Encoding utf8 -Append }
+          }
 
       - name: Install parser generator tools
         shell: pwsh
@@ -67,17 +103,28 @@ jobs:
       - name: Install native dependencies
         shell: pwsh
         run: |
-          $vcpkg = Get-Command vcpkg.exe -ErrorAction Stop
-          $vcpkgRoot = Split-Path $vcpkg.Source -Parent
+          $vcpkgCommand = Get-Command vcpkg.exe -ErrorAction SilentlyContinue
+          if ($vcpkgCommand) {
+            $vcpkgExe = $vcpkgCommand.Source
+          } else {
+            # The arm64 hosted image may not preinstall vcpkg; bootstrap a copy.
+            $vcpkgClone = Join-Path $env:RUNNER_TEMP 'vcpkg'
+            git clone --depth 1 https://github.com/microsoft/vcpkg $vcpkgClone
+            if ($LASTEXITCODE) { throw "vcpkg clone failed with exit code $LASTEXITCODE" }
+            & (Join-Path $vcpkgClone 'bootstrap-vcpkg.bat') -disableMetrics
+            if ($LASTEXITCODE) { throw "vcpkg bootstrap failed with exit code $LASTEXITCODE" }
+            $vcpkgExe = Join-Path $vcpkgClone 'vcpkg.exe'
+          }
+          $vcpkgRoot = Split-Path $vcpkgExe -Parent
           $installed = Join-Path $env:GITHUB_WORKSPACE 'WebKitBuild\vcpkg_installed'
           $binaryCache = Join-Path $env:RUNNER_TEMP 'vcpkg-binary-cache'
           New-Item -ItemType Directory -Force -Path $binaryCache | Out-Null
           $env:VCPKG_BINARY_SOURCES = "clear;files,$binaryCache,readwrite"
 
-          & $vcpkg.Source install `
+          & $vcpkgExe install `
             --x-manifest-root=$env:GITHUB_WORKSPACE `
             --x-install-root=$installed `
-            --triplet=x64-windows-webkit `
+            --triplet=${{ matrix.triplet }} `
             --overlay-triplets="$env:GITHUB_WORKSPACE\WebKitLibraries\triplets" `
             --x-feature=web `
             --x-feature=skia `
@@ -110,11 +157,12 @@ jobs:
             -Root $env:GITHUB_WORKSPACE `
             -VcpkgRoot $vcpkgRoot `
             -VcpkgInstalledDir $installed `
+            -VcpkgTriplet ${{ matrix.triplet }} `
             -DatPath $icuDat `
             -PruneUnusedConverters
           if ($LASTEXITCODE) { throw "ICU slimming failed with exit code $LASTEXITCODE" }
 
-          $icuData = Get-ChildItem "$installed\x64-windows-webkit\bin\icudt*.dll" | Where-Object Name -NotLike '*.orig.dll' | Select-Object -First 1
+          $icuData = Get-ChildItem "$installed\${{ matrix.triplet }}\bin\icudt*.dll" | Where-Object Name -NotLike '*.orig.dll' | Select-Object -First 1
           if (-not $icuData) { throw 'vcpkg did not install an ICU data DLL' }
           if ($icuData.Length -gt 15MB) { throw "slim ICU data exceeds 15 MiB: $($icuData.Length) bytes" }
           Write-Host "slim ICU data: $($icuData.Length) bytes"
@@ -127,7 +175,7 @@ jobs:
         uses: actions/cache/save@v6
         with:
           path: ${{ runner.temp }}\vcpkg-binary-cache
-          key: vcpkg-windows-shot-${{ hashFiles('vcpkg.json', 'vcpkg-configuration.json', 'WebKitLibraries/triplets/x64-windows-webkit.cmake') }}
+          key: vcpkg-windows-shot-${{ matrix.arch }}-${{ hashFiles('vcpkg.json', 'vcpkg-configuration.json', format('WebKitLibraries/triplets/{0}.cmake', matrix.triplet)) }}
 
       - name: Configure and build ShotKit
         shell: pwsh
@@ -143,6 +191,8 @@ jobs:
             -Root $env:GITHUB_WORKSPACE `
             -VcpkgRoot $env:SHOT_VCPKG_ROOT `
             -VcpkgInstalledDir $env:SHOT_VCPKG_INSTALLED `
+            -Arch ${{ matrix.arch }} `
+            -VcpkgTriplet ${{ matrix.triplet }} `
             -LtoMode full `
             -LinkThreads 1 `
             -Jobs 2
@@ -163,14 +213,15 @@ jobs:
 
       - name: Verify scripts are never fetched
         shell: pwsh
-        run: pwsh Source/WebKitShot/tests/verify_no_script_network.ps1 -BuildDir "$env:GITHUB_WORKSPACE\WebKitBuild\shot"
+        run: pwsh Source/WebKitShot/tests/verify_no_script_network.ps1 -BuildDir "$env:GITHUB_WORKSPACE\WebKitBuild\shot" -VcpkgTriplet ${{ matrix.triplet }}
 
       - name: Verify the C ABI export surface
         shell: pwsh
         run: |
           $vswhere = Join-Path ${env:ProgramFiles(x86)} 'Microsoft Visual Studio\Installer\vswhere.exe'
           $vs = & $vswhere -latest -products * -property installationPath
-          $dumpbin = (Get-ChildItem "$vs\VC\Tools\MSVC\*\bin\Hostx64\x64\dumpbin.exe" | Sort-Object FullName -Descending | Select-Object -First 1).FullName
+          $hostArch = if ($env:PROCESSOR_ARCHITECTURE -eq 'ARM64') { 'arm64' } else { 'x64' }
+          $dumpbin = (Get-ChildItem "$vs\VC\Tools\MSVC\*\bin\Host$hostArch\$hostArch\dumpbin.exe" | Sort-Object FullName -Descending | Select-Object -First 1).FullName
           $dll = Join-Path $env:GITHUB_WORKSPACE 'WebKitBuild\shot\bin\shot.dll'
           $exports = @(& $dumpbin /EXPORTS $dll | Select-String '^\s+\d+\s+[0-9A-F]+\s+[0-9A-F]+\s+(shot_\S+)\s*$')
           if ($exports.Count -ne 10) { throw "expected 10 shot_* exports, found $($exports.Count)" }
@@ -184,12 +235,14 @@ jobs:
             -Root $env:GITHUB_WORKSPACE `
             -Version $version `
             -LtoMode full `
+            -Architecture ${{ matrix.arch }} `
+            -VcpkgTriplet ${{ matrix.triplet }} `
             -MaxPackageBytes 22000000
 
       - name: Upload compressed release
         uses: actions/upload-artifact@v7
         with:
-          name: shotkit-windows-x64-fulllto
+          name: shotkit-windows-${{ matrix.arch }}-fulllto
           path: |
             WebKitBuild/releases/*.tar.xz
             WebKitBuild/releases/*.tar.xz.sha256

@@ -1,6 +1,7 @@
 param(
     [string]$BuildDir,
-    [int]$Port = 8988
+    [int]$Port = 8988,
+    [string]$VcpkgTriplet = 'x64-windows-webkit'
 )
 
 $ErrorActionPreference = 'Stop'
@@ -12,7 +13,7 @@ if (-not $BuildDir) {
 $ShotCli = Join-Path $BuildDir 'bin\shotcli.exe'
 $FixtureServer = Join-Path $PSScriptRoot 'fixture_server.py'
 $Output = Join-Path $BuildDir 'no-script-network.png'
-$env:PATH = "$(Join-Path $Root 'WebKitBuild\vcpkg_installed\x64-windows-webkit\bin');$env:PATH"
+$env:PATH = "$(Join-Path $Root "WebKitBuild\vcpkg_installed\$VcpkgTriplet\bin");$env:PATH"
 
 if (-not (Test-Path -LiteralPath $ShotCli)) {
     throw "shotcli not found: $ShotCli"

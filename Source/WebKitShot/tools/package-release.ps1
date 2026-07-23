@@ -3,14 +3,18 @@ param(
     [string]$Version = '0.1.0',
     [ValidateSet('off', 'thin', 'full')]
     [string]$LtoMode = 'full',
+    [ValidateSet('x64', 'arm64')]
+    [string]$Architecture = 'x64',
+    [string]$VcpkgTriplet = '',
     [int64]$MaxPackageBytes = 0
 )
 
 $ErrorActionPreference = 'Stop'
+if (-not $VcpkgTriplet) { $VcpkgTriplet = "$Architecture-windows-webkit" }
 $Root = [IO.Path]::GetFullPath($Root)
 $BuildRoot = [IO.Path]::GetFullPath((Join-Path $Root 'WebKitBuild'))
 $Releases = [IO.Path]::GetFullPath((Join-Path $BuildRoot 'releases'))
-$ArtifactName = "shotkit-$Version-windows-x64"
+$ArtifactName = "shotkit-$Version-windows-$Architecture"
 $Stage = [IO.Path]::GetFullPath((Join-Path $Releases $ArtifactName))
 $Tar = [IO.Path]::GetFullPath((Join-Path $BuildRoot "$ArtifactName.tar"))
 $Archive = [IO.Path]::GetFullPath((Join-Path $Releases "$ArtifactName.tar.xz"))
@@ -36,14 +40,14 @@ if ($xzCommand) {
 if (-not (Test-Path -LiteralPath $tarTool)) { throw "missing Windows tar.exe: $tarTool" }
 
 try {
-    & $CollectDist -Root $Root -Out $Stage
+    & $CollectDist -Root $Root -Out $Stage -VcpkgTriplet $VcpkgTriplet
 
     $Include = Join-Path $Stage 'include'
     New-Item -ItemType Directory -Force -Path $Include | Out-Null
     Copy-Item -LiteralPath (Join-Path $Root 'Source\WebKitShot\capi\shot.h') -Destination $Include
 
     $Readme = @"
-ShotKit $Version - Windows x64
+ShotKit $Version - Windows $Architecture
 
 Static HTML/CSS screenshot kernel. Page JavaScript and WebAssembly are disabled.
 This is a conventional compressed distribution: extract the complete archive
@@ -72,15 +76,19 @@ C ABI:
             sha256 = (Get-FileHash -LiteralPath $_.FullName -Algorithm SHA256).Hash.ToLowerInvariant()
         }
     }
+    # The x86 BCJ filter only helps x86/x64 machine code; skip it for arm64 so
+    # xz never fails on toolchains without an arm64 filter.
+    $BcjFilterArgument = if ($Architecture -eq 'x64') { '--x86' } else { $null }
+    $CompressionLabel = if ($BcjFilterArgument) { 'solid-x86-bcj+lzma2-16MiB' } else { 'solid-lzma2-16MiB' }
     $Manifest = [ordered]@{
         product = 'ShotKit'
         version = $Version
         platform = 'windows'
-        architecture = 'x64'
+        architecture = $Architecture
         configuration = 'MinSizeRel'
         lto = $LtoMode
         distribution = 'extract-before-use'
-        archiveCompression = 'solid-x86-bcj+lzma2-16MiB'
+        archiveCompression = $CompressionLabel
         runtimeExtraction = $false
         pageJavaScript = $false
         webAssembly = $false
@@ -92,10 +100,9 @@ C ABI:
     & $tarTool -cf $Tar -C $Releases $ArtifactName
     if ($LASTEXITCODE) { throw "tar failed with exit code $LASTEXITCODE" }
 
-    $xzArguments = @(
-        '--threads=1',
-        '--check=crc32',
-        '--x86',
+    $xzArguments = @('--threads=1', '--check=crc32')
+    if ($BcjFilterArgument) { $xzArguments += $BcjFilterArgument }
+    $xzArguments += @(
         '--lzma2=dict=16MiB,mode=normal,nice=273,mf=bt4',
         '-c',
         $Tar

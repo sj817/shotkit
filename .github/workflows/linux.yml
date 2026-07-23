@@ -15,7 +15,16 @@ permissions:
 
 jobs:
   build:
-    runs-on: ubuntu-24.04
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - arch: x64
+            runner: ubuntu-24.04
+          - arch: arm64
+            runner: ubuntu-24.04-arm
+
+    runs-on: ${{ matrix.runner }}
     timeout-minutes: 360
 
     steps:
@@ -104,7 +113,7 @@ jobs:
       - name: Package release archive
         run: |
           version="0.1.0-ci.${GITHUB_RUN_NUMBER}"
-          name="shotkit-${version}-linux-x64"
+          name="shotkit-${version}-linux-${{ matrix.arch }}"
           stage="WebKitBuild/releases/${name}"
           mkdir -p "$stage/bin" "$stage/lib" "$stage/include"
           cp WebKitBuild/shot-linux/bin/shotcli "$stage/bin/"
@@ -122,7 +131,7 @@ jobs:
       - name: Upload compressed release
         uses: actions/upload-artifact@v7
         with:
-          name: shotkit-linux-x64-fulllto
+          name: shotkit-linux-${{ matrix.arch }}-fulllto
           path: |
             WebKitBuild/releases/*.tar.xz
             WebKitBuild/releases/*.tar.xz.sha256

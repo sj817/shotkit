@@ -15,7 +15,16 @@ permissions:
 
 jobs:
   build:
-    runs-on: macos-15
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - arch: arm64
+            runner: macos-15
+          - arch: x64
+            runner: macos-15-intel
+
+    runs-on: ${{ matrix.runner }}
     timeout-minutes: 360
 
     steps:
@@ -36,9 +45,21 @@ jobs:
             /AGENTS.md
             /ReadMe.md
 
-      - name: Select Xcode 26.3
+      - name: Select the newest supported Xcode
         run: |
-          sudo xcode-select -s /Applications/Xcode_26.3.app/Contents/Developer
+          # Prefer 26.3 (the arm64 baseline); the Intel image may only carry
+          # older toolchains, and the port also supports Xcode 16.4 Swift.
+          xcode=""
+          for candidate in /Applications/Xcode_26.3.app $(ls -d /Applications/Xcode_26*.app 2>/dev/null | sort -Vr) /Applications/Xcode_16.4.app; do
+            if [ -d "$candidate" ]; then xcode="$candidate"; break; fi
+          done
+          if [ -z "$xcode" ]; then
+            echo "no supported Xcode found; available toolchains:" >&2
+            ls -d /Applications/Xcode*.app >&2
+            exit 1
+          fi
+          echo "selected $xcode"
+          sudo xcode-select -s "$xcode/Contents/Developer"
           xcodebuild -version
           swift --version
 
@@ -105,8 +126,7 @@ jobs:
       - name: Package release archive
         run: |
           version="0.1.0-ci.${GITHUB_RUN_NUMBER}"
-          arch=$(uname -m)
-          name="shotkit-${version}-macos-${arch}"
+          name="shotkit-${version}-macos-${{ matrix.arch }}"
           stage="WebKitBuild/releases/${name}"
           mkdir -p "$stage/bin" "$stage/lib" "$stage/include"
           cp WebKitBuild/shot-macos/bin/shotcli "$stage/bin/"
@@ -122,7 +142,7 @@ jobs:
       - name: Upload compressed release
         uses: actions/upload-artifact@v7
         with:
-          name: shotkit-macos
+          name: shotkit-macos-${{ matrix.arch }}
           path: |
             WebKitBuild/releases/*.tar.xz
             WebKitBuild/releases/*.tar.xz.sha256

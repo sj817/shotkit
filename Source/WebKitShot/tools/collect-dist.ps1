@@ -5,13 +5,14 @@
 
 param(
     [string]$Root = [IO.Path]::GetFullPath((Join-Path $PSScriptRoot '..\..\..')),
-    [string]$Out = ''
+    [string]$Out = '',
+    [string]$VcpkgTriplet = 'x64-windows-webkit'
 )
 
 $ErrorActionPreference = 'Stop'
 $Root = [IO.Path]::GetFullPath($Root)
 $binShot = Join-Path $Root 'WebKitBuild\shot\bin'
-$binDeps = Join-Path $Root 'WebKitBuild\vcpkg_installed\x64-windows-webkit\bin'
+$binDeps = Join-Path $Root "WebKitBuild\vcpkg_installed\$VcpkgTriplet\bin"
 if (-not $Out) { $Out = Join-Path $Root 'WebKitBuild\shot-dist' }
 $Out = [IO.Path]::GetFullPath($Out)
 $allowedOutputRoot = [IO.Path]::GetFullPath((Join-Path $Root 'WebKitBuild'))
@@ -26,7 +27,9 @@ foreach ($required in $shot, $cli) {
 }
 
 $vs = & "${env:ProgramFiles(x86)}\Microsoft Visual Studio\Installer\vswhere.exe" -latest -property installationPath
-$dumpbin = (Get-ChildItem "$vs\VC\Tools\MSVC\*\bin\Hostx64\x64\dumpbin.exe" | Select-Object -First 1).FullName
+$hostArch = if ($env:PROCESSOR_ARCHITECTURE -eq 'ARM64') { 'arm64' } else { 'x64' }
+$dumpbin = (Get-ChildItem "$vs\VC\Tools\MSVC\*\bin\Host$hostArch\$hostArch\dumpbin.exe" | Sort-Object FullName -Descending | Select-Object -First 1).FullName
+if (-not $dumpbin) { throw "dumpbin.exe for host architecture $hostArch was not found under $vs" }
 
 $pool = @{}
 Get-ChildItem "$binDeps\*.dll" | Where-Object { $_.Name -notmatch '\.orig\.dll$' } | ForEach-Object { $pool[$_.Name.ToLowerInvariant()] = $_.FullName }

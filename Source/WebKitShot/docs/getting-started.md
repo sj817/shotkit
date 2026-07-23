@@ -6,13 +6,13 @@
 
 | 平台 | CI 架构 | 图形与字体 | 网络 | 动态库 |
 |---|---|---|---|---|
-| Windows | x64 | Skia CPU + DirectWrite | curl + OpenSSL | `shot.dll` |
-| Linux | x64 | Skia CPU + Fontconfig/FreeType | curl + OpenSSL | `libshot.so` |
-| macOS | arm64 | CoreGraphics + CoreText | CFNetwork | `libshot.dylib` |
+| Windows | x64、arm64（实验） | Skia CPU + DirectWrite | curl + OpenSSL | `shot.dll` |
+| Linux | x64、arm64 | Skia CPU + Fontconfig/FreeType | curl + OpenSSL | `libshot.so` |
+| macOS | arm64、x64 | CoreGraphics + CoreText | CFNetwork | `libshot.dylib` |
 
 三个端口使用相同的 C ABI、CLI 参数和加载规则。Windows/Linux 与 macOS 使用不同的图形后端，字体回退、抗锯齿和颜色管理可能产生细微像素差异。
 
-macOS 表中的 arm64 指 GitHub `macos-15` hosted runner 当前生成的 artifact，不表示源码只能构建 arm64。其他架构需要在对应机器和 SDK 上单独验证。
+CI 架构对应的 hosted runner：Windows `windows-2022` / `windows-11-arm`，Linux `ubuntu-24.04` / `ubuntu-24.04-arm`，macOS `macos-15`（arm64）/ `macos-15-intel`（x64）。Windows arm64 标记为实验性：该 runner 镜像预装工具链不全，作业失败不阻塞整体 CI。macOS Intel 作业按镜像可用性自动选择 Xcode（26.3 → 26.x → 16.4）。
 
 ## 获取构建归档
 

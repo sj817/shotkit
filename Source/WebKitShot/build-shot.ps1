@@ -8,7 +8,9 @@ param(
     [string]$BuildDir = '',
     [string]$VcpkgRoot = $env:VCPKG_INSTALLATION_ROOT,
     [string]$VcpkgInstalledDir = '',
-    [string]$VcpkgTriplet = 'x64-windows-webkit',
+    [ValidateSet('x64', 'arm64')]
+    [string]$Arch = 'x64',
+    [string]$VcpkgTriplet = '',
     [ValidateSet('off', 'thin', 'full')]
     [string]$LtoMode = 'full',
     [ValidateRange(0, 256)]
@@ -22,6 +24,7 @@ param(
 )
 
 $ErrorActionPreference = 'Stop'
+if (-not $VcpkgTriplet) { $VcpkgTriplet = "$Arch-windows-webkit" }
 $Root = [IO.Path]::GetFullPath($Root)
 if (-not $BuildDir) { $BuildDir = Join-Path $Root 'WebKitBuild\shot' }
 if (-not $VcpkgInstalledDir) { $VcpkgInstalledDir = Join-Path $Root 'WebKitBuild\vcpkg_installed' }
@@ -65,13 +68,20 @@ foreach ($requiredTool in $clangCl, $llvmRc) {
 
 $vswhere = Join-Path ${env:ProgramFiles(x86)} 'Microsoft Visual Studio\Installer\vswhere.exe'
 if (-not (Test-Path -LiteralPath $vswhere)) { throw "vswhere not found: $vswhere" }
-$vs = & $vswhere -latest -products * -requires Microsoft.VisualStudio.Component.VC.Tools.x86.x64 -property installationPath
-if (-not $vs) { throw 'Visual Studio C++ tools were not found.' }
+$vcToolsComponent = if ($Arch -eq 'arm64') { 'Microsoft.VisualStudio.Component.VC.Tools.ARM64' } else { 'Microsoft.VisualStudio.Component.VC.Tools.x86.x64' }
+$vs = & $vswhere -latest -products * -requires $vcToolsComponent -property installationPath
+if (-not $vs) { throw "Visual Studio C++ tools for $Arch were not found." }
 $vcvarsall = Join-Path $vs 'VC\Auxiliary\Build\vcvarsall.bat'
+$hostIsArm64 = $env:PROCESSOR_ARCHITECTURE -eq 'ARM64'
+$vcvarsTarget = if ($Arch -eq 'arm64') {
+    if ($hostIsArm64) { 'arm64' } else { 'x64_arm64' }
+} else {
+    if ($hostIsArm64) { 'arm64_x64' } else { 'x64' }
+}
 
 # Import vcvarsall into this PowerShell process so CMake/Ninja can be invoked with
 # argument arrays instead of one fragile cmd.exe command line.
-$environmentLines = & cmd.exe /d /s /c "`"$vcvarsall`" x64 >nul && set"
+$environmentLines = & cmd.exe /d /s /c "`"$vcvarsall`" $vcvarsTarget >nul && set"
 if ($LASTEXITCODE) { throw "vcvarsall failed with exit code $LASTEXITCODE" }
 foreach ($line in $environmentLines) {
     $separator = $line.IndexOf('=')
