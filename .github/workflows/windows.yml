@@ -32,7 +32,7 @@ jobs:
           - arch: arm64
             runner: windows-11-arm
             triplet: arm64-windows-webkit
-            experimental: true
+            experimental: false
 
     runs-on: ${{ matrix.runner }}
     continue-on-error: ${{ matrix.experimental }}
