@@ -3,7 +3,13 @@ name: Linux
 on:
   push:
     branches: [main, codex/linux-macos-port]
+    paths-ignore:
+      - '**.md'
+      - '.githooks/**'
   pull_request:
+    paths-ignore:
+      - '**.md'
+      - '.githooks/**'
   workflow_dispatch:
 
 concurrency:
