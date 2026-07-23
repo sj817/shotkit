@@ -228,6 +228,12 @@ add_definitions(-DJS_NO_EXPORT=1)
 # ShotKit is a static renderer: page scripts are neither executed nor fetched.
 # Upstream loader/parser seams use this to compile out script-only request paths.
 add_definitions(-DSHOT_NO_SCRIPT=1)
+# ①c 退化绑定：清单内接口的 JS 绑定生成为纯 wrapper 空壳（保留类/toJS/GC 底座，删除
+#    属性表与属性/操作胶水）。JS 永不执行时这些胶水运行期不可达；不生成它们可解除
+#    对 JS-only WebCore 子系统（getComputedStyle 后端等）的引用锚，让 full LTO 清扫。
+#    机制：WebCoreMacros.cmake 的 GENERATE_BINDINGS 把该文件经 SHOT_DEGENERATE_BINDINGS
+#    环境变量传给 CodeGeneratorJS.pm。实测 Windows x64 full LTO：shot.dll −4.29 MB。
+set(SHOT_DEGENERATE_BINDINGS_FILE ${CMAKE_SOURCE_DIR}/Source/WebKitShot/tools/degenerate-bindings.txt)
 # ② 函数级/数据级分段；③ 链接期回收未引用段。
 if (MSVC)
     add_compile_options(/Gy /Gw)

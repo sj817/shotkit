@@ -159,6 +159,15 @@ function(GENERATE_BINDINGS target)
     if (EXISTS ${arg_BASE_DIR}/CodeGenerator${arg_GENERATOR}.pm)
         list(APPEND common_generator_dependencies ${arg_BASE_DIR}/CodeGenerator${arg_GENERATOR}.pm)
     endif ()
+
+    # ShotKit: CodeGeneratorJS.pm reads SHOT_DEGENERATE_BINDINGS to emit listed
+    # interfaces as bare wrapper shells (the Shot port sets the variable in
+    # OptionsShot.cmake; other ports leave it unset and are unaffected).
+    set(_generator_env)
+    if (SHOT_DEGENERATE_BINDINGS_FILE)
+        set(_generator_env ${CMAKE_COMMAND} -E env "SHOT_DEGENERATE_BINDINGS=${SHOT_DEGENERATE_BINDINGS_FILE}")
+        list(APPEND common_generator_dependencies ${SHOT_DEGENERATE_BINDINGS_FILE})
+    endif ()
     foreach (i IN LISTS common_generator_dependencies)
         list(APPEND args --generatorDependency ${i})
     endforeach ()
@@ -205,7 +214,7 @@ function(GENERATE_BINDINGS target)
 
     add_custom_command(
         OUTPUT ${_stamp_file}
-        COMMAND ${PERL_EXECUTABLE} ${binding_generator} ${args}
+        COMMAND ${_generator_env} ${PERL_EXECUTABLE} ${binding_generator} ${args}
         COMMAND ${CMAKE_COMMAND} -E touch ${_stamp_file}
         DEPENDS
             ${_abs_input_files}

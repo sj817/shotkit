@@ -143,6 +143,56 @@ sub new
     return $reference;
 }
 
+# ShotKit: interfaces listed in the file named by the SHOT_DEGENERATE_BINDINGS
+# environment variable are generated as bare wrapper shells: the class, toJS/
+# wrap machinery and GC plumbing stay (sibling bindings keep linking), but all
+# property tables, attribute/operation glue, constants and constructors are
+# dropped. Page JavaScript never executes in ShotKit, so that glue is
+# unreachable at runtime; not emitting it removes the only references anchoring
+# large JS-only WebCore subsystems, letting full LTO sweep them.
+my %shotDegenerateInterfaces;
+my $shotDegenerateInterfacesLoaded = 0;
+
+sub ShotLoadDegenerateInterfaces
+{
+    return if $shotDegenerateInterfacesLoaded;
+    $shotDegenerateInterfacesLoaded = 1;
+
+    my $listFile = $ENV{SHOT_DEGENERATE_BINDINGS};
+    return unless $listFile;
+    open(my $fh, '<', $listFile) or die "SHOT_DEGENERATE_BINDINGS is set but unreadable: $listFile";
+    while (my $line = <$fh>) {
+        $line =~ s/#.*//;
+        $line =~ s/^\s+|\s+$//g;
+        $shotDegenerateInterfaces{$line} = 1 if length $line;
+    }
+    close $fh;
+}
+
+sub ShotDegenerateInterfaceIfRequested
+{
+    my $interface = shift;
+
+    ShotLoadDegenerateInterfaces();
+    return unless $shotDegenerateInterfaces{$interface->type->name};
+
+    # Callback interfaces are invoked from C++ glue; their generated code is
+    # not table-driven and does not tolerate emptied operation lists.
+    return if $interface->isCallback;
+
+    @{$interface->attributes} = ();
+    @{$interface->operations} = ();
+    @{$interface->anonymousOperations} = ();
+    @{$interface->constants} = ();
+    # JSDOMWindow references getLegacyFactoryFunction() of interfaces with
+    # [LegacyFactoryFunction] (Image/Option); keep their constructors emitted.
+    @{$interface->constructors} = () unless $interface->extendedAttributes->{LegacyFactoryFunction};
+    $interface->iterable(undef);
+    $interface->asyncIterable(undef);
+    $interface->mapLike(undef);
+    $interface->setLike(undef);
+}
+
 sub GenerateEnumeration
 {
     my ($object, $enumeration) = @_;
@@ -172,6 +222,8 @@ sub GenerateCallbackFunction
 sub GenerateInterface
 {
     my ($object, $interface, $defines, $enumerations, $dictionaries) = @_;
+
+    ShotDegenerateInterfaceIfRequested($interface);
 
     $codeGenerator->LinkOverloadedOperations($interface);
 
@@ -5828,20 +5880,29 @@ sub GenerateForEachEventHandlerContentAttribute
 {
     my ($outputArray, $interface, $className, $functionName, $eventHandlerExtendedAttributeName) = @_;
     AddToImplIncludes("HTMLNames.h");
-    push(@$outputArray, "void ${className}::${functionName}(const Function<void(const AtomString& attributeName, const AtomString& eventName)>& function)\n");
-    push(@$outputArray, "{\n");
-    push(@$outputArray, "    static constexpr std::array table {\n");
+    my @tableEntries = ();
     foreach my $attribute (@{$interface->attributes}) {
         if ($codeGenerator->IsEventHandlerType($attribute->type) && (!defined $eventHandlerExtendedAttributeName || $attribute->extendedAttributes->{$eventHandlerExtendedAttributeName})) {
             my $attributeName = $attribute->name;
             my $eventName = EventHandlerAttributeShortEventName($attribute);
-            push(@$outputArray, "        std::pair<const decltype(HTMLNames::altAttr)&, const AtomString EventNames::*> { HTMLNames::${attributeName}Attr, &EventNames::${eventName} },\n");
+            push(@tableEntries, "        std::pair<const decltype(HTMLNames::altAttr)&, const AtomString EventNames::*> { HTMLNames::${attributeName}Attr, &EventNames::${eventName} },\n");
         }
     }
-    push(@$outputArray, "    };\n");
-    push(@$outputArray, "    auto& eventNames = WebCore::eventNames();\n");
-    push(@$outputArray, "    for (auto& names : table)\n");
-    push(@$outputArray, "        function(names.first.get().localName(), eventNames.*names.second);\n");
+    push(@$outputArray, "void ${className}::${functionName}(const Function<void(const AtomString& attributeName, const AtomString& eventName)>& function)\n");
+    push(@$outputArray, "{\n");
+    if (@tableEntries) {
+        push(@$outputArray, "    static constexpr std::array table {\n");
+        push(@$outputArray, @tableEntries);
+        push(@$outputArray, "    };\n");
+        push(@$outputArray, "    auto& eventNames = WebCore::eventNames();\n");
+        push(@$outputArray, "    for (auto& names : table)\n");
+        push(@$outputArray, "        function(names.first.get().localName(), eventNames.*names.second);\n");
+    } else {
+        # An interface can reach this emitter with no event handler attributes
+        # (e.g. ShotKit degenerate bindings); an empty std::array cannot deduce
+        # its element type, so emit an empty body instead.
+        push(@$outputArray, "    UNUSED_PARAM(function);\n");
+    }
     push(@$outputArray, "}\n\n");
 }
 
