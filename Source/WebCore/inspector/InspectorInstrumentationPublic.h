@@ -34,7 +34,15 @@ namespace WebCore {
 
 class WEBCORE_EXPORT InspectorInstrumentationPublic {
 public:
+#if defined(SHOT_NO_INSPECTOR)
+    // ShotKit never connects a Web Inspector frontend, so this is a compile-time
+    // constant. Folding it collapses every FAST_RETURN_IF_NO_FRONTENDS fast path,
+    // which un-anchors all InspectorInstrumentation::*Impl slow paths (and with
+    // them the agents they reach) so LTO can drop them.
+    static constexpr bool hasFrontends() { return false; }
+#else
     static bool hasFrontends() { return s_frontendCounter; }
+#endif
     static std::atomic<int> s_frontendCounter;
 };
 

@@ -1340,20 +1340,34 @@ void InspectorInstrumentation::didHandleMemoryPressureImpl(InstrumentingAgents& 
 
 bool InspectorInstrumentation::consoleAgentEnabled(ScriptExecutionContext* scriptExecutionContext)
 {
+#if defined(SHOT_NO_INSPECTOR)
+    // Out-of-line bypass of the inline FAST_RETURN_IF_NO_FRONTENDS entry points
+    // (called from LocalDOMWindow). Gate it explicitly so the agent lookup is not
+    // emitted even in unoptimized builds.
+    UNUSED_PARAM(scriptExecutionContext);
+    return false;
+#else
     FAST_RETURN_IF_NO_FRONTENDS(false);
     if (RefPtr agents = instrumentingAgents(scriptExecutionContext)) {
         if (auto* webConsoleAgent = agents->webConsoleAgent())
             return webConsoleAgent->enabled();
     }
     return false;
+#endif
 }
 
 bool InspectorInstrumentation::timelineAgentTracking(ScriptExecutionContext* scriptExecutionContext)
 {
+#if defined(SHOT_NO_INSPECTOR)
+    // Same as above; called from JSExecStateInstrumentation.h.
+    UNUSED_PARAM(scriptExecutionContext);
+    return false;
+#else
     FAST_RETURN_IF_NO_FRONTENDS(false);
     if (RefPtr agents = instrumentingAgents(scriptExecutionContext))
         return agents->trackingTimelineAgent();
     return false;
+#endif
 }
 
 void InspectorInstrumentation::didRequestAnimationFrameImpl(InstrumentingAgents& instrumentingAgents, int callbackId, ScriptExecutionContext& scriptExecutionContext)

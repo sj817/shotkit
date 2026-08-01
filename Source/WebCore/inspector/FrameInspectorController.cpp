@@ -76,8 +76,10 @@ FrameInspectorController::FrameInspectorController(LocalFrame& frame, PageInspec
     , m_backendDispatcher(BackendDispatcher::create(m_frontendRouter.copyRef(), &parentPageController.backendDispatcher()))
     , m_executionStopwatch(Stopwatch::create())
 {
+#if !defined(SHOT_NO_INSPECTOR)
     if (frame.settings().siteIsolationEnabled())
         createConsoleAgent();
+#endif
 }
 
 FrameInspectorController::~FrameInspectorController()
@@ -117,7 +119,9 @@ FrameAgentContext FrameInspectorController::frameAgentContext()
 // and thus this controller.
 void FrameInspectorController::siteIsolationFirstEnabled()
 {
+#if !defined(SHOT_NO_INSPECTOR)
     createConsoleAgent();
+#endif
 }
 
 void FrameInspectorController::createConsoleAgent()
@@ -125,11 +129,17 @@ void FrameInspectorController::createConsoleAgent()
     if (m_didCreateConsoleAgent)
         return;
 
+#if defined(SHOT_NO_INSPECTOR)
+    // Anchor for FrameConsoleAgent / WebConsoleAgent; ShotKit never shows console output.
+    m_didCreateConsoleAgent = true;
+    return;
+#else
     auto context = frameAgentContext();
     UniqueRef consoleAgent = makeUniqueRef<FrameConsoleAgent>(context);
     m_instrumentingAgents->setWebConsoleAgent(consoleAgent.ptr());
     m_agents.append(WTF::move(consoleAgent));
     m_didCreateConsoleAgent = true;
+#endif
 }
 
 void FrameInspectorController::createLazyAgents()
@@ -139,6 +149,10 @@ void FrameInspectorController::createLazyAgents()
 
     m_didCreateLazyAgents = true;
 
+#if defined(SHOT_NO_INSPECTOR)
+    // Anchor for the six per-frame agents (Debugger/DOM/DOMStorage/Runtime/CSS/Worker).
+    return;
+#else
     RefPtr frame = m_frame.get();
     if (!frame)
         return;
@@ -156,6 +170,7 @@ void FrameInspectorController::createLazyAgents()
     m_agents.append(makeUniqueRef<FrameRuntimeAgent>(context));
     m_agents.append(makeUniqueRef<FrameCSSAgent>(context));
     m_agents.append(makeUniqueRef<FrameWorkerAgent>(context));
+#endif
 }
 
 void FrameInspectorController::connectFrontend(Inspector::FrontendChannel& frontendChannel, bool isAutomaticInspection, bool immediatelyPause)
@@ -163,6 +178,10 @@ void FrameInspectorController::connectFrontend(Inspector::FrontendChannel& front
     UNUSED_PARAM(isAutomaticInspection);
     UNUSED_PARAM(immediatelyPause);
 
+#if defined(SHOT_NO_INSPECTOR)
+    UNUSED_PARAM(frontendChannel);
+    return;
+#else
     if (auto* page = m_frame->page())
         page->settings().setDeveloperExtrasEnabled(true);
 
@@ -177,10 +196,15 @@ void FrameInspectorController::connectFrontend(Inspector::FrontendChannel& front
         m_injectedScriptManager->addClient();
         m_agents.didCreateFrontendAndBackend();
     }
+#endif
 }
 
 void FrameInspectorController::disconnectFrontend(Inspector::FrontendChannel& frontendChannel)
 {
+#if defined(SHOT_NO_INSPECTOR)
+    UNUSED_PARAM(frontendChannel);
+    return;
+#else
     m_frontendRouter->disconnectFrontend(frontendChannel);
     InspectorInstrumentation::frontendDeleted();
 
@@ -190,10 +214,14 @@ void FrameInspectorController::disconnectFrontend(Inspector::FrontendChannel& fr
         m_injectedScriptManager->removeClient();
         InspectorInstrumentation::unregisterInstrumentingAgents(m_instrumentingAgents.get());
     }
+#endif
 }
 
 void FrameInspectorController::inspectedFrameDestroyed()
 {
+#if defined(SHOT_NO_INSPECTOR)
+    return;
+#else
     if (!m_frontendRouter->hasFrontends())
         return;
 
@@ -207,11 +235,17 @@ void FrameInspectorController::inspectedFrameDestroyed()
     m_frontendRouter->disconnectAllFrontends();
 
     m_agents.discardValues();
+#endif
 }
 
 void FrameInspectorController::dispatchMessageFromFrontend(const String& message)
 {
+#if defined(SHOT_NO_INSPECTOR)
+    UNUSED_PARAM(message);
+    return;
+#else
     m_backendDispatcher->dispatch(message);
+#endif
 }
 
 bool FrameInspectorController::developerExtrasEnabled() const
@@ -220,8 +254,13 @@ bool FrameInspectorController::developerExtrasEnabled() const
     return page && page->settings().developerExtrasEnabled();
 }
 
+// Reached through this class's vtable; see the matching note in PageInspectorController.
 bool FrameInspectorController::canAccessInspectedScriptState(JSC::JSGlobalObject* lexicalGlobalObject) const
 {
+#if defined(SHOT_NO_INSPECTOR)
+    UNUSED_PARAM(lexicalGlobalObject);
+    return false;
+#else
     JSLockHolder lock(lexicalGlobalObject);
 
     auto* inspectedWindow = dynamicDowncast<JSDOMWindow>(lexicalGlobalObject);
@@ -230,16 +269,25 @@ bool FrameInspectorController::canAccessInspectedScriptState(JSC::JSGlobalObject
 
     Ref protectedWindow { inspectedWindow->wrapped() };
     return BindingSecurity::shouldAllowAccessToDOMWindow(lexicalGlobalObject, protectedWindow.get(), DoNotReportSecurityError);
+#endif
 }
 
 InspectorFunctionCallHandler FrameInspectorController::functionCallHandler() const
 {
+#if defined(SHOT_NO_INSPECTOR)
+    return nullptr;
+#else
     return WebCore::functionCallHandlerFromAnyThread;
+#endif
 }
 
 InspectorEvaluateHandler FrameInspectorController::evaluateHandler() const
 {
+#if defined(SHOT_NO_INSPECTOR)
+    return nullptr;
+#else
     return WebCore::evaluateHandlerFromAnyThread;
+#endif
 }
 
 void FrameInspectorController::frontendInitialized()

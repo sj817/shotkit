@@ -74,11 +74,18 @@ void WebInjectedScriptManager::removeClient()
     }
 }
 
+// PageInspectorController / FrameInspectorController / WorkerInspectorController hold this
+// as a non-null Ref, so the object is still constructed under SHOT_NO_INSPECTOR and its
+// vtable keeps the overrides below alive. Emptying the bodies is what makes it the
+// "lightweight empty object" the ShotKit build wants: it drops the last references to
+// CommandLineAPIHost and to CommandLineAPIModule (plus its injected JS source blob).
 void WebInjectedScriptManager::connect()
 {
     InjectedScriptManager::connect();
 
+#if !defined(SHOT_NO_INSPECTOR)
     m_commandLineAPIHost = CommandLineAPIHost::create();
+#endif
 }
 
 void WebInjectedScriptManager::disconnect()
@@ -92,13 +99,19 @@ void WebInjectedScriptManager::discardInjectedScripts()
 {
     InjectedScriptManager::discardInjectedScripts();
 
+#if !defined(SHOT_NO_INSPECTOR)
     if (m_commandLineAPIHost)
         protect(m_commandLineAPIHost)->clearAllWrappers();
+#endif
 }
 
 void WebInjectedScriptManager::didCreateInjectedScript(const Inspector::InjectedScript& injectedScript)
 {
+#if defined(SHOT_NO_INSPECTOR)
+    UNUSED_PARAM(injectedScript);
+#else
     CommandLineAPIModule::injectIfNeeded(this, injectedScript);
+#endif
 }
 
 void WebInjectedScriptManager::discardInjectedScriptsFor(LocalDOMWindow& window)

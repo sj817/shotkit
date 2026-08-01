@@ -77,11 +77,13 @@ WorkerInspectorController::WorkerInspectorController(WorkerOrWorkletGlobalScope&
 {
     ASSERT(globalScope.isContextThread());
 
+#if !defined(SHOT_NO_INSPECTOR)
     auto workerContext = workerAgentContext();
 
     auto consoleAgent = makeUniqueRef<WorkerConsoleAgent>(workerContext);
     m_instrumentingAgents->setWebConsoleAgent(consoleAgent.ptr());
     m_agents.append(WTF::move(consoleAgent));
+#endif
 }
 
 WorkerInspectorController::~WorkerInspectorController()
@@ -120,6 +122,11 @@ void WorkerInspectorController::frontendInitialized()
 
 void WorkerInspectorController::connectFrontend(bool isAutomaticInspection, bool immediatelyPause)
 {
+#if defined(SHOT_NO_INSPECTOR)
+    UNUSED_PARAM(isAutomaticInspection);
+    UNUSED_PARAM(immediatelyPause);
+    return;
+#else
     ASSERT(!m_frontendRouter->hasFrontends());
     ASSERT(!m_forwardingChannel);
 
@@ -141,6 +148,7 @@ void WorkerInspectorController::connectFrontend(bool isAutomaticInspection, bool
     m_agents.didCreateFrontendAndBackend();
 
     updateServiceWorkerPageFrontendCount();
+#endif
 }
 
 void WorkerInspectorController::disconnectFrontend(Inspector::DisconnectReason reason)
@@ -148,6 +156,10 @@ void WorkerInspectorController::disconnectFrontend(Inspector::DisconnectReason r
     m_isAutomaticInspection = false;
     m_pauseAfterInitialization = false;
 
+#if defined(SHOT_NO_INSPECTOR)
+    UNUSED_PARAM(reason);
+    return;
+#else
     if (!m_frontendRouter->hasFrontends())
         return;
 
@@ -163,6 +175,7 @@ void WorkerInspectorController::disconnectFrontend(Inspector::DisconnectReason r
     m_forwardingChannel = nullptr;
 
     updateServiceWorkerPageFrontendCount();
+#endif
 }
 
 void WorkerInspectorController::updateServiceWorkerPageFrontendCount()
@@ -188,7 +201,12 @@ void WorkerInspectorController::updateServiceWorkerPageFrontendCount()
 
 void WorkerInspectorController::dispatchMessageFromFrontend(const String& message)
 {
+#if defined(SHOT_NO_INSPECTOR)
+    UNUSED_PARAM(message);
+    return;
+#else
     m_backendDispatcher->dispatch(message);
+#endif
 }
 
 WorkerAgentContext WorkerInspectorController::workerAgentContext()
@@ -220,6 +238,12 @@ void WorkerInspectorController::createLazyAgents()
 
     m_didCreateLazyAgents = true;
 
+#if defined(SHOT_NO_INSPECTOR)
+    // Same rationale as PageInspectorController::createLazyAgents(). Many worker agents
+    // share base classes with the page agents (WebHeapAgent / InspectorScriptProfilerAgent /
+    // WorkerNetworkAgent -> InspectorNetworkAgent ...), so this anchor has to go too.
+    return;
+#else
     m_debugger = makeUnique<WorkerDebugger>(m_globalScope);
 
     auto workerContext = workerAgentContext();
@@ -245,6 +269,7 @@ void WorkerInspectorController::createLazyAgents()
     auto scriptProfilerAgent = makeUniqueRef<InspectorScriptProfilerAgent>(workerContext);
     m_instrumentingAgents->setPersistentScriptProfilerAgent(scriptProfilerAgent.ptr());
     m_agents.append(WTF::move(scriptProfilerAgent));
+#endif
 }
 
 WorkerDebuggerAgent& WorkerInspectorController::ensureDebuggerAgent()
@@ -258,14 +283,23 @@ WorkerDebuggerAgent& WorkerInspectorController::ensureDebuggerAgent()
     return *m_debuggerAgent;
 }
 
+// Reached through this class's vtable; see the matching note in PageInspectorController.
 InspectorFunctionCallHandler WorkerInspectorController::functionCallHandler() const
 {
+#if defined(SHOT_NO_INSPECTOR)
+    return nullptr;
+#else
     return WebCore::functionCallHandlerFromAnyThread;
+#endif
 }
 
 InspectorEvaluateHandler WorkerInspectorController::evaluateHandler() const
 {
+#if defined(SHOT_NO_INSPECTOR)
+    return nullptr;
+#else
     return WebCore::evaluateHandlerFromAnyThread;
+#endif
 }
 
 Stopwatch& WorkerInspectorController::executionStopwatch() const

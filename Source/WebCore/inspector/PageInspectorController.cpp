@@ -103,11 +103,13 @@ PageInspectorController::PageInspectorController(Page& page, std::unique_ptr<Ins
 {
     ASSERT_ARG(inspectorBackendClient, m_inspectorBackendClient);
 
+#if !defined(SHOT_NO_INSPECTOR)
     auto pageContext = pageAgentContext();
 
     auto consoleAgent = makeUniqueRef<PageConsoleAgent>(pageContext);
     m_instrumentingAgents->setWebConsoleAgent(consoleAgent.ptr());
     m_agents.append(WTF::move(consoleAgent));
+#endif
 }
 
 PageInspectorController::~PageInspectorController()
@@ -155,6 +157,12 @@ void PageInspectorController::createLazyAgents()
 
     m_didCreateLazyAgents = true;
 
+#if defined(SHOT_NO_INSPECTOR)
+    // ShotKit has no frontend, so no agent is ever reachable. This method is the
+    // single static anchor for the ~20 heavy agents below; emptying it (together
+    // with the console agent in the constructor) is what lets LTO drop them.
+    return;
+#else
     // Under site isolation, debugging is handled per-frame by FrameDebugger instead of
     // a single PageDebugger for the whole page. The PageDebugger is still created so that
     // PageDebuggerAgent can register the Debugger domain, but it will not attach to any
@@ -194,15 +202,28 @@ void PageInspectorController::createLazyAgents()
     m_agents.append(makeUniqueRef<PageCanvasAgent>(pageContext));
     m_agents.append(makeUniqueRef<PageTimelineAgent>(pageContext));
     m_agents.append(makeUniqueRef<InspectorAnimationAgent>(pageContext));
+#endif
 }
 
 void PageInspectorController::siteIsolationFirstEnabled()
 {
+#if defined(SHOT_NO_INSPECTOR)
+    // Keeps the lightweight LegacyIdentifierRegistry created in the constructor and
+    // avoids anchoring BackendIdentifierRegistry. ShotKit never enables site isolation.
+#else
     m_identifierRegistry = Inspector::BackendIdentifierRegistry::create();
+#endif
 }
 
 void PageInspectorController::inspectedPageDestroyed()
 {
+#if defined(SHOT_NO_INSPECTOR)
+    // No frontend was ever connected and no agent was ever created, so only the
+    // client hand-back is left. Skipping InspectorBackendClient::inspectedPageDestroyed()
+    // is safe: EmptyInspectorBackendClient implements it as a no-op and ShotKit
+    // installs no other client.
+    m_inspectorBackendClient = nullptr;
+#else
     // Clean up resources and disconnect local and remote frontends.
     disconnectAllFrontends();
 
@@ -213,6 +234,7 @@ void PageInspectorController::inspectedPageDestroyed()
     m_agents.discardValues();
 
     m_debugger = nullptr;
+#endif
 }
 
 void PageInspectorController::setInspectorFrontendClient(InspectorFrontendClient* inspectorFrontendClient)
@@ -237,6 +259,14 @@ unsigned PageInspectorController::inspectionLevel() const
 
 void PageInspectorController::didClearWindowObjectInWorld(LocalFrame& frame, DOMWrapperWorld& world)
 {
+#if defined(SHOT_NO_INSPECTOR)
+    // FrameLoader::dispatchDidClearWindowObjectInWorld reaches this on every navigation.
+    // With no frontend there are no injected scripts to discard and no frontend client
+    // to notify; emptying it drops the WebInjectedScriptManager/InspectorFrontendClient edges.
+    UNUSED_PARAM(frame);
+    UNUSED_PARAM(world);
+    return;
+#else
     if (&world != &mainThreadNormalWorldSingleton())
         return;
 
@@ -247,10 +277,17 @@ void PageInspectorController::didClearWindowObjectInWorld(LocalFrame& frame, DOM
     // client that it's cleared so that the client can expose inspector bindings.
     if (m_inspectorFrontendClient && frame.isMainFrame())
         m_inspectorFrontendClient->windowObjectCleared();
+#endif
 }
 
 void PageInspectorController::connectFrontend(Inspector::FrontendChannel& frontendChannel, bool isAutomaticInspection, bool immediatelyPause)
 {
+#if defined(SHOT_NO_INSPECTOR)
+    UNUSED_PARAM(frontendChannel);
+    UNUSED_PARAM(isAutomaticInspection);
+    UNUSED_PARAM(immediatelyPause);
+    return;
+#else
     ASSERT(m_inspectorBackendClient);
     Ref page = m_page.get();
 
@@ -274,10 +311,15 @@ void PageInspectorController::connectFrontend(Inspector::FrontendChannel& fronte
     }
 
     m_inspectorBackendClient->frontendCountChanged(m_frontendRouter->frontendCount());
+#endif
 }
 
 void PageInspectorController::disconnectFrontend(FrontendChannel& frontendChannel)
 {
+#if defined(SHOT_NO_INSPECTOR)
+    UNUSED_PARAM(frontendChannel);
+    return;
+#else
     m_frontendRouter->disconnectFrontend(frontendChannel);
 
     m_isAutomaticInspection = false;
@@ -298,10 +340,14 @@ void PageInspectorController::disconnectFrontend(FrontendChannel& frontendChanne
     }
 
     m_inspectorBackendClient->frontendCountChanged(m_frontendRouter->frontendCount());
+#endif
 }
 
 void PageInspectorController::disconnectAllFrontends()
 {
+#if defined(SHOT_NO_INSPECTOR)
+    return;
+#else
     // If the local frontend page was destroyed, close the window.
     if (m_inspectorFrontendClient)
         m_inspectorFrontendClient->closeWindow();
@@ -330,10 +376,14 @@ void PageInspectorController::disconnectAllFrontends()
     m_pauseAfterInitialization = false;
 
     m_inspectorBackendClient->frontendCountChanged(m_frontendRouter->frontendCount());
+#endif
 }
 
 void PageInspectorController::connectRemoteInstrumentation()
 {
+#if defined(SHOT_NO_INSPECTOR)
+    return;
+#else
     // Called before any frontend connects to this WebProcess. The UIProcess has an
     // active frontend on the web-page target and needs this WebProcess to participate
     // in instrumentation (e.g., network events) before connectFrontend() is called.
@@ -341,16 +391,24 @@ void PageInspectorController::connectRemoteInstrumentation()
     // hooks active so that FrameNetworkAgentProxy can observe early page loads.
     InspectorInstrumentation::frontendCreated();
     InspectorInstrumentation::registerInstrumentingAgents(m_instrumentingAgents.get());
+#endif
 }
 
 void PageInspectorController::disconnectRemoteInstrumentation()
 {
+#if defined(SHOT_NO_INSPECTOR)
+    return;
+#else
     InspectorInstrumentation::unregisterInstrumentingAgents(m_instrumentingAgents.get());
     InspectorInstrumentation::frontendDeleted();
+#endif
 }
 
 void PageInspectorController::show()
 {
+#if defined(SHOT_NO_INSPECTOR)
+    return;
+#else
     ASSERT(!hasRemoteFrontend());
 
     if (!enabled())
@@ -360,48 +418,90 @@ void PageInspectorController::show()
         m_inspectorBackendClient->bringFrontendToFront();
     else if (Inspector::FrontendChannel* frontendChannel = m_inspectorBackendClient->openLocalFrontend(this))
         connectFrontend(*frontendChannel);
+#endif
 }
 
 void PageInspectorController::evaluateForTestInFrontend(const String& script)
 {
+#if defined(SHOT_NO_INSPECTOR)
+    UNUSED_PARAM(script);
+    return;
+#else
     CheckedRef { ensureInspectorAgent() }->evaluateForTestInFrontend(script);
+#endif
 }
 
+// The InspectorOverlay object itself stays constructed (it is a non-polymorphic
+// UniqueRef member whose constructor is trivial), but every entry point into it is
+// compiled out below, so InspectorOverlay's ~100 KB of highlight/grid drawing code
+// (plus InspectorOverlayLabel and the RenderStyle inspection it drags in) loses its
+// last anchor.
 void PageInspectorController::drawHighlight(GraphicsContext& context) const
 {
+#if defined(SHOT_NO_INSPECTOR)
+    UNUSED_PARAM(context);
+#else
     m_overlay->paint(context);
+#endif
 }
 
 void PageInspectorController::getHighlight(InspectorOverlay::Highlight& highlight, InspectorOverlay::CoordinateSystem coordinateSystem) const
 {
+#if defined(SHOT_NO_INSPECTOR)
+    UNUSED_PARAM(highlight);
+    UNUSED_PARAM(coordinateSystem);
+#else
     m_overlay->getHighlight(highlight, coordinateSystem);
+#endif
 }
 
 unsigned PageInspectorController::gridOverlayCount() const
 {
+#if defined(SHOT_NO_INSPECTOR)
+    return 0;
+#else
     return m_overlay->gridOverlayCount();
+#endif
 }
 
 unsigned PageInspectorController::flexOverlayCount() const
 {
+#if defined(SHOT_NO_INSPECTOR)
+    return 0;
+#else
     return m_overlay->flexOverlayCount();
+#endif
 }
 
 unsigned PageInspectorController::paintRectCount() const
 {
+#if defined(SHOT_NO_INSPECTOR)
+    return 0;
+#else
     if (m_inspectorBackendClient->overridesShowPaintRects())
         return m_inspectorBackendClient->paintRectCount();
 
     return m_overlay->paintRectCount();
+#endif
 }
 
 bool PageInspectorController::shouldShowOverlay() const
 {
+#if defined(SHOT_NO_INSPECTOR)
+    return false;
+#else
     return m_overlay->shouldShowOverlay();
+#endif
 }
 
 void PageInspectorController::inspect(Node* node)
 {
+#if defined(SHOT_NO_INSPECTOR)
+    // Node::inspect() is the only in-tree caller; without a frontend there is
+    // nothing to reveal, and this is the anchor for InspectorDOMAgent.
+    UNUSED_PARAM(node);
+    return;
+#else
     if (!enabled())
         return;
 
@@ -409,6 +509,7 @@ void PageInspectorController::inspect(Node* node)
         show();
 
     CheckedRef { ensureDOMAgent() }->inspect(node);
+#endif
 }
 
 bool PageInspectorController::enabled() const
@@ -424,22 +525,37 @@ Page& PageInspectorController::inspectedPage() const
 
 void PageInspectorController::dispatchMessageFromFrontend(const String& message)
 {
+#if defined(SHOT_NO_INSPECTOR)
+    // No frontend can send us a message; this is the anchor for BackendDispatcher::dispatch
+    // and, through it, the generated protocol dispatchers.
+    UNUSED_PARAM(message);
+    return;
+#else
     m_backendDispatcher->dispatch(message);
+#endif
 }
 
 void PageInspectorController::hideHighlight()
 {
+#if !defined(SHOT_NO_INSPECTOR)
     m_overlay->hideHighlight();
+#endif
 }
 
 Node* PageInspectorController::highlightedNode() const
 {
+#if defined(SHOT_NO_INSPECTOR)
+    return nullptr;
+#else
     return m_overlay->highlightedNode();
+#endif
 }
 
 void PageInspectorController::setIndicating(bool indicating)
 {
-#if !PLATFORM(IOS_FAMILY)
+#if defined(SHOT_NO_INSPECTOR)
+    UNUSED_PARAM(indicating);
+#elif !PLATFORM(IOS_FAMILY)
     m_overlay->setIndicating(indicating);
 #else
     if (indicating)
@@ -488,8 +604,16 @@ bool PageInspectorController::developerExtrasEnabled() const
     return m_page->settings().developerExtrasEnabled();
 }
 
+// The three InspectorEnvironment overrides below are reached through this class's
+// vtable, so they stay anchored even though nothing calls them. Gating their bodies
+// removes the last references to JSDOMWindow/BindingSecurity and to the JSExecState
+// call/evaluate trampolines from the inspector side.
 bool PageInspectorController::canAccessInspectedScriptState(JSC::JSGlobalObject* lexicalGlobalObject) const
 {
+#if defined(SHOT_NO_INSPECTOR)
+    UNUSED_PARAM(lexicalGlobalObject);
+    return false;
+#else
     JSLockHolder lock(lexicalGlobalObject);
 
     auto* inspectedWindow = dynamicDowncast<JSDOMWindow>(lexicalGlobalObject);
@@ -497,25 +621,38 @@ bool PageInspectorController::canAccessInspectedScriptState(JSC::JSGlobalObject*
         return false;
 
     return BindingSecurity::shouldAllowAccessToDOMWindow(lexicalGlobalObject, protect(inspectedWindow->wrapped()), DoNotReportSecurityError);
+#endif
 }
 
 InspectorFunctionCallHandler PageInspectorController::functionCallHandler() const
 {
+#if defined(SHOT_NO_INSPECTOR)
+    return nullptr;
+#else
     return WebCore::functionCallHandlerFromAnyThread;
+#endif
 }
 
 InspectorEvaluateHandler PageInspectorController::evaluateHandler() const
 {
+#if defined(SHOT_NO_INSPECTOR)
+    return nullptr;
+#else
     return WebCore::evaluateHandlerFromAnyThread;
+#endif
 }
 
 void PageInspectorController::frontendInitialized()
 {
+#if defined(SHOT_NO_INSPECTOR)
+    return;
+#else
     if (m_pauseAfterInitialization) {
         m_pauseAfterInitialization = false;
         if (auto* debuggerAgent = m_instrumentingAgents->enabledPageDebuggerAgent())
             std::ignore = debuggerAgent->pause();
     }
+#endif
 }
 
 Stopwatch& PageInspectorController::executionStopwatch() const

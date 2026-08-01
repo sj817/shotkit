@@ -228,6 +228,14 @@ add_definitions(-DJS_NO_EXPORT=1)
 # ShotKit is a static renderer: page scripts are neither executed nor fetched.
 # Upstream loader/parser seams use this to compile out script-only request paths.
 add_definitions(-DSHOT_NO_SCRIPT=1)
+# 同理桩化 Web Inspector：ShotKit 永远没有前端连接（ENABLE_REMOTE_INSPECTOR=OFF，也不存在
+# 本地检查器窗口），但 PageInspectorController / FrameInspectorController / WorkerInspectorController
+# 分别是 Page / LocalFrame / WorkerOrWorkletGlobalScope 的无门控强成员，每个 Page 都会真实
+# 分配一整套 inspector 对象，并静态钉住约 20 个重 agent。SHOT_NO_INSPECTOR 把
+# InspectorInstrumentationPublic::hasFrontends() 折成编译期 false（约 187 个插桩入口的
+# slow-path 随之失锚），并掏空三个 InspectorController 的 agent 创建与前端连接路径，
+# 让 full LTO 清扫 inspector/ 与 inspector/agents/。
+add_definitions(-DSHOT_NO_INSPECTOR=1)
 # ①c 退化绑定：清单内接口的 JS 绑定生成为纯 wrapper 空壳（保留类/toJS/GC 底座，删除
 #    属性表与属性/操作胶水）。JS 永不执行时这些胶水运行期不可达；不生成它们可解除
 #    对 JS-only WebCore 子系统（getComputedStyle 后端等）的引用锚，让 full LTO 清扫。
