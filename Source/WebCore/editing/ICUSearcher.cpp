@@ -40,6 +40,14 @@ namespace WebCore {
 
 static bool searcherInUse;
 
+// ShotKit renders static markup: window.find(), the FindString editing command and the
+// accessibility text search are all unreachable, and ICU's collation-aware string search
+// (usearch_*/ucol_*) lives in ICU's i18n library, which Shot does not ship. The searcher
+// therefore degenerates to "never matches". The one visible consequence is that a
+// scroll-to-text-fragment URL (#:~:text=...) no longer highlights or scrolls; every other
+// caller is already dead in this configuration.
+#if !PLATFORM(SHOT)
+
 static UStringSearch* createSearcher()
 {
     // Provide a non-empty pattern and non-empty text so usearch_open will not fail,
@@ -57,6 +65,8 @@ static UStringSearch* globalSearcher()
     SUPPRESS_FORWARD_DECL_ARG static UStringSearch* searcher = createSearcher();
     return searcher;
 }
+
+#endif // !PLATFORM(SHOT)
 
 ICUSearcher::ICUSearcher(const String& foldedTarget, FindOptions& options)
 {
@@ -99,6 +109,21 @@ void ICUSearcher::unlock()
     RELEASE_ASSERT(searcherInUse);
     searcherInUse = false;
 }
+
+#if PLATFORM(SHOT)
+
+UStringSearch* ICUSearcher::searcher() { return nullptr; }
+void ICUSearcher::reset() { }
+void ICUSearcher::setCollationStrength(UCollationStrength) { }
+void ICUSearcher::setAttribute(USearchAttribute, USearchAttributeValue) { }
+void ICUSearcher::setPattern(std::span<const char16_t>) { }
+void ICUSearcher::setText(std::span<const char16_t>) { }
+void ICUSearcher::setOffset(size_t) { }
+std::optional<size_t> ICUSearcher::next() { return std::nullopt; }
+std::optional<size_t> ICUSearcher::previous() { return std::nullopt; }
+size_t ICUSearcher::matchedLength() { return 0; }
+
+#else
 
 void ICUSearcher::reset()
 {
@@ -180,6 +205,8 @@ size_t ICUSearcher::matchedLength()
     SUPPRESS_FORWARD_DECL_ARG int32_t result = usearch_getMatchedLength(searcher());
     return static_cast<size_t>(result);
 }
+
+#endif // PLATFORM(SHOT)
 
 static bool isKanaLetter(char16_t character);
 static bool isSmallKanaLetter(char16_t character);

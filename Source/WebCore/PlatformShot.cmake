@@ -1,6 +1,12 @@
 # WebCore platform layer for the Shot port.
 if (WIN32)
     include(${CMAKE_CURRENT_SOURCE_DIR}/PlatformWin.cmake)
+    # LocaleICU is the only WebCore consumer of ICU's date/number formatters
+    # (udat_*/unum_*/udatpg_*, i.e. the icuin library). It only feeds the date and
+    # number form controls, so the Shot build takes the in-tree ICU-free fallback
+    # instead and stops shipping icuin. See the Linux branch below for the same swap.
+    list(REMOVE_ITEM WebCore_SOURCES platform/text/LocaleICU.cpp)
+    list(APPEND WebCore_SOURCES platform/text/LocaleNone.cpp)
 elseif (APPLE)
     include(${CMAKE_CURRENT_SOURCE_DIR}/PlatformMac.cmake)
     # PlatformMac normally builds WebCore.framework and codesigns it. Shot
@@ -113,7 +119,8 @@ else ()
 
         platform/shot/PasteboardShot.cpp
         platform/text/Hyphenation.cpp
-        platform/text/LocaleICU.cpp
+        # ICU-free locale data; see the WIN32 branch above.
+        platform/text/LocaleNone.cpp
 
         platform/unix/LoggingUnix.cpp
         platform/unix/SharedMemoryUnix.cpp

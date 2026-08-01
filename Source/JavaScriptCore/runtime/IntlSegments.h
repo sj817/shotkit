@@ -37,7 +37,13 @@ public:
 
     static void destroy(JSCell* cell)
     {
+#if PLATFORM(SHOT)
+        // ShotKit: no Intl cell can ever be allocated; see IntlCollator.h.
+        UNUSED_PARAM(cell);
+        RELEASE_ASSERT_NOT_REACHED();
+#else
         static_cast<IntlSegments*>(cell)->IntlSegments::~IntlSegments();
+#endif
     }
 
     template<typename CellType, SubspaceAccess mode>

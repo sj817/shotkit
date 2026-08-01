@@ -95,10 +95,17 @@ namespace JSDateMathInternal {
 static constexpr bool verbose = false;
 }
 
+// ShotKit is a static-markup renderer: page script never runs, so no Date, Intl or
+// Temporal object can ever observe a local time zone, and DateCache is reachable only
+// through VM construction/destruction. Keeping the UCalendar member here would anchor
+// ucal_* (ICU's i18n library, icuin) from ~VM alone, so the Shot build degenerates
+// DateCache to UTC and drops the ICU calendar entirely.
 class OpaqueICUTimeZone {
     WTF_MAKE_TZONE_ALLOCATED(OpaqueICUTimeZone);
 public:
+#if !PLATFORM(SHOT)
     std::unique_ptr<UCalendar, ICUDeleter<ucal_close>> m_calendar;
+#endif
     TimeZone m_canonicalTimeZone;
 };
 
@@ -115,6 +122,13 @@ void OpaqueICUTimeZoneDeleter::operator()(OpaqueICUTimeZone* timeZone)
 // NOTE: The implementation relies on the fact that no time zones have
 // more than one daylight savings offset change per month.
 // If this function is called with NaN it returns random value.
+#if PLATFORM(SHOT)
+LocalTimeOffset DateCache::calculateLocalTimeOffset(double, TimeType)
+{
+    // Shot always reports UTC; see the OpaqueICUTimeZone comment above.
+    return { false, 0 };
+}
+#else
 LocalTimeOffset DateCache::calculateLocalTimeOffset(double millisecondsFromEpoch, TimeType inputTimeType)
 {
     int32_t rawOffset = 0;
@@ -145,6 +159,7 @@ LocalTimeOffset DateCache::calculateLocalTimeOffset(double millisecondsFromEpoch
 
     return { !!dstOffset, rawOffset + dstOffset };
 }
+#endif // PLATFORM(SHOT)
 
 LocalTimeOffsetCache* DateCache::DSTCache::leastRecentlyUsed(LocalTimeOffsetCache* exclude)
 {
@@ -429,6 +444,12 @@ TimeZone DateCache::defaultTimeZone()
     return timeZoneCache()->m_canonicalTimeZone;
 }
 
+#if PLATFORM(SHOT)
+String DateCache::timeZoneDisplayName(bool)
+{
+    return "UTC"_s;
+}
+#else
 String DateCache::timeZoneDisplayName(bool isDST)
 {
     if (m_timeZoneStandardDisplayNameCache.isNull()) {
@@ -451,6 +472,7 @@ String DateCache::timeZoneDisplayName(bool isDST)
         return m_timeZoneDSTDisplayNameCache;
     return m_timeZoneStandardDisplayNameCache;
 }
+#endif // PLATFORM(SHOT)
 
 static Lock timeZoneCacheLock;
 
@@ -525,15 +547,17 @@ void DateCache::timeZoneCacheSlow()
 {
     ASSERT(!m_timeZoneCache);
     TimeZone canonical = retrieveTimeZoneInformation();
+    auto* cache = new OpaqueICUTimeZone;
+    cache->m_canonicalTimeZone = canonical;
+#if !PLATFORM(SHOT)
     String timeZoneForICU = canonical.toICUString();
     StringView timeZoneView(timeZoneForICU);
     auto upconverted = timeZoneView.upconvertedCharacters();
-    auto* cache = new OpaqueICUTimeZone;
-    cache->m_canonicalTimeZone = canonical;
     UErrorCode status = U_ZERO_ERROR;
     cache->m_calendar = std::unique_ptr<UCalendar, ICUDeleter<ucal_close>>(ucal_open(upconverted, timeZoneView.length(), "", UCAL_DEFAULT, &status));
     ASSERT_UNUSED(status, U_SUCCESS(status));
     ucal_setGregorianChange(cache->m_calendar.get(), minECMAScriptTime, &status); // Ignore "unsupported" error.
+#endif
     m_timeZoneCache = std::unique_ptr<OpaqueICUTimeZone, OpaqueICUTimeZoneDeleter>(cache);
 }
 

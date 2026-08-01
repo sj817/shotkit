@@ -48,6 +48,7 @@ public:
     String canonicalizeUnicodeLocaleID(const String& languageTag);
 
 private:
+#if !PLATFORM(SHOT)
     UDateTimePatternGenerator* getSharedPatternGenerator(const CString& locale, UErrorCode& status)
     {
         if (m_cachedDateTimePatternGenerator) {
@@ -61,6 +62,10 @@ private:
 
     std::unique_ptr<UDateTimePatternGenerator, ICUDeleter<udatpg_close>> m_cachedDateTimePatternGenerator;
     CString m_cachedDateTimePatternGeneratorLocale;
+#endif
+    // ShotKit never executes script, so Intl is unreachable - but IntlCache is a plain
+    // VM member, so keeping the generator here would make ~VM alone import udatpg_close
+    // and pull in ICU's i18n library (icuin) for nothing. See IntlCache.cpp.
     UncheckedKeyHashMap<String, String> m_cachedCanonicalizedLocaleIDs;
 };
 

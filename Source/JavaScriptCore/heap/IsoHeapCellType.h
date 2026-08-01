@@ -38,6 +38,14 @@ public:
 
     ~IsoHeapCellType();
 
+    // NOTE for the Shot port: taking &CellType::destroy here is unconditional - Heap's
+    // constructor builds an IsoHeapCellType member for every type in
+    // FOR_EACH_JSC_DYNAMIC_ISO_SUBSPACE eagerly, whether or not any cell of that type can
+    // ever be allocated. For the Intl* cell classes that means ~IntlCollator and friends
+    // stay linked purely through this pointer, and each of them owns a
+    // std::unique_ptr<..., ICUDeleter<u*_close>>, so ICU's whole i18n library (icuin)
+    // remains a runtime dependency of a renderer that can never run script. Those classes
+    // therefore degenerate destroy() under PLATFORM(SHOT); see IntlCollator.h.
     template<typename CellType>
     struct Args {
         Args()

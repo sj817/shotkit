@@ -44,7 +44,19 @@ public:
 
     static void destroy(JSCell* cell)
     {
+#if PLATFORM(SHOT)
+        // ShotKit never executes page script, so JSGlobalObject::init() - the only
+        // installer of the Intl namespace object - is compiled out and no Intl cell can
+        // ever be allocated (the ICU *_open entry points are already gone from the import
+        // table; only these destructors were left). Heap still takes the address of every
+        // Intl class's destroy() eagerly, which alone kept ~IntlCollator -> ICUDeleter ->
+        // ucol_close and therefore all of ICU's i18n library (icuin) linked in. See
+        // IsoHeapCellType.h for the anchor.
+        UNUSED_PARAM(cell);
+        RELEASE_ASSERT_NOT_REACHED();
+#else
         static_cast<IntlCollator*>(cell)->IntlCollator::~IntlCollator();
+#endif
     }
 
     template<typename CellType, SubspaceAccess mode>

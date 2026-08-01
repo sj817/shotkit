@@ -34,6 +34,25 @@ namespace JSC {
 
 WTF_MAKE_TZONE_ALLOCATED_IMPL(IntlCache);
 
+#if PLATFORM(SHOT)
+
+// See IntlCache.h: the shared UDateTimePatternGenerator is dropped so that ~IntlCache
+// (reached unconditionally from ~VM) stops anchoring udatpg_* / icuin. Both users are
+// Intl objects, which ShotKit can never construct because page script never runs.
+Vector<char16_t, 32> IntlCache::getBestDateTimePattern(const CString&, std::span<const char16_t>, UErrorCode& status)
+{
+    status = U_UNSUPPORTED_ERROR;
+    return { };
+}
+
+Vector<char16_t, 32> IntlCache::getFieldDisplayName(const CString&, UDateTimePatternField, UDateTimePGDisplayWidth, UErrorCode& status)
+{
+    status = U_UNSUPPORTED_ERROR;
+    return { };
+}
+
+#else
+
 UDateTimePatternGenerator* IntlCache::cacheSharedPatternGenerator(const CString& locale, UErrorCode& status)
 {
     auto generator = std::unique_ptr<UDateTimePatternGenerator, ICUDeleter<udatpg_close>>(udatpg_open(locale.data(), &status));
@@ -68,6 +87,8 @@ Vector<char16_t, 32> IntlCache::getFieldDisplayName(const CString& locale, UDate
         return { };
     return buffer;
 }
+
+#endif // PLATFORM(SHOT)
 
 String IntlCache::canonicalizeUnicodeLocaleID(const String& languageTag)
 {

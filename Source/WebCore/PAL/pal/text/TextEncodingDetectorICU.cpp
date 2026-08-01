@@ -38,6 +38,20 @@
 
 namespace PAL {
 
+#if PLATFORM(SHOT)
+
+// The only caller is TextResourceDecoder, behind the m_usesEncodingDetector flag that
+// ShotKit never turns on, so this is dead at runtime already. It is compiled out here
+// because the flag is a runtime bool that LTO cannot fold away, and the ICU charset
+// detector (ucsdet_*) lives in ICU's i18n library, which Shot does not ship.
+bool detectTextEncoding(std::span<const uint8_t>, ASCIILiteral, TextEncoding* detectedEncoding)
+{
+    *detectedEncoding = TextEncoding();
+    return false;
+}
+
+#else
+
 bool detectTextEncoding(std::span<const uint8_t> data, ASCIILiteral hintEncodingName, TextEncoding* detectedEncoding)
 {
     *detectedEncoding = TextEncoding();
@@ -113,5 +127,7 @@ bool detectTextEncoding(std::span<const uint8_t> data, ASCIILiteral hintEncoding
     SUPPRESS_FORWARD_DECL_ARG ucsdet_close(detector);
     return false;
 }
+
+#endif // PLATFORM(SHOT)
 
 }

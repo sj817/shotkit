@@ -36,12 +36,50 @@
 #include <unicode/ucol.h>
 #include <wtf/Lock.h>
 #include <wtf/NeverDestroyed.h>
+#include <wtf/StdLibExtras.h>
 #include <wtf/text/StringView.h>
+#include <wtf/text/WTFString.h>
 
 #if OS(DARWIN) && USE(CF)
 #include <wtf/RetainPtr.h>
 #include <wtf/cf/TypeCastsCF.h>
 #endif
+
+#if PLATFORM(SHOT)
+
+// ShotKit does not ship ICU's i18n library, where ucol_* lives. The only WTF::Collator
+// consumer the Shot port builds is xsl:sort (XSLTUnicodeSort), and its function pointer
+// is handed to libxslt, so LTO cannot drop it. Fall back to code point order: xsl:sort
+// results are no longer locale-collated; nothing else in the renderer is affected.
+namespace WTF {
+
+Collator::Collator(const char*, bool)
+    : m_locale(nullptr)
+    , m_shouldSortLowercaseFirst(false)
+    , m_collator(nullptr)
+{
+}
+
+Collator::~Collator() = default;
+
+int Collator::collate(StringView a, StringView b) const
+{
+    auto ordering = codePointCompare(a, b);
+    if (ordering < 0)
+        return -1;
+    if (ordering > 0)
+        return 1;
+    return 0;
+}
+
+int Collator::collate(const char8_t* a, const char8_t* b) const
+{
+    return collate(String::fromUTF8(byteCast<char>(a)), String::fromUTF8(byteCast<char>(b)));
+}
+
+} // namespace WTF
+
+#else
 
 namespace WTF {
 
@@ -278,4 +316,6 @@ int Collator::collate(const char8_t* a, const char8_t* b) const
 
 } // namespace WTF
 
-#endif
+#endif // PLATFORM(SHOT)
+
+#endif // !UCONFIG_NO_COLLATION

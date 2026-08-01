@@ -26,10 +26,12 @@
 #include "config.h"
 #include "PlatformLocale.h"
 #include <wtf/DateMath.h>
+#include <wtf/TZoneMallocInlines.h>
 
 namespace WebCore {
 
 class LocaleNone final : public Locale {
+    WTF_MAKE_TZONE_ALLOCATED_INLINE(LocaleNone);
     WTF_OVERRIDE_DELETE_FOR_CHECKED_PTR(LocaleNone);
 public:
     virtual ~LocaleNone();
@@ -69,7 +71,9 @@ const Vector<String>& LocaleNone::monthLabels()
 {
     if (!m_monthLabels.isEmpty())
         return m_monthLabels;
-    m_monthLabels = { WTF::monthFullName, std::size(WTF::monthFullName) };
+    m_monthLabels = Vector<String>(WTF::monthFullName.size(), [](size_t i) -> String {
+        return WTF::monthFullName[i];
+    });
     return m_monthLabels;
 }
 
@@ -112,7 +116,9 @@ const Vector<String>& LocaleNone::shortMonthLabels()
 {
     if (!m_shortMonthLabels.isEmpty())
         return m_shortMonthLabels;
-    m_shortMonthLabels = { WTF::monthName, std::size(WTF::monthName) };
+    m_shortMonthLabels = Vector<String>(WTF::monthName.size(), [](size_t i) -> String {
+        return WTF::monthName[i];
+    });
     return m_shortMonthLabels;
 }
 
