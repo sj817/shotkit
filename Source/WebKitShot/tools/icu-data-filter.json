@@ -1,8 +1,9 @@
 {
-  "//": "ShotKit ICU 数据裁剪过滤器（ICU_DATA_FILTER_FILE 格式，subtractive）。",
-  "//howto": "clean 重装 ICU 时用：在构建 ICU 前 set ICU_DATA_FILTER_FILE=<本文件绝对路径>，ICU 只打包未被 exclude 的类别，产出 icudtNN.dll 直接就是精简版（≈10 MB，原 30 MB）。vcpkg 场景：在 ports/icu/portfile.cmake 的 vcpkg_make_configure 之前加 set(ENV{ICU_DATA_FILTER_FILE} \"...\")。已构建好的树用同目录 slim-icu.ps1（icupkg 后处理，等价效果，无需重装）。",
-  "//keep": "保留渲染必需：brkitr(断行/断词,含CJK/Thai词典)、normalization(nfc/nfkc)、字符属性(BiDi/case/props/unames)、conversion_mappings(非UTF页面解码)、root/pool/supplemental。",
-  "//verified": "中/日/阿拉伯RTL/泰/emoji 渲染像素不变（i18n 压力页验证通过）。",
+  "//": "ShotKit ICU 数据裁剪过滤器（ICU_DATA_FILTER_FILE 格式，subtractive）。只做类别级裁剪，item 级裁剪见 //postprocess。",
+  "//howto": "clean 重装 ICU 时用：在构建 ICU 前 set ICU_DATA_FILTER_FILE=<本文件绝对路径>，ICU 只打包未被 exclude 的类别，产出 icudtNN.dll 就是类别级精简版（≈10 MB，原 30 MB）；再跑同目录 slim-icu.ps1 做 converter/item 级后处理可到 ≈4.2 MB。vcpkg 场景：在 ports/icu/portfile.cmake 的 vcpkg_make_configure 之前加 set(ENV{ICU_DATA_FILTER_FILE} \"...\")。已构建好的树可直接用 slim-icu.ps1（icupkg 后处理，无需重装，等价且更彻底）。",
+  "//keep": "保留渲染必需：brkitr(断行/断词规则)、normalization(nfc/nfkc)、字符属性(BiDi/case/props)、conversion_mappings(非UTF页面解码)、root/pool/supplemental。",
+  "//postprocess": "以下 item 级裁剪本文件表达不了，一律由 slim-icu.ps1 的 icupkg 后处理承担，两边口径必须一致：brkitr/cjdict.dict（中日分词词典 2.0 MB，被 brkitr/root.res 声明为依赖，只能用 gendict 生成近空词典替换、不能删）、unames.icu（字符名表）、zoneinfo64/metaZones/timezoneTypes/windowsZones（时区，只服务 ucal/Intl）、converter 白名单（只留 WHATWG 编码集及其检测闭包，删 EUC-TW / ISO-2022-CN 内部表等 159 个 .cnv）。",
+  "//verified": "中/日/阿拉伯RTL/泰/emoji 渲染像素不变（i18n 压力页验证通过）；GBK / Shift_JIS 编码页面精简前后 PNG 哈希一致。",
   "strategy": "subtractive",
   "featureFilters": {
     "coll_tree": "exclude",
