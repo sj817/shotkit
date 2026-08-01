@@ -74,8 +74,17 @@ inline JSC::JSValue toJS(JSC::JSGlobalObject* lexicalGlobalObject, JSDOMGlobalOb
 void willCreatePossiblyOrphanedTreeByRemovalSlowCase(Node& root);
 inline void willCreatePossiblyOrphanedTreeByRemoval(Node& root)
 {
+#if defined(SHOT_NO_SCRIPT)
+    // ShotKit never executes page JS, so no node ever has a JS wrapper and nothing
+    // can hold a JS reference into a detached subtree. The slow case exists purely
+    // to model JS tree lifetime, and it is reachable from plain C++ DOM removals
+    // (ContainerNode::removeChild / removeChildren with ChildChange::Source::API),
+    // where it would force the JS world into existence via mainWorldGlobalObject().
+    UNUSED_PARAM(root);
+#else
     if (!root.wrapper() && root.hasChildNodes())
         willCreatePossiblyOrphanedTreeByRemovalSlowCase(root);
+#endif
 }
 
 inline WebCoreOpaqueRoot root(Node&);

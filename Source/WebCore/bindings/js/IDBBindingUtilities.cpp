@@ -565,6 +565,13 @@ public:
 private:
     void initializeVM()
     {
+#if defined(SHOT_NO_SCRIPT)
+        // The only caller of the enclosing class is callOnIDBSerializationThreadAndWait(),
+        // which is only reached from the IndexedDB API - script-only, so unreachable in
+        // ShotKit. This is the last create() of a JSDOMGlobalObject subclass; see
+        // JSWindowProxy::setWindow() for why they all have to go together.
+        RELEASE_ASSERT_NOT_REACHED();
+#else
         if (m_vm)
             return;
 
@@ -575,6 +582,7 @@ private:
 
         JSC::JSLockHolder locker(m_vm.get());
         m_globalObject.set(*m_vm, JSIDBSerializationGlobalObject::create(*m_vm, JSIDBSerializationGlobalObject::createStructure(*m_vm, JSC::jsNull()), normalWorld(*m_vm)));
+#endif // defined(SHOT_NO_SCRIPT)
     }
 
     RefPtr<JSC::VM> m_vm;

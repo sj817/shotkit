@@ -92,6 +92,17 @@ void JSWindowProxy::setWindow(VM& vm, JSDOMGlobalObject& window)
 
 void JSWindowProxy::setWindow(DOMWindow& domWindow)
 {
+#if defined(SHOT_NO_SCRIPT)
+    // ShotKit never materializes a JS world: WindowProxy::jsWindowProxy() returns null
+    // under SHOT_NO_SCRIPT, so no JSWindowProxy is ever created and nothing can reach
+    // this. The JSDOMWindow::create() below is the only static reference that anchors
+    // JSDOMWindowBase::finishCreation -> JSDOMGlobalObject::finishCreation ->
+    // JSC::JSGlobalObject::init(), and through init() the entire JSC builtin/prototype
+    // graph plus every Intl object (i.e. all of ICU's i18n library). Compiling it out
+    // is what lets full LTO sweep that graph.
+    UNUSED_PARAM(domWindow);
+    RELEASE_ASSERT_NOT_REACHED();
+#else
     // Replacing JSDOMWindow via telling JSWindowProxy to use the same LocalDOMWindow it already uses makes no sense,
     // so we'd better never try to.
     ASSERT(!window() || &domWindow != &wrapped());
@@ -129,6 +140,7 @@ void JSWindowProxy::setWindow(DOMWindow& domWindow)
 
     ASSERT(window->realm() == window);
     ASSERT(prototype->realm() == window);
+#endif // defined(SHOT_NO_SCRIPT)
 }
 
 WindowProxy* JSWindowProxy::windowProxy() const

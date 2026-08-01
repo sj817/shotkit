@@ -458,7 +458,11 @@ WindowProxy& ScriptController::windowProxy()
 JSWindowProxy& ScriptController::jsWindowProxy(DOMWrapperWorld& world)
 {
     auto* jsWindowProxy = protect(m_frame->windowProxy())->jsWindowProxy(world);
-    ASSERT_WITH_MESSAGE(jsWindowProxy, "The JSWindowProxy can only be null if the frame has been destroyed");
+    // Upstream this can only be null once the frame has been destroyed. Under
+    // SHOT_NO_SCRIPT the JS world is never materialized (see WindowProxy.cpp), so
+    // this must be a release assert: any remaining caller has to fail loudly here
+    // instead of silently dereferencing null.
+    RELEASE_ASSERT_WITH_MESSAGE(jsWindowProxy, "The JSWindowProxy can only be null if the frame has been destroyed");
     return *jsWindowProxy;
 }
 
@@ -866,6 +870,17 @@ void ScriptController::executeJavaScriptURL(const URL& url, const NavigationActi
 {
     ASSERT(url.protocolIsJavaScript());
 
+#if defined(SHOT_NO_SCRIPT)
+    // A "javascript:" navigation is page-controlled and reaches here without any
+    // canExecuteScripts() gate (FrameLoader::executeJavaScriptURL only checks the
+    // sandbox flag). Upstream this ends up a no-op because the evaluation is
+    // blocked and didReplaceDocument stays false; bail out before touching
+    // jsWindowProxy() so page content cannot trip its RELEASE_ASSERT.
+    UNUSED_PARAM(url);
+    UNUSED_PARAM(action);
+    UNUSED_PARAM(didReplaceDocument);
+    return;
+#else
     // We need to hold onto the Frame here because executing script can
     // destroy the frame.
     Ref frame = m_frame.get();
@@ -952,6 +967,7 @@ void ScriptController::executeJavaScriptURL(const URL& url, const NavigationActi
             didReplaceDocument = true;
         }
     }
+#endif // !defined(SHOT_NO_SCRIPT)
 }
 
 void ScriptController::reportExceptionFromScriptError(LoadableScript::Error error, bool isModule)

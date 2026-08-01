@@ -778,6 +778,17 @@ JSC::JSObject* JSDOMGlobalObject::moduleLoaderCreateImportMetaProperties(JSC::JS
 
 JSC::JSGlobalObject* JSDOMGlobalObject::deriveShadowRealmGlobalObject(JSC::JSGlobalObject* globalObject)
 {
+#if defined(SHOT_NO_SCRIPT)
+    // Only `new ShadowRealm()` reaches this, and ShotKit never executes script. The
+    // function pointer still sits in the static GlobalObjectMethodTable of every
+    // JSDOMGlobalObject family, so an empty body here is what actually removes the
+    // JSShadowRealmGlobalScope::create() -> JSDOMGlobalObject::finishCreation() edge -
+    // taking a table entry's address does not make the callee reachable, but a live
+    // body does. See JSWindowProxy::setWindow() for the window-family cut.
+    UNUSED_PARAM(globalObject);
+    RELEASE_ASSERT_NOT_REACHED();
+    return nullptr;
+#else
     auto& vm = globalObject->vm();
 
     auto domGlobalObject = downcast<JSDOMGlobalObject>(globalObject);
@@ -823,6 +834,7 @@ JSC::JSGlobalObject* JSDOMGlobalObject::deriveShadowRealmGlobalObject(JSC::JSGlo
         context->addMicrotaskGlobalObject(wrapper);
 
     return wrapper;
+#endif // defined(SHOT_NO_SCRIPT)
 }
 
 JSC::JSObject* JSDOMGlobalObject::readableStreamByteStrategySize()

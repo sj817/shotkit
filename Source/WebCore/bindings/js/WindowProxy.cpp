@@ -286,6 +286,12 @@ JSWindowProxy* WindowProxy::jsWindowProxy(DOMWrapperWorld& world)
     if (!m_frame)
         return nullptr;
 
+#if defined(SHOT_NO_SCRIPT)
+    // ShotKit never executes page JS; refusing to materialize the JS world here
+    // lets LTO drop the entire JSGlobalObject/builtin graph.
+    return nullptr;
+#endif
+
     if (auto* existingProxy = existingJSWindowProxy(world))
         return existingProxy;
 

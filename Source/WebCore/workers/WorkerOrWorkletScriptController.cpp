@@ -684,6 +684,16 @@ void WorkerOrWorkletScriptController::initScriptWithSubclass()
 
 void WorkerOrWorkletScriptController::initScript()
 {
+#if defined(SHOT_NO_SCRIPT)
+    // ShotKit never executes script, so no worker or worklet global scope can ever be
+    // started (every entry point - new Worker(), navigator.serviceWorker, CSS Paint,
+    // AudioWorklet - is script-driven). This is the only instantiation point of
+    // initScriptWithSubclass<>, which is what anchors JSWorkerGlobalScopeBase /
+    // JSWorkletGlobalScopeBase::finishCreation -> JSDOMGlobalObject::finishCreation ->
+    // JSC::JSGlobalObject::init(). See JSWindowProxy::setWindow() for the same cut on
+    // the window family.
+    RELEASE_ASSERT_NOT_REACHED();
+#else
     ASSERT(m_vm.get());
     JSC::DeferTermination deferTermination(*m_vm.get());
 
@@ -715,6 +725,7 @@ void WorkerOrWorkletScriptController::initScript()
 #endif
 
     ASSERT_NOT_REACHED();
+#endif // defined(SHOT_NO_SCRIPT)
 }
 
 } // namespace WebCore

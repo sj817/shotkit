@@ -79,6 +79,11 @@ static Ref<Page> createShotPage(const RenderOptions& options, RefPtr<LocalFrame>
     Ref<Page> page = Page::create(WTF::move(pageConfiguration));
 
     page->settings().setScriptEnabled(false);
+    // BFCache would keep a suspended Document/DOMWindow alive past navigation and is
+    // one of the few paths that can resurrect a JS world. Today ShotKit never
+    // navigates through FrameLoader so it is not exercised; declare it off explicitly
+    // so that stays true if iframes/navigation are added later.
+    page->settings().setUsesBackForwardCache(false);
     page->settings().setAcceleratedCompositingEnabled(false);
     page->settings().setShouldAllowUserInstalledFonts(false);
     page->settings().setLoadsImagesAutomatically(true);

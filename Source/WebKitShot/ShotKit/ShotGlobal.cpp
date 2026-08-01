@@ -9,7 +9,10 @@
 #include "ShotPlatformStrategies.h"
 #include <JavaScriptCore/InitializeThreading.h>
 #include <JavaScriptCore/Options.h>
+#include <WebCore/ServiceWorkerProvider.h>
+#include <wtf/CompletionHandler.h>
 #include <wtf/MainThread.h>
+#include <wtf/NeverDestroyed.h>
 #include <wtf/RunLoop.h>
 
 namespace ShotKit {
@@ -23,6 +26,19 @@ static bool s_initialized = false;
 // first common VM while still bounding the fallback to 64 MiB.
 static constexpr unsigned shotStructureHeapSizeInKB = 32 * 1024;
 static constexpr unsigned shotGCAllocationCycleLimit = 16 * 1024 * 1024;
+
+// ServiceWorkerProvider::singleton() does RELEASE_ASSERT(sharedProvider). ShotKit
+// never registers or runs a service worker (page JS never executes), but several
+// loader paths query the provider — e.g. DocumentLoader::matchRegistration and
+// DocumentLoader::commitData — gated only on DocumentLoader::m_canUseServiceWorkers,
+// which defaults to true and is corrected by FrameLoader::init. Register a sentinel
+// so a future path that skips that correction returns "no worker" instead of crashing.
+class ShotServiceWorkerProvider final : public WebCore::ServiceWorkerProvider {
+public:
+    WebCore::SWClientConnection& serviceWorkerConnection() final { RELEASE_ASSERT_NOT_REACHED(); }
+    WebCore::SWClientConnection* existingServiceWorkerConnection() final { return nullptr; }
+    void terminateWorkerForTesting(WebCore::ServiceWorkerIdentifier, CompletionHandler<void()>&& completionHandler) final { completionHandler(); }
+};
 
 bool initialize()
 {
@@ -42,6 +58,9 @@ bool initialize()
 
     // 单进程嵌入必须提供 PlatformStrategies，否则 WebCore 多处解引用会崩溃。
     ShotPlatformStrategies::initialize();
+
+    static NeverDestroyed<ShotServiceWorkerProvider> serviceWorkerProvider;
+    WebCore::ServiceWorkerProvider::setSharedProvider(serviceWorkerProvider.get());
 
     s_initialized = true;
     return true;
