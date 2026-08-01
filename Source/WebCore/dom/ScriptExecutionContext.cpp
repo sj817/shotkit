@@ -716,10 +716,14 @@ void ScriptExecutionContext::removeRejectedPromiseTracker()
     m_rejectedPromiseTracker = nullptr;
 }
 
+#if !PLATFORM(SHOT)
+// See ScriptExecutionContext.h: the Shot port degenerates this to an inline no-op so the
+// RefPtr<DatabaseContext> member (and with it all of SQLite) can be dropped.
 void ScriptExecutionContext::setDatabaseContext(DatabaseContext* databaseContext)
 {
     m_databaseContext = databaseContext;
 }
+#endif
 
 bool ScriptExecutionContext::hasPendingActivity() const
 {

@@ -624,8 +624,13 @@ void FrameLoader::stopLoading(UnloadEventPolicy unloadEventPolicy)
     }
 
     if (RefPtr document = frame->document()) {
+#if !PLATFORM(SHOT)
         // FIXME: Should the DatabaseManager watch for something like ActiveDOMObject::stop() rather than being special-cased here?
+        // ShotKit can never open a Database (Web SQL is script-only); this is the only
+        // reference to DatabaseManager outside Modules/webdatabase, so keeping it would
+        // re-anchor the teardown chain that ScriptExecutionContext.h just cut.
         DatabaseManager::singleton().stopDatabases(*document, nullptr);
+#endif
 
         if (document->settings().navigationAPIEnabled() && !m_doNotAbortNavigationAPI && unloadEventPolicy != UnloadEventPolicy::UnloadAndPageHide) {
             RefPtr window = frame->document()->window();

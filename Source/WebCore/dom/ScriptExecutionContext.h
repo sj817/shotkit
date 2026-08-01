@@ -315,8 +315,19 @@ public:
 
     virtual EventTarget* errorEventTarget() = 0;
 
+#if PLATFORM(SHOT)
+    // Web SQL is a script-only API and ShotKit never executes script, so no Database can
+    // ever exist here. The RefPtr member below is nevertheless the last static reference
+    // to SQLite in the whole library: ~ScriptExecutionContext instantiates
+    // ~DatabaseContext -> ~DatabaseThread -> ~Database -> SQLiteDatabase::close(), which
+    // is the sole surviving sqlite3_close import. Degenerating the accessors keeps
+    // Modules/webdatabase compiling while dropping the member.
+    DatabaseContext* databaseContext() { return nullptr; }
+    void setDatabaseContext(DatabaseContext*) { }
+#else
     DatabaseContext* databaseContext() { return m_databaseContext.get(); }
     void setDatabaseContext(DatabaseContext*);
+#endif
 
     // These two methods are used when CryptoKeys are serialized into IndexedDB. As a side effect, it is also
     // used for things that utilize the same structure clone algorithm, for example, message passing between
@@ -449,7 +460,9 @@ private:
 
     RefPtr<PublicURLManager> m_publicURLManager;
 
+#if !PLATFORM(SHOT)
     RefPtr<DatabaseContext> m_databaseContext;
+#endif
 
     int m_circularSequentialID { 0 };
     int m_timerNestingLevel { 0 };

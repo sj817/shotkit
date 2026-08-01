@@ -26,11 +26,11 @@
 
 #include "Cookie.h"
 #include "CookieJar.h"
-#include "SQLiteDatabase.h"
-#include "SQLiteStatement.h"
-#include <wtf/HashMap.h>
+#include <wtf/HashSet.h>
 #include <wtf/Noncopyable.h>
+#include <wtf/Seconds.h>
 #include <wtf/TZoneMalloc.h>
+#include <wtf/Vector.h>
 #include <wtf/text/StringHash.h>
 
 namespace WebCore {
@@ -73,30 +73,17 @@ public:
     WEBCORE_EXPORT ~CookieJarDB();
 
 private:
+    // A stored cookie plus the stamp that orders equally specific matches from the least to the
+    // most recently updated one.
+    struct CookieRecord {
+        Cookie cookie;
+        uint64_t lastUpdated { 0 };
+    };
+
     CookieAcceptPolicy m_acceptPolicy { CookieAcceptPolicy::Always };
     String m_databasePath;
 
-    bool m_detectedDatabaseCorruption { false };
-
-    bool isOnMemory() const { return m_databasePath == ":memory:"_s; };
-
-    bool openDatabase();
-    void closeDatabase();
-
-    bool checkSQLiteReturnCode(int);
-    void flagDatabaseCorruption();
-    bool checkDatabaseCorruptionAndRemoveIfNeeded();
-    String getCorruptionMarkerPath() const;
-
-    bool checkDatabaseValidity();
-    void deleteAllDatabaseFiles();
-
-    void verifySchemaVersion();
-    void deleteAllTables();
-
-    void createPrepareStatement(ASCIILiteral);
-    SQLiteStatement& preparedStatement(const String&);
-    bool executeSQLStatement(std::unique_ptr<SQLiteStatement>&&);
+    bool m_isOpen { false };
 
     bool deleteCookieInternal(const String& name, const String& domain, const String& path);
     bool hasHttpOnlyCookie(const String& name, const String& domain, const String& path);
@@ -104,8 +91,8 @@ private:
     bool checkCookieAcceptPolicy(const URL& firstParty, const URL&);
     bool hasCookies(const URL&);
 
-    SQLiteDatabase m_database;
-    HashMap<String, std::unique_ptr<SQLiteStatement>> m_statements;
+    Vector<CookieRecord> m_cookies;
+    uint64_t m_lastUpdate { 0 };
 };
 
 } // namespace WebCore
