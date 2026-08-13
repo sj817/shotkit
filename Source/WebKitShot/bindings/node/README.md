@@ -8,12 +8,12 @@ ShotKit 的 Node.js SDK。它启动一个长期驻留的 `shotcli --serve` 子�
 - API 返回 `Buffer`，也可以同时写入指定文件；
 - 并发 Promise 会在 ShotKit 的渲染线程上安全串行执行。
 
-当前打包脚本提供 Windows x64 runtime。Linux/macOS 端口完成后可按同样的 `vendor/<platform>-<arch>` 结构加入。
+跨平台通过平台子包分发：`@shotkit/node` 本体是纯 JS，二进制运行时放在 6 个带 `os`/`cpu` 限制的可选依赖里（`@shotkit/win32-x64`、`@shotkit/win32-arm64`、`@shotkit/linux-x64`、`@shotkit/linux-arm64`、`@shotkit/darwin-x64`、`@shotkit/darwin-arm64`），npm 安装时只会落下与当前平台匹配的那一个。
 
 ## 安装与使用
 
 ```bash
-npm install ./shotkit-node-0.1.0.tgz
+npm install @shotkit/node
 ```
 
 ESM：
@@ -91,16 +91,18 @@ await shot.close();
 - `elapsedMs`：Node 端完整往返时间，额外包含读取 Buffer；
 - `outputPath`：指定输出路径时返回其绝对路径。
 
-## 开发、测试、打包
+## 开发、测试、发布
 
 ```powershell
 cd D:\Github\webkit\Source\WebKitShot\bindings\node
 npm install
 npm run typecheck
-npm test
 
-# 把 WebKitBuild/shot-dist 装入 vendor/win32-x64 并生成 tgz
-npm run pack:win
+# 把本地 Windows 构建产物装入 npm/win32-x64/（平台子包骨架），然后跑集成测试
+npm run stage:win
+npm test
 ```
 
-未携带 vendor runtime 时，可以设置 `SHOTKIT_EXECUTABLE`，或给 `launch({ executablePath })` 传入 `shotcli` 路径。
+运行时解析顺序：`launch({ executablePath })` > 环境变量 `SHOTKIT_EXECUTABLE` > 已安装的 `@shotkit/<platform>-<arch>` 子包 > 仓库内 `npm/<platform>/` 已 staging 的运行时 > `WebKitBuild/shot-dist`。
+
+发布走 `.github/workflows/publish.yml`：构建 6 个平台运行时 → `tools/stage-platform.ts` 装入各子包 → `tools/sync-versions.ts` 统一版本并注入 optionalDependencies → 经 npm Trusted Publishing(OIDC)免 token 发布。仓库里的 package.json 刻意不含 optionalDependencies(子包未发布前会破坏 `npm ci`),只有发布出去的 manifest 携带。

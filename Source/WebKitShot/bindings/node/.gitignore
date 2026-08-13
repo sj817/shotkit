@@ -3,3 +3,9 @@
 /vendor/
 /*.tgz
 npm-debug.log*
+
+# Platform subpackages: only package.json + README.md are source; the runtime
+# is staged by tools/stage-platform.ts and the tarball is a build product.
+/npm/*/*
+!/npm/*/package.json
+!/npm/*/README.md

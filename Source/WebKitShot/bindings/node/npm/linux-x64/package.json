@@ -1,0 +1,31 @@
+{
+  "name": "@shotkit/linux-x64",
+  "version": "0.1.0",
+  "description": "ShotKit runtime binaries for Linux x64",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/sj817/shotkit.git"
+  },
+  "license": "UNLICENSED",
+  "preferUnplugged": true,
+  "os": [
+    "linux"
+  ],
+  "cpu": [
+    "x64"
+  ],
+  "files": [
+    "bin/",
+    "lib/"
+  ],
+  "engines": {
+    "node": ">=18.18"
+  },
+  "scripts": {
+    "prepublishOnly": "node -e \"require('node:fs').accessSync('bin/shotcli')\""
+  },
+  "publishConfig": {
+    "access": "public",
+    "registry": "https://registry.npmjs.org"
+  }
+}

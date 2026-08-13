@@ -16,7 +16,6 @@
   },
   "files": [
     "dist/",
-    "vendor/",
     "README.md"
   ],
   "engines": {
@@ -26,8 +25,9 @@
     "build": "tsup src/index.ts --format esm,cjs --dts --sourcemap --clean --shims",
     "typecheck": "tsc --noEmit",
     "test": "npm run build && node --test test/*.test.mjs test/*.test.cjs",
-    "stage:runtime": "tsx tools/stage-runtime.ts",
-    "pack:win": "npm run build && npm run stage:runtime && npm pack"
+    "stage": "tsx tools/stage-platform.ts",
+    "stage:win": "tsx tools/stage-platform.ts win32-x64",
+    "sync-versions": "tsx tools/sync-versions.ts"
   },
   "devDependencies": {
     "@types/node": "26.1.1",
@@ -46,5 +46,13 @@
     "headless",
     "png",
     "webp"
-  ]
+  ],
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/sj817/shotkit.git"
+  },
+  "publishConfig": {
+    "access": "public",
+    "registry": "https://registry.npmjs.org"
+  }
 }

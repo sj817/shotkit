@@ -1,6 +1,7 @@
 import type { ChildProcessWithoutNullStreams } from 'node:child_process';
 import { spawn } from 'node:child_process';
 import { access, mkdir, mkdtemp, readFile, rm, unlink } from 'node:fs/promises';
+import { createRequire } from 'node:module';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { performance } from 'node:perf_hooks';
@@ -80,6 +81,7 @@ export class ShotKitError extends Error {
 
 // tsup --shims provides __dirname to the ESM build; native CJS supplies it itself.
 const packageDirectory = path.dirname(__dirname);
+const platformKey = `${process.platform}-${process.arch}`;
 
 async function exists(filePath: string): Promise<boolean> {
   try {
@@ -94,19 +96,41 @@ function executableName(): string {
   return process.platform === 'win32' ? 'shotcli.exe' : 'shotcli';
 }
 
+/** The runtime shipped by the matching `@shotkit/<platform>-<arch>` package, if installed. */
+function installedRuntimeDirectory(): string | undefined {
+  try {
+    const requireFromPackage = createRequire(path.join(packageDirectory, 'package.json'));
+    return path.dirname(requireFromPackage.resolve(`@shotkit/${platformKey}/package.json`));
+  } catch {
+    return undefined;
+  }
+}
+
 async function resolveExecutable(explicit?: string): Promise<string> {
+  const runtimeDirectories = [
+    installedRuntimeDirectory(),
+    // Repository-development fallbacks: a staged platform subpackage, then the
+    // flat Windows development runtime.
+    path.join(packageDirectory, 'npm', platformKey),
+    path.resolve(packageDirectory, '..', '..', '..', '..', 'WebKitBuild', 'shot-dist'),
+  ].filter((directory): directory is string => !!directory);
+
+  const executable = executableName();
   const candidates = [
     explicit,
     process.env.SHOTKIT_EXECUTABLE,
-    path.join(packageDirectory, 'vendor', `${process.platform}-${process.arch}`, executableName()),
-    path.resolve(packageDirectory, '..', '..', '..', '..', 'WebKitBuild', 'shot-dist', executableName()),
+    // Windows runtimes are flat; Linux/macOS use bin/ (+ lib/ via rpath).
+    ...runtimeDirectories.flatMap((directory) => [
+      path.join(directory, executable),
+      path.join(directory, 'bin', executable),
+    ]),
   ].filter((candidate): candidate is string => !!candidate).map((candidate) => path.resolve(candidate));
 
   for (const candidate of candidates) {
     if (await exists(candidate))
       return candidate;
   }
-  throw new ShotKitError(`shotcli not found for ${process.platform}-${process.arch}; set SHOTKIT_EXECUTABLE or pass executablePath`);
+  throw new ShotKitError(`shotcli not found for ${platformKey}; install @shotkit/${platformKey}, set SHOTKIT_EXECUTABLE, or pass executablePath`);
 }
 
 function timeout<T>(promise: Promise<T>, milliseconds: number, message: string): Promise<T> {
