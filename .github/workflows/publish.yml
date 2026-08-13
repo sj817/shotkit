@@ -1,0 +1,131 @@
+name: Publish
+
+# Build all six ShotKit runtimes, stage them into the @shotkit/* platform
+# subpackages, and publish the npm packages tokenlessly via OIDC Trusted
+# Publishing. Trigger by publishing a GitHub Release (tag vX.Y.Z), or run
+# manually with dry-run to rehearse without touching the registry.
+#
+# Every published package (@shotkit/node + 6 platform packages) must carry an
+# npm trusted-publisher binding to this repository and this workflow file.
+
+on:
+  release:
+    types: [published]
+  workflow_dispatch:
+    inputs:
+      dry-run:
+        description: npm publish --dry-run (no registry writes)
+        type: boolean
+        default: true
+
+concurrency:
+  group: publish-${{ github.ref }}
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+
+jobs:
+  windows:
+    uses: ./.github/workflows/windows.yml
+  linux:
+    uses: ./.github/workflows/linux.yml
+  macos:
+    uses: ./.github/workflows/macos.yml
+
+  publish:
+    needs: [windows, linux, macos]
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    permissions:
+      contents: read
+      id-token: write # npm Trusted Publishing (OIDC) — tokenless publish
+    defaults:
+      run:
+        working-directory: Source/WebKitShot/bindings/node
+    steps:
+      - name: Checkout the node binding
+        uses: actions/checkout@v7
+        with:
+          fetch-depth: 1
+          sparse-checkout-cone-mode: false
+          sparse-checkout: |
+            /Source/WebKitShot/bindings/node/
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24 # ships npm >= 11.5, which supports OIDC publish
+          registry-url: https://registry.npmjs.org
+
+      - name: Download runtime archives
+        uses: actions/download-artifact@v7
+        with:
+          path: ${{ runner.temp }}/runtimes
+          pattern: shotkit-*
+          merge-multiple: true
+
+      - run: npm ci
+
+      - name: Stage runtimes into platform packages
+        shell: bash
+        run: |
+          staged=0
+          for archive in "$RUNNER_TEMP"/runtimes/*.tar.xz; do
+            name="$(basename "$archive" .tar.xz)"
+            if [[ ! "$name" =~ -(windows|linux|macos)-(x64|arm64)$ ]]; then
+              echo "unrecognized runtime archive: $name" >&2
+              exit 1
+            fi
+            os="${BASH_REMATCH[1]}"; arch="${BASH_REMATCH[2]}"
+            case "$os" in
+              windows) platform="win32-$arch" ;;
+              macos)   platform="darwin-$arch" ;;
+              linux)   platform="linux-$arch" ;;
+            esac
+            extracted="$RUNNER_TEMP/runtimes/$name"
+            mkdir -p "$extracted"
+            tar -xJf "$archive" -C "$RUNNER_TEMP/runtimes"
+            npx tsx tools/stage-platform.ts "$platform" "$extracted"
+            staged=$((staged + 1))
+          done
+          # All six targets must be present — a missing platform would publish
+          # a main package whose optional dependency cannot be resolved.
+          if [[ "$staged" -ne 6 ]]; then
+            echo "expected 6 staged runtimes, got $staged" >&2
+            exit 1
+          fi
+
+      - run: npm run typecheck
+      - run: npm run build
+
+      - name: Stamp the release version
+        if: github.event_name == 'release'
+        shell: bash
+        run: |
+          tag="${{ github.event.release.tag_name }}"
+          version="${tag#v}"
+          if [[ ! "$version" =~ ^[0-9]+\.[0-9]+\.[0-9]+([-.].+)?$ ]]; then
+            echo "release tag '$tag' is not a semver version" >&2
+            exit 1
+          fi
+          npm version "$version" --no-git-tag-version --allow-same-version
+
+      # Aligns every platform package to the main version and injects the
+      # exact-pinned optionalDependencies into the manifest being published
+      # (the checked-in manifest deliberately omits them; see the script).
+      - run: npm run sync-versions
+
+      - name: Publish
+        shell: bash
+        run: |
+          flags=(--access public)
+          if [[ "${{ github.event_name }}" == "workflow_dispatch" && "${{ inputs.dry-run }}" == "true" ]]; then
+            flags+=(--dry-run)
+            echo "dry run — nothing will be published"
+          fi
+          # Platform packages first so the main package never points at
+          # versions that do not exist yet. No NODE_AUTH_TOKEN — OIDC.
+          for platform in npm/*/; do
+            (cd "$platform" && npm publish "${flags[@]}")
+          done
+          npm publish "${flags[@]}"

@@ -11,9 +11,10 @@ on:
       - '**.md'
       - '.githooks/**'
   workflow_dispatch:
+  workflow_call:
 
 concurrency:
-  group: linux-${{ github.ref }}
+  group: linux-${{ github.workflow }}-${{ github.ref }}
   cancel-in-progress: true
 
 permissions:
