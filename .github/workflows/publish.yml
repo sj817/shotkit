@@ -297,6 +297,35 @@ jobs:
               --pattern 'shotkit-*' --dir "$RUNNER_TEMP/runtimes"
           done
 
+      # The build workflows name archives after the CI run (0.1.0-ci.84) because
+      # the release version does not exist yet when they run. Relabel them to the
+      # tag before they become public downloads. The archive bytes are untouched:
+      # each one is verified against the checksum CI produced, and that same hash
+      # is carried over under the new name.
+      - name: Relabel the archives to the release version
+        shell: bash
+        env:
+          TAG: ${{ github.event.release.tag_name }}
+        run: |
+          version="${TAG#v}"
+          while IFS= read -r archive; do
+            directory="$(dirname "$archive")"
+            base="$(basename "$archive" .tar.xz)"
+            if [[ ! "$base" =~ -(windows|linux|macos)-(x64|arm64)$ ]]; then
+              echo "unrecognized runtime archive: $base" >&2
+              exit 1
+            fi
+            target="shotkit-${version}-${BASH_REMATCH[1]}-${BASH_REMATCH[2]}.tar.xz"
+            [[ "$base.tar.xz" == "$target" ]] && continue
+
+            ( cd "$directory" && sha256sum -c "${base}.tar.xz.sha256" )
+            hash="$(awk '{print $1}' "${directory}/${base}.tar.xz.sha256")"
+            mv "$archive" "${directory}/${target}"
+            rm -f "${directory}/${base}.tar.xz.sha256"
+            printf '%s  %s\n' "$hash" "$target" > "${directory}/${target}.sha256"
+            echo "$base.tar.xz -> $target"
+          done < <(find "$RUNNER_TEMP/runtimes" -type f -name '*.tar.xz' | sort)
+
       - name: Attach the runtimes to the release
         shell: bash
         env:
