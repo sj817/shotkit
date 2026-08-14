@@ -21,6 +21,7 @@
     }
   },
   "bin": {
+    "sk": "./dist/cli.mjs",
     "shotkit": "./dist/cli.mjs"
   },
   "files": [

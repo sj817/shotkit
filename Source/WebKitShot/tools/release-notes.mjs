@@ -35,8 +35,13 @@ async function collect() {
   const entries = (await readdir(directory, { recursive: true, withFileTypes: true }))
     .filter((entry) => entry.isFile() && entry.name.endsWith('.tar.xz'));
 
+  // gh run download nests each artifact in its own directory, so scan recursively
+  // but keep one row per archive name.
   const rows = [];
+  const seen = new Set();
   for (const entry of entries) {
+    if (seen.has(entry.name)) continue;
+    seen.add(entry.name);
     const file = path.join(entry.parentPath ?? entry.path, entry.name);
     const key = entry.name.replace(/\.tar\.xz$/, '').match(/-(windows|linux|macos)-(x64|arm64)$/);
     if (!key) continue;
@@ -116,9 +121,9 @@ npm install @shotkit/node
 # One-off, no install
 npx @shotkit/node --url https://example.com --out shot.png
 
-# Global CLI
+# Global CLI — installs as \`sk\`, with \`shotkit\` as an equivalent alias
 npm install -g @shotkit/node
-shotkit --html page.html --out page.png --full-page
+sk --html page.html --out page.png --full-page
 
 # Node.js API
 node -e "const {launch}=require('@shotkit/node');launch().then(async s=>{await s.screenshotURL('https://example.com',{outputPath:'a.png'});await s.close()})"
@@ -179,9 +184,9 @@ npm 只会为当前平台装下唯一匹配的预编译运行时——不需要 
 # 不安装,直接跑一次
 npx @shotkit/node --url https://example.com --out shot.png
 
-# 全局 CLI
+# 全局 CLI —— 命令为 \`sk\`,同时提供等价别名 \`shotkit\`
 npm install -g @shotkit/node
-shotkit --html page.html --out page.png --full-page
+sk --html page.html --out page.png --full-page
 \`\`\`
 
 ### 预编译运行时

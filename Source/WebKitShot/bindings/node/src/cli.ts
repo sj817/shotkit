@@ -1,7 +1,7 @@
 #!/usr/bin/env node
-// `shotkit` — resolves the runtime shipped by the matching @shotkit/<platform>-<arch>
-// package and hands every argument to it untouched, so this stays a passthrough and
-// shotcli's own --help remains the authoritative interface.
+// `sk` (also installed as `shotkit`) — resolves the runtime shipped by the matching
+// @shotkit/<platform>-<arch> package and hands every argument to it untouched, so this
+// stays a passthrough and shotcli's own --help remains the authoritative interface.
 import { spawn } from 'node:child_process';
 import { constants } from 'node:os';
 
@@ -15,7 +15,7 @@ async function main(): Promise<number> {
     executable = await resolveExecutable();
   } catch {
     process.stderr.write(
-      `shotkit: no runtime found for ${platformKey}.\n` +
+      `sk: no runtime found for ${platformKey}.\n` +
         `  The prebuilt runtime installs automatically as an optional dependency.\n` +
         `  If it was skipped (--no-optional, an unsupported platform, or an offline\n` +
         `  install), reinstall with optional dependencies enabled, or point\n` +
@@ -39,7 +39,7 @@ async function main(): Promise<number> {
     const child = spawn(executable, args, { stdio: 'inherit' });
 
     child.on('error', (error) => {
-      process.stderr.write(`shotkit: failed to start ${executable}: ${error.message}\n`);
+      process.stderr.write(`sk: failed to start ${executable}: ${error.message}\n`);
       resolve(126);
     });
 
@@ -60,7 +60,7 @@ main().then(
     process.exitCode = code;
   },
   (error: unknown) => {
-    process.stderr.write(`shotkit: ${error instanceof Error ? error.message : String(error)}\n`);
+    process.stderr.write(`sk: ${error instanceof Error ? error.message : String(error)}\n`);
     process.exitCode = 1;
   },
 );

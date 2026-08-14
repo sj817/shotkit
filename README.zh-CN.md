@@ -145,7 +145,7 @@ try {
 
 ## CLI
 
-最快的方式是走 npm，它把同一份预编译运行时包装成 `shotkit` 命令：
+最快的方式是走 npm，它把同一份预编译运行时包装成 `sk` 命令：
 
 ```bash
 # 什么都不装,跑一次
@@ -153,8 +153,10 @@ npx @shotkit/node --url https://example.com/ --out example.png --full-page
 
 # 或者装成全局命令
 npm install -g @shotkit/node
-shotkit --html ./page.html --out page.png --width 1280 --height 800
+sk --html ./page.html --out page.png --width 1280 --height 800
 ```
+
+全局安装会同时提供 `sk` 和更长的 `shotkit`，两者完全等价。
 
 也可以完全不碰 Node.js：下载 [release 归档](https://github.com/sj817/shotkit/releases)，
 **完整解压**后直接运行 `shotcli`。ShotKit 不会在运行时解压自身，也不写内核缓存。
@@ -165,7 +167,7 @@ shotkit --html ./page.html --out page.png --width 1280 --height 800
 cat page.html | ./bin/shotcli --stdin --out stdin.png
 ```
 
-`shotkit` 是对 `shotcli` 的直接透传，所以两者参数完全一致，而且**工作目录会被保留**——
+`sk` 是对 `shotcli` 的直接透传，所以两者参数完全一致，而且**工作目录会被保留**——
 相对路径就按你敲的那样解析。
 
 ```text
