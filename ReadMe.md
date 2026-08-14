@@ -151,15 +151,29 @@ Full SDK docs: [`bindings/node/README.md`](Source/WebKitShot/bindings/node/READM
 
 ## CLI
 
-Download a release archive, extract it completely, and run `shotcli`. ShotKit never unpacks itself
-at runtime and never writes a kernel cache.
+The quickest way in is npm, which wraps the same prebuilt runtime in a `shotkit` command:
+
+```bash
+# One-off, nothing installed
+npx @shotkit/node --url https://example.com/ --out example.png --full-page
+
+# Or keep it around
+npm install -g @shotkit/node
+shotkit --html ./page.html --out page.png --width 1280 --height 800
+```
+
+Or skip Node.js entirely: download a [release archive](https://github.com/sj817/shotkit/releases),
+extract it completely, and run `shotcli`. ShotKit never unpacks itself at runtime and never writes a
+kernel cache.
 
 ```bash
 ./bin/shotcli --url https://example.com/ --out example.png --full-page
-./bin/shotcli --html ./page.html --out page.png --width 1280 --height 800
 ./bin/shotcli --html ./page.html --out page.webp --format webp --quality 82
 cat page.html | ./bin/shotcli --stdin --out stdin.png
 ```
+
+`shotkit` is a straight passthrough to `shotcli`, so both accept the same flags and your working
+directory is preserved — relative paths resolve where you typed them.
 
 ```text
 shotcli (--html <file> | --stdin | --url <url>) --out <image>
