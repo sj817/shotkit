@@ -154,6 +154,8 @@ jobs:
         with:
           node-version: 24 # ships npm >= 11.5, which supports OIDC publish
           registry-url: https://registry.npmjs.org
+          cache: npm
+          cache-dependency-path: Source/WebKitShot/bindings/node/package-lock.json
 
       - name: Download runtime archives from this run
         if: needs.resolve.outputs.reuse != 'true'
@@ -244,3 +246,85 @@ jobs:
             (cd "$platform" && npm publish "${flags[@]}")
           done
           npm publish "${flags[@]}"
+
+  # Attaching the runtimes is what makes the CLI, the C ABI, and the non-Node
+  # bindings usable without npm. This is a separate job on purpose: the publish
+  # job holds id-token: write for OIDC and should not also hold contents: write.
+  assets:
+    needs: [resolve, windows, linux, macos]
+    if: >-
+      always()
+      && github.event_name == 'release'
+      && needs.resolve.result == 'success'
+      && !contains(needs.*.result, 'failure')
+      && !contains(needs.*.result, 'cancelled')
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    permissions:
+      contents: write # attach archives to the release and rewrite its body
+      actions: read # gh run download, on the artifact reuse path
+    steps:
+      - name: Checkout the release tooling
+        uses: actions/checkout@v7
+        with:
+          fetch-depth: 1
+          sparse-checkout-cone-mode: false
+          sparse-checkout: |
+            /Source/WebKitShot/tools/release-notes.mjs
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+
+      - name: Download runtime archives from this run
+        if: needs.resolve.outputs.reuse != 'true'
+        uses: actions/download-artifact@v7
+        with:
+          path: ${{ runner.temp }}/runtimes
+          pattern: shotkit-*
+          merge-multiple: true
+
+      - name: Download runtime archives from the tagged commit's builds
+        if: needs.resolve.outputs.reuse == 'true'
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+          RUN_IDS: ${{ needs.resolve.outputs.run-ids }}
+        run: |
+          mkdir -p "$RUNNER_TEMP/runtimes"
+          for id in $RUN_IDS; do
+            gh run download "$id" --repo "$GITHUB_REPOSITORY" \
+              --pattern 'shotkit-*' --dir "$RUNNER_TEMP/runtimes"
+          done
+
+      - name: Attach the runtimes to the release
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TAG: ${{ github.event.release.tag_name }}
+        run: |
+          mapfile -t files < <(find "$RUNNER_TEMP/runtimes" -type f \
+            \( -name '*.tar.xz' -o -name '*.tar.xz.sha256' \) | sort)
+          archives=$(printf '%s\n' "${files[@]}" | grep -c '\.tar\.xz$' || true)
+          if [[ "$archives" -ne 6 ]]; then
+            echo "expected 6 runtime archives, found $archives" >&2
+            exit 1
+          fi
+          gh release upload "$TAG" "${files[@]}" --repo "$GITHUB_REPOSITORY" --clobber
+
+      # Generated from the archives actually attached above, so the sizes and
+      # checksums in the notes cannot drift from the assets.
+      - name: Rewrite the release notes
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TAG: ${{ github.event.release.tag_name }}
+        run: |
+          previous=$(gh release list --repo "$GITHUB_REPOSITORY" --limit 30 --json tagName \
+            --jq "[.[].tagName] | map(select(. != \"$TAG\")) | .[0] // empty")
+          range=()
+          if [[ -n "$previous" ]]; then range=(--previous "$previous"); fi
+          node Source/WebKitShot/tools/release-notes.mjs \
+            --tag "$TAG" --dir "$RUNNER_TEMP/runtimes" --repo "$GITHUB_REPOSITORY" \
+            "${range[@]}" > "$RUNNER_TEMP/notes.md"
+          gh release edit "$TAG" --repo "$GITHUB_REPOSITORY" --notes-file "$RUNNER_TEMP/notes.md"
