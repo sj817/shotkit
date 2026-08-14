@@ -1,7 +1,7 @@
 {
   "name": "@shotkit/node",
   "version": "0.1.0",
-  "description": "Fast static HTML/URL screenshots powered by ShotKit",
+  "description": "Turn HTML or a URL into PNG/WebP screenshots without a browser — WebKit rendering, no page JavaScript, prebuilt binaries for Windows, Linux and macOS",
   "license": "UNLICENSED",
   "type": "module",
   "main": "./dist/index.cjs",
@@ -40,16 +40,36 @@
   },
   "keywords": [
     "screenshot",
+    "screenshot-api",
+    "html-to-image",
+    "html-to-png",
+    "html-to-webp",
     "html",
-    "webcore",
-    "webkit",
-    "headless",
     "png",
-    "webp"
+    "webp",
+    "image",
+    "image-generation",
+    "og-image",
+    "thumbnail",
+    "webkit",
+    "webcore",
+    "headless",
+    "headless-browser",
+    "puppeteer-alternative",
+    "playwright-alternative",
+    "renderer",
+    "server-side-rendering",
+    "prebuilt",
+    "cross-platform"
   ],
   "repository": {
     "type": "git",
-    "url": "git+https://github.com/sj817/shotkit.git"
+    "url": "git+https://github.com/sj817/shotkit.git",
+    "directory": "Source/WebKitShot/bindings/node"
+  },
+  "homepage": "https://github.com/sj817/shotkit#readme",
+  "bugs": {
+    "url": "https://github.com/sj817/shotkit/issues"
   },
   "publishConfig": {
     "access": "public",

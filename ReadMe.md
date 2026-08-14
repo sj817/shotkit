@@ -1,79 +1,165 @@
 # ShotKit
 
-> A compact, script-free WebKit screenshot kernel.
+> Turn HTML into images without a browser. A compact, script-free WebKit screenshot kernel.
 
-ShotKit 是一个从 WebKit 裁切而来的纯静态截图内核：输入 HTML 字符串、本地文件或远程 URL，输出 PNG / WebP 字节。它不是浏览器，不创建窗口，不执行页面 JavaScript，也不包含多进程浏览器外壳。
+[![npm](https://img.shields.io/npm/v/@shotkit/node?logo=npm)](https://www.npmjs.com/package/@shotkit/node)
+[![node](https://img.shields.io/node/v/@shotkit/node)](https://www.npmjs.com/package/@shotkit/node)
+[![Windows](https://github.com/sj817/shotkit/actions/workflows/windows.yml/badge.svg)](https://github.com/sj817/shotkit/actions/workflows/windows.yml)
+[![Linux](https://github.com/sj817/shotkit/actions/workflows/linux.yml/badge.svg)](https://github.com/sj817/shotkit/actions/workflows/linux.yml)
+[![macOS](https://github.com/sj817/shotkit/actions/workflows/macos.yml/badge.svg)](https://github.com/sj817/shotkit/actions/workflows/macos.yml)
 
-项目面向服务端截图、报告生成、邮件与模板预览、静态页面测试，以及需要通过 C ABI 嵌入原生程序的场景。
+**English** · [简体中文](README.zh-CN.md)
 
-当前状态：**Windows x64、Linux x64 与 macOS arm64 端口均已接入构建和运行回归。** 三个平台使用同一套 C ABI 与 CLI；图形和网络后端按平台选择，因此像素结果可能存在细微差异。
+ShotKit renders **HTML to PNG or WebP** — from an HTML string, a local file, or a remote URL. It is
+WebCore, WebKit's layout and painting engine, cut down to a single-process rendering kernel. It is
+**not a browser**: no window, no multi-process shell, no automation protocol, and page JavaScript is
+never executed.
 
-仓库使用两条代码线：`main` 是无上游历史的精简发布快照，只保留 ShotKit 的构建闭包；`shotkit` 保留完整 WebKit 历史，供上游对照和必要的同步工作使用。日常开发、Issue 与 Pull Request 均以 `main` 为准。
+That makes it a good fit for **server-side screenshots**: OG/social card generation, PDF-adjacent
+report rendering, email and template previews, thumbnails, chart and invoice rendering, and visual
+regression of static pages. It is a lighter option than driving headless Chrome through Puppeteer or
+Playwright when the pages you render do not need a JavaScript runtime.
 
-## 为什么是 ShotKit
-
-| | ShotKit | 通用无头浏览器 |
-|---|---|---|
-| 目标 | HTML/CSS → 像素 | 完整网页运行环境 |
-| 页面 JavaScript / WebAssembly | 永不执行 | 通常启用 |
-| 进程模型 | 单进程、单渲染线程 | 通常为多进程 |
-| 图形路径 | Skia CPU 软光栅 | 常包含 GPU 与合成进程 |
-| 嵌入接口 | C ABI、CLI、JSONL、Node.js | 通常通过自动化协议 |
-| 当前 Windows 发布包 | 17.3 MB 压缩包 | 取决于浏览器发行版 |
-
-ShotKit 的取舍很明确：牺牲客户端应用和交互网页能力，换取更小的分发、更低的常驻开销，以及更可控的静态渲染结果。
-
-## 能做什么
-
-- 输入 HTML 字符串、HTML/XML/XHTML 文件或 HTTP(S) URL；
-- 加载外链 CSS、图片、WebP、Web 字体和同源 XSLT；
-- 渲染现代 CSS、SVG、MathML、CJK、RTL 文本和 emoji；
-- 输出 PNG、WebP 有损或 WebP 无损图片；
-- 支持视口截图、device scale 和 full-page 截图；
-- 支持重定向、TLS、HTTP/2、内存 Cookie 与加载超时；
-- 通过 `shot.dll` C ABI、`shotcli`、JSONL 常驻协议或 Node.js SDK 调用。
-
-以下能力不在项目范围内：
-
-- 页面 JavaScript、WebAssembly、Service Worker；
-- 音视频、WebGL、WebGPU、WebRTC；
-- 窗口、用户输入、DevTools 与浏览器扩展；
-- 依赖客户端渲染的 SPA/CSR 页面。
-
-iframe 目前也尚未支持，详见「已知限制」。
-
-## 快速开始
-
-GitHub Actions 会为通过回归的提交生成 Windows x64、Linux x64 和 macOS arm64 归档。CI artifact 只保留 7 天，用于验证当前提交，不属于稳定版本发布。取得归档后应先完整解压；ShotKit 不会在运行时解压自身，也不会写入内核缓存。
-
-```powershell
-tar.exe -xf shotkit-0.1.0-windows-x64.tar.xz
-cd shotkit-0.1.0-windows-x64
-
-# 远程页面
-.\shotcli.exe --url https://example.com/ --out example.png --full-page
-
-# 本地 HTML
-.\shotcli.exe --html .\page.html --out page.png --width 1280 --height 800
-
-# WebP 有损 / 无损
-.\shotcli.exe --html .\page.html --out page.webp --format webp --quality 82
-.\shotcli.exe --html .\page.html --out page.webp --format webp-lossless
-
-# stdin
-Get-Content .\page.html -Raw | .\shotcli.exe --stdin --out stdin.png
+```bash
+npm install @shotkit/node
 ```
 
-Linux 和 macOS 归档使用相同参数，CLI 位于 `bin/`：
+```js
+import { launch } from '@shotkit/node';
+
+const shot = await launch();
+await shot.screenshotURL('https://example.com/', {
+  outputPath: 'example.png',
+  width: 1280,
+  height: 800,
+  fullPage: true,
+});
+await shot.close();
+```
+
+npm resolves exactly one prebuilt runtime for your platform through `os`/`cpu`-constrained optional
+dependencies, so there is **no node-gyp, no compiler, and no post-install download**.
+
+---
+
+## Why ShotKit
+
+|  | ShotKit | Headless Chrome / Playwright |
+|---|---|---|
+| Goal | HTML & CSS → pixels | Full web runtime |
+| Page JavaScript / WebAssembly | Never executed | Enabled by default |
+| Process model | Single process, single render thread | Multi-process |
+| Graphics | Skia CPU raster (CoreGraphics on macOS) | GPU + compositor processes |
+| Embedding | Node.js SDK, CLI, JSONL, C ABI | Automation protocol (CDP) |
+| Distribution | 8–12 MB compressed | Hundreds of MB |
+| Cold start to first image | 37 ms (Linux) / 87 ms (Windows) | Typically hundreds of ms |
+
+The trade is explicit: ShotKit gives up interactive and client-rendered pages in exchange for a much
+smaller distribution, a lower resident footprint, and more predictable static rendering.
+
+**Use ShotKit when** your HTML is server-rendered or self-contained.
+**Use a real browser when** the page needs to run scripts to produce what you want to capture.
+
+## Features
+
+- Input: HTML string, HTML/XML/XHTML file, `stdin`, or HTTP(S) URL
+- Output: PNG, lossy WebP, lossless WebP — to a file or straight to a `Buffer`
+- Loads external CSS, images, WebP, web fonts, and same-origin XSLT
+- Renders modern CSS, SVG, MathML, CJK, RTL text, and emoji
+- Viewport capture, device scale factor (HiDPI), and full-page capture
+- Redirects, TLS, HTTP/2, in-memory cookies, load timeouts, custom user agent
+- Four ways in: [Node.js SDK](#nodejs-sdk), [CLI](#cli), [JSONL server mode](#jsonl-server-mode),
+  [C ABI](#c-abi)
+
+**Out of scope by design:** page JavaScript, WebAssembly, Service Workers, audio/video, WebGL,
+WebGPU, WebRTC, windows, user input, DevTools, and browser extensions. Pages that need client-side
+rendering to produce content will capture empty. iframes are not supported yet.
+
+## Platform support
+
+Every release ships six prebuilt runtimes, all verified in CI by screenshot smoke tests and a C ABI
+export check.
+
+| Platform | Architectures | npm package | Release archive |
+|---|---|---|---:|
+| Windows | x64, arm64 | `@shotkit/win32-x64`, `@shotkit/win32-arm64` | 11.5 / 10.6 MB |
+| Linux | x64, arm64 | `@shotkit/linux-x64`, `@shotkit/linux-arm64` | 9.1 / 8.2 MB |
+| macOS | x64, arm64 | `@shotkit/darwin-x64`, `@shotkit/darwin-arm64` | 9.6 / 8.1 MB |
+
+Sizes are the compressed `tar.xz` release archives, built MinSizeRel with full LTO.
+
+## Performance
+
+Measured with [`demo/browser-benchmark`](demo/browser-benchmark/) and the SDK benchmark, on one
+32-thread desktop. Numbers are p50 per image with a resident engine; treat them as a shape, not a
+promise for your hardware.
+
+| | Linux (WSL2) | Windows 11 |
+|---|---:|---:|
+| Cold start (process + first image) | 37 ms | 87 ms |
+| 400×200 PNG | 14 ms | 16 ms |
+| 900×620 PNG | 34 ms | 35 ms |
+| 900×620 WebP q80 | 39 ms | 54 ms |
+| 1920×1080 PNG | 78 ms | 63 ms |
+| 900×620 @2× (HiDPI) | 96 ms | 83 ms |
+| Throughput, one instance | 29 img/s | 30 img/s |
+
+Two things worth knowing before you plan capacity:
+
+- **Warm-up finishes on the second image.** The first render carries one-time initialization
+  (~10 ms on Linux, ~21 ms on Windows); after that the curve is flat. Keep the process resident.
+- **Concurrency on one instance buys nothing.** The engine serializes requests on its render
+  thread, so `Promise.all` only saves IPC round-trips (measured 1.02–1.06×). **To scale, run a pool
+  of ShotKit processes**, roughly one per core — not more concurrent calls into one.
+
+## Node.js SDK
+
+[`@shotkit/node`](https://www.npmjs.com/package/@shotkit/node) wraps the JSONL server mode. ESM and
+CommonJS, zero runtime dependencies, Node.js 18.18+.
+
+```js
+import { launch } from '@shotkit/node';
+
+const shot = await launch();
+try {
+  // From a URL
+  await shot.screenshotURL('https://example.com/', { outputPath: 'url.png' });
+
+  // From an HTML string, straight to a Buffer
+  const { data, bytes, durationMs } = await shot.screenshotHTML(
+    '<h1>Hello</h1>',
+    { width: 800, height: 400, format: 'webp', quality: 82 },
+  );
+
+  // From a local file, full page at 2× device scale
+  await shot.screenshot({
+    htmlFile: './report.html',
+    outputPath: 'report.png',
+    scale: 2,
+    fullPage: true,
+  });
+} finally {
+  await shot.close();
+}
+```
+
+Options: `outputPath`, `format` (`png` | `webp` | `webp-lossless`), `quality`, `width`, `height`,
+`scale`, `fullPage`, `timeoutMs`, `baseURL`, `userAgent`, `mimeType`, `allowFileURLs`.
+Result: `{ data: Buffer, bytes, durationMs, elapsedMs, outputPath? }`.
+
+Full SDK docs: [`bindings/node/README.md`](Source/WebKitShot/bindings/node/README.md).
+
+## CLI
+
+Download a release archive, extract it completely, and run `shotcli`. ShotKit never unpacks itself
+at runtime and never writes a kernel cache.
 
 ```bash
 ./bin/shotcli --url https://example.com/ --out example.png --full-page
+./bin/shotcli --html ./page.html --out page.png --width 1280 --height 800
 ./bin/shotcli --html ./page.html --out page.webp --format webp --quality 82
+cat page.html | ./bin/shotcli --stdin --out stdin.png
 ```
-
-归档布局、平台依赖和源码构建命令见 [入门指南](Source/WebKitShot/docs/getting-started.md)。
-
-完整 CLI 形式：
 
 ```text
 shotcli (--html <file> | --stdin | --url <url>) --out <image>
@@ -83,11 +169,13 @@ shotcli (--html <file> | --stdin | --url <url>) --out <image>
         [--ua STRING] [--allow-file-urls]
 ```
 
-`file://` 默认禁用；只有在信任输入页面及其本地资源时才应使用 `--allow-file-urls`。
+`file://` is disabled by default. Only pass `--allow-file-urls` when you trust the page and its
+local resources.
 
-## 常驻 JSONL 协议
+## JSONL server mode
 
-高频调用不必为每张图重新启动进程。`shotcli --serve` 会保持内核常驻，从 stdin 逐行读取 JSON，并把结果逐行写到 stdout。
+For high call volumes, keep the kernel resident. `shotcli --serve` reads one JSON request per line
+from stdin and writes one JSON result per line to stdout.
 
 ```text
 > shotcli --serve
@@ -97,193 +185,143 @@ shotcli (--html <file> | --stdin | --url <url>) --out <image>
 > {"id":2,"op":"shutdown"}
 ```
 
-请求在单个渲染线程上顺序执行。需要并行时，请启动多个 ShotKit 进程。协议细节和 Python 示例见 [跨语言调用文档](Source/WebKitShot/docs/language-bindings.md)。
-
-## Node.js
-
-[`@shotkit/node`](Source/WebKitShot/bindings/node/) 封装了 JSONL 常驻协议，支持 ESM、CommonJS、Promise 和 `Buffer`，生产依赖为 0。当前源码包要求 Node.js 18.18 或更高版本。
-
-```js
-import { launch } from '@shotkit/node';
-
-const shot = await launch();
-
-try {
-  const result = await shot.screenshotURL('https://example.com/', {
-    width: 1280,
-    height: 800,
-    fullPage: true,
-    outputPath: 'example.png',
-  });
-
-  console.log(result.bytes, result.durationMs);
-} finally {
-  await shot.close();
-}
-```
-
-SDK 尚未发布到公共 npm registry。可以从源码测试并构建携带 Windows runtime 的本地包：
-
-```powershell
-cd Source\WebKitShot\bindings\node
-npm install
-npm test
-npm run pack:win
-```
-
-更多用法见 [Node.js SDK 文档](Source/WebKitShot/bindings/node/README.md)。
+Requests run sequentially on one render thread; start multiple processes for parallelism. Protocol
+details and a Python example: [language-bindings.md](Source/WebKitShot/docs/language-bindings.md).
 
 ## C ABI
 
-公开头文件位于 [`Source/WebKitShot/capi/shot.h`](Source/WebKitShot/capi/shot.h)。`shot.dll`、`libshot.so` 和 `libshot.dylib` 均只导出 10 个 `shot_*` 符号，适合通过 Python ctypes/cffi、Go cgo、Rust FFI 等方式嵌入。
+[`Source/WebKitShot/capi/shot.h`](Source/WebKitShot/capi/shot.h) is the public header. `shot.dll`,
+`libshot.so`, and `libshot.dylib` each export exactly 10 `shot_*` symbols — small enough to bind
+from Python ctypes/cffi, Go cgo, Rust FFI, or C#.
 
-典型调用顺序：
+```c
+shot_init();                        /* binds the calling thread */
+shot_renderer_create(&renderer);
+shot_render_options_default(&options);
+shot_render_html(renderer, html, &options, &image);
+shot_image_free(&image);
+shot_renderer_destroy(renderer);
+shot_shutdown();
+```
 
-1. `shot_init()` 绑定当前线程；
-2. `shot_renderer_create()` 创建 renderer；
-3. `shot_render_options_default()` 初始化选项；
-4. 调用 `shot_render_html()` 或 `shot_render_url()`；
-5. 用 `shot_image_free()` 释放输出字节；
-6. 销毁 renderer，最后调用 `shot_shutdown()`。
+Every C ABI call must happen on the thread that called `shot_init()`. A renderer is not thread-safe:
+use it serially within a process and scale out with more processes.
 
-所有 C ABI 调用都必须发生在调用 `shot_init()` 的同一线程。renderer 非线程安全；进程内请串行使用，并通过多进程扩展并行度。
-
-## 内核结构
+## Architecture
 
 ```text
 HTML / XML / URL
        │
        ├── Windows/Linux: curl + OpenSSL
        └── macOS: CFNetwork
-       │
        ▼
 WebCore layout and painting
        │
-       ├── Windows/Linux: Skia CPU
-       └── macOS: CoreGraphics/CoreText
-       │
+       ├── Windows/Linux: Skia CPU raster
+       └── macOS: CoreGraphics / CoreText
        ▼
 PNG / WebP
 ```
 
-- ShotKit 直接在单进程中嵌入 WebCore，不构建 WebKit 的 UI/Web/Network 多进程层；
-- JavaScriptCore 保留为 WebCore DOM、GC 与正则基础设施，但只构建 C-loop LLInt，JIT 与 WebAssembly 均关闭；
-- 页面脚本在设置、解析预加载和最终网络调度等多层被拒绝，不执行也不下载；
-- bmalloc、WTF、JavaScriptCore、PAL 和 WebCore 作为 OBJECT 库汇入 `shot.dll`，仅 C ABI 对外可见；
-- Windows 使用 Skia CPU、DirectWrite、curl 与 OpenSSL；默认截图路径不需要 GPU 或 ANGLE 运行库；
-- Linux 使用 Skia CPU、Fontconfig/FreeType、curl 与 OpenSSL；
-- macOS 使用 CoreGraphics/CoreText 与 CFNetwork，WebP 输出由静态链接的 libwebp 编码。
+- WebCore is embedded directly in one process; WebKit's UI/Web/Network multi-process layers are not
+  built at all.
+- JavaScriptCore is kept only as infrastructure for the DOM, GC, and regular expressions. Only the
+  C-loop LLInt is built; the JIT and WebAssembly are off.
+- Page scripts are rejected at several layers — settings, parser preload, and final network
+  scheduling — so they are neither executed nor downloaded.
+- bmalloc, WTF, JavaScriptCore, PAL, and WebCore link into one shared library as OBJECT libraries,
+  with only the C ABI visible.
 
-更完整的设计、裁剪依据与里程碑记录见 [`AGENTS.md`](AGENTS.md)。网络接入点见 [network-integration-map.md](Source/WebKitShot/docs/network-integration-map.md)。
+Design notes, pruning rationale, and the size ledger live in [`AGENTS.md`](AGENTS.md).
 
-## 当前体积与性能
+## Building from source
 
-Windows x64、MinSizeRel、full LTO 的当前基线：
-
-| 项目 | 实测值 |
-|---|---:|
-| `shot.dll` | 39,421,440 bytes |
-| 完整解压目录 | 57.77 MiB / 27 files |
-| `tar.xz` 发布包 | 17,260,888 bytes |
-| 1000 次 480×320 PNG 连续渲染 | 66.8 images/s |
-| 压力测试峰值 RSS | 30.3 MiB |
-
-上述压力测试运行于 Windows、Intel Core i9-14900KF，仅用于记录当前版本回归基线，不代表所有机器上的性能承诺。
-
-仓库还包含与 Puppeteer / Playwright 多引擎的可复现对比工具和原始结果，见 [`demo/browser-benchmark`](demo/browser-benchmark/)。ShotKit 与完整浏览器的能力边界不同，基准数据应结合页面类型与测试口径理解。
-
-## 从源码构建
-
-Windows 构建使用以下工具链：
-
-- Visual Studio C++ Build Tools 与 Windows SDK；
-- LLVM/clang-cl、CMake、Ninja；
-- Ruby、Perl、gperf、Bison/Flex；
-- vcpkg 提供的 ICU、Skia、curl、OpenSSL、HarfBuzz、libxml2/libxslt 等依赖。
-
-本地发布构建默认使用 MinSizeRel + full LTO + `/OPT:REF /OPT:ICF`：
+WebKit is a large build; expect the better part of an hour on a normal machine. Prebuilt archives
+are attached to each [release](https://github.com/sj817/shotkit/releases) if you only want to use it.
 
 ```powershell
+# Windows: VS C++ Build Tools, LLVM/clang-cl, CMake, Ninja, Ruby, Perl, gperf, Bison/Flex, vcpkg
 pwsh Source/WebKitShot/build-shot.ps1 -Configure -Build
 ```
 
-[`build-shot.ps1`](Source/WebKitShot/build-shot.ps1) 会从脚本位置解析仓库根目录，并自动发现 Visual Studio、LLVM 与 vcpkg；也可通过 `-Root`、`-LlvmBin`、`-VcpkgRoot`、`-VcpkgInstalledDir` 显式指定。Windows hosted CI 使用受限并行和单线程 full LTO 链接，降低标准 runner 的内存峰值。
-
-三个平台的 CI 都上传 `tar.xz` 与 SHA-256，不把解压目录交给 GitHub ZIP 再次压缩。这些归档是当前提交的验证产物，不等同于稳定版本发布。
-
-Linux 使用 Ubuntu 24.04、clang-18、lld-18 和系统开发包构建：
-
 ```bash
+# Linux: Ubuntu 24.04, clang-18, lld-18, system dev packages
 cmake -S . -B WebKitBuild/shot-linux -G Ninja \
   -DPORT=Shot -DCMAKE_BUILD_TYPE=MinSizeRel \
   -DCMAKE_C_COMPILER=clang-18 -DCMAKE_CXX_COMPILER=clang++-18 \
   -DLTO_MODE=full
-ninja -C WebKitBuild/shot-linux -j2 shotcli
+ninja -C WebKitBuild/shot-linux shotcli
 ```
 
-macOS 使用 Xcode 26.3、CMake、Ninja、ICU 与 WebP 构建：
-
 ```bash
+# macOS: Xcode, CMake, Ninja, ICU, WebP
 brew install bison cmake gperf icu4c ninja webp
 export CMAKE_PREFIX_PATH="$(brew --prefix icu4c);$(brew --prefix webp)"
 cmake -S . -B WebKitBuild/shot-macos -G Ninja \
   -DPORT=Shot -DCMAKE_BUILD_TYPE=MinSizeRel \
   -DCMAKE_PREFIX_PATH="$CMAKE_PREFIX_PATH" -DLTO_MODE=OFF
-ninja -C WebKitBuild/shot-macos -j3 shotcli
+ninja -C WebKitBuild/shot-macos shotcli
 ```
 
-Windows、Linux 与 macOS CI 均检查 PNG/WebP、脚本零请求、10 个 C ABI 导出、可重定位 CLI 和发布归档。macOS 还检查内部链接完整性、CFNetwork 与 XML/XSLT；Linux hosted 构建使用 full LTO，Windows hosted 构建使用受限并行和单线程链接。
+More detail, including archive layout and platform dependencies:
+[getting-started.md](Source/WebKitShot/docs/getting-started.md).
 
-生成传统解压即用的 Windows 发布包：
+## Limitations and security boundary
 
-```powershell
-pwsh Source/WebKitShot/tools/package-release.ps1 -Version 0.1.0
-```
+- **Static pages only.** CSR/SPA pages that need scripts to render will capture empty.
+- **No iframe support yet.** iframes in the main document do not complete their own navigation.
+- **Not a security sandbox.** ShotKit is a single-process parse-and-render kernel with no
+  browser-grade process isolation. When rendering untrusted remote content, the caller should
+  confine it — restricted account, container, or separate process — with resource and time limits.
+- **Single-threaded API.** One instance cannot be called concurrently from multiple threads. Use
+  multiple processes for parallelism.
+- **Platform pixel differences.** Windows and Linux raster with Skia; macOS uses
+  CoreGraphics/CoreText. Font fallback, antialiasing, and color management differ, so visual
+  regression baselines must be stored per platform.
+- `extra_font_dir` and `background_rgba` exist in the ABI but are not wired up yet.
 
-构建 WebKit 规模较大，full LTO 链接在当前基线上峰值约需 29 GB 内存。日常开发可使用增量构建，最终发布时再启用完整配置。
+## Roadmap
 
-## 项目目录
+- [x] Windows, Linux, macOS — x64 and arm64, all six built and published
+- [x] HTML/URL → PNG/WebP, network subresources, XML/XSLT, C ABI, CLI, Node.js SDK
+- [x] Size DCE, ICU data slimming, script-free network closure, stress testing
+- [x] Public CI, reproducible artifacts, and tokenless npm publishing via OIDC
+- [ ] iframe support
+- [ ] First-class Python, Go, and Rust bindings
 
-| 路径 | 内容 |
+## Repository layout
+
+| Path | Contents |
 |---|---|
-| [`Source/WebKitShot/`](Source/WebKitShot/) | ShotKit 内核、C ABI、CLI、SDK、测试与发布工具 |
-| [`Source/cmake/OptionsShot.cmake`](Source/cmake/OptionsShot.cmake) | Shot 端口特性与依赖矩阵 |
-| [`Source/WebCore/ShotPruning.cmake`](Source/WebCore/ShotPruning.cmake) | WebCore IDL/绑定裁剪入口 |
-| [`demo/browser-benchmark/`](demo/browser-benchmark/) | 跨引擎基准工具与结果 |
-| [`AGENTS.md`](AGENTS.md) | 完整架构决策、风险、体积账本与路线图 |
+| [`Source/WebKitShot/`](Source/WebKitShot/) | Kernel, C ABI, CLI, SDK, tests, release tooling |
+| [`Source/WebKitShot/bindings/node/`](Source/WebKitShot/bindings/node/) | `@shotkit/node` SDK |
+| [`Source/cmake/OptionsShot.cmake`](Source/cmake/OptionsShot.cmake) | Shot port features and dependency matrix |
+| [`Source/WebCore/ShotPruning.cmake`](Source/WebCore/ShotPruning.cmake) | WebCore IDL/binding pruning |
+| [`demo/browser-benchmark/`](demo/browser-benchmark/) | Cross-engine benchmark tooling and results |
+| [`AGENTS.md`](AGENTS.md) | Architecture decisions, risks, size ledger, roadmap |
 
-## 已知限制与安全边界
+The repository keeps two lines: `main` is a squashed release snapshot carrying only the ShotKit
+build closure, and `shotkit` retains full WebKit history for upstream comparison. Day-to-day work,
+issues, and pull requests target `main`.
 
-- **静态页面限定**：CSR/SPA 若服务器不返回可渲染内容，截图可能为空；
-- **iframe 尚未支持**：主文档中的 iframe 当前不会完成独立导航；
-- **不是安全沙箱**：ShotKit 为单进程解析与渲染内核，不提供浏览器级进程隔离。处理不可信远程内容时，应由调用方放入受限账户、容器或独立进程，并设置资源与时间限制；
-- **单线程 API**：同一实例不能从多个线程并发调用；并行任务使用多进程；
-- **平台差异**：Windows/Linux 使用 Skia，macOS 使用 CoreGraphics/CoreText；字体回退、抗锯齿与颜色管理可能产生像素差异；
-- **产物状态**：GitHub Actions artifact 是当前提交的短期构建快照，不提供稳定版本兼容性承诺；macOS hosted artifact 当前为 arm64；
-- `extra_font_dir` 与 `background_rgba` 已保留在 ABI 中，但目前尚未接线。
+## Contributing
 
-## 路线图
+Issues and pull requests are welcome. For pruning changes, please include the effect on static
+screenshot capability, the measured size change of the shared library and the release archive, and
+which PNG/WebP, network, XML/XSLT, or multilingual regressions you ran.
 
-- [x] Windows：HTML/URL → PNG/WebP、网络子资源、XML/XSLT、C ABI、CLI、Node.js；
-- [x] 体积 DCE、ICU 数据裁剪、无脚本网络闭包、重复渲染压力测试；
-- [x] 参数化 Windows bootstrap，并建立公开 CI 与可复现构建产物；
-- [x] Linux：Fontconfig/FreeType + Generic RunLoop；
-- [x] macOS：CoreGraphics/CoreText + CFNetwork；
-- [ ] iframe；
-- [ ] Python / Go / Rust 的正式绑定与示例。
+This is a snapshot fork of WebKit and does not aim to continuously rebase on upstream. Working
+conventions are in [`AGENTS.md`](AGENTS.md).
 
-## 贡献
+## License
 
-Issue 和 Pull Request 都欢迎。提交裁剪改动时，请同时说明：
+This repository is derived from WebKit. Existing sources remain under the upstream licenses and
+copyright notices carried in each file and directory, and those notices must be preserved on
+redistribution.
 
-- 对静态截图能力的影响；
-- 对 `shot.dll` 和完整发布包的实测体积变化；
-- 覆盖的 PNG/WebP、网络、XML/XSLT 或多语言回归结果。
+> **A top-level license and NOTICE inventory for ShotKit's own code and its bundled third-party
+> binaries is not finished yet.** Until it is, please do not describe this repository as a
+> license-audited formal distribution.
 
-仓库是 WebKit 的 snapshot fork，不以持续 rebase 上游为目标。具体工作约定见 [`AGENTS.md`](AGENTS.md)。
-
-## 许可证
-
-本仓库基于 WebKit，原有源码继续适用各文件和目录中的上游许可证与版权声明，分发时必须保留相应 notices。ShotKit 新增代码及二进制第三方依赖的顶层许可证/NOTICE 清单尚未完成；在第一次公开发布前需要补齐，当前请勿把本仓库描述为已完成许可证审查的正式发行版。
-
-ShotKit 是独立的 WebKit fork，不是完整浏览器，也不代表 WebKit 上游项目。
+ShotKit is an independent WebKit fork. It is not a browser, and it does not represent the upstream
+WebKit project.
