@@ -10,15 +10,32 @@
 
 **English** · [简体中文](README.zh-CN.md)
 
-ShotKit renders **HTML to PNG or WebP** — from an HTML string, a local file, or a remote URL. It is
-WebCore, WebKit's layout and painting engine, cut down to a single-process rendering kernel. It is
-**not a browser**: no window, no multi-process shell, no automation protocol, and page JavaScript is
-never executed.
+ShotKit renders **HTML to PNG or WebP** — from an HTML string, a local file, or a remote URL — and
+it is built to be small, fast, and trivial to install.
 
-That makes it a good fit for **server-side screenshots**: OG/social card generation, PDF-adjacent
-report rendering, email and template previews, thumbnails, chart and invoice rendering, and visual
-regression of static pages. It is a lighter option than driving headless Chrome through Puppeteer or
-Playwright when the pages you render do not need a JavaScript runtime.
+|  | ShotKit | Playwright Chromium | Puppeteer Chrome |
+|---|--:|--:|--:|
+| **Screenshot, warm process** | **91 ms** | 213 ms | 284 ms |
+| **Cold start → first image** | **186 ms** | 431 ms | 1,200 ms |
+| **Resident memory (RSS)** | **45 MB** | 164 MB | 428 MB |
+| **Engine on disk** | **64 MB** | 415 MB | 419 MB |
+| **Download** | **8–12 MB** | 100s of MB | 100s of MB |
+| **Install** | `npm install` | + browser download | + browser download |
+
+<sub>1280×800 full-page PNG, same machine (i9-14900KF, Windows), Puppeteer 25.3 / Playwright 1.61,
+fastest of 3 trials. Method and raw data: [`demo/browser-benchmark`](demo/browser-benchmark/).</sub>
+
+So: **3× faster warm, 6× faster cold, and roughly a tenth of the memory** of headless Chrome — because
+ShotKit is not a browser. It is WebCore, WebKit's layout and painting engine, cut down to a
+single-process rendering kernel: no window, no multi-process shell, no automation protocol, and page
+JavaScript is never executed.
+
+That makes it a good fit for **server-side screenshots**: OG/social card generation, report
+rendering, email and template previews, thumbnails, chart and invoice rendering, and visual
+regression of static pages. It is a much lighter option than driving headless Chrome through
+Puppeteer or Playwright when the pages you render do not need a JavaScript runtime.
+
+**Three lines to your first image:**
 
 ```bash
 npm install @shotkit/node
@@ -51,8 +68,6 @@ dependencies, so there is **no node-gyp, no compiler, and no post-install downlo
 | Process model | Single process, single render thread | Multi-process |
 | Graphics | Skia CPU raster (CoreGraphics on macOS) | GPU + compositor processes |
 | Embedding | Node.js SDK, CLI, JSONL, C ABI | Automation protocol (CDP) |
-| Distribution | 8–12 MB compressed | Hundreds of MB |
-| Cold start to first image | 37 ms (Linux) / 87 ms (Windows) | Typically hundreds of ms |
 
 The trade is explicit: ShotKit gives up interactive and client-rendered pages in exchange for a much
 smaller distribution, a lower resident footprint, and more predictable static rendering.
@@ -90,9 +105,9 @@ Sizes are the compressed `tar.xz` release archives, built MinSizeRel with full L
 
 ## Performance
 
-Measured with [`demo/browser-benchmark`](demo/browser-benchmark/) and the SDK benchmark, on one
-32-thread desktop. Numbers are p50 per image with a resident engine; treat them as a shape, not a
-promise for your hardware.
+The table at the top compares engines at 1280×800 full-page. The numbers below are the SDK's own
+benchmark on one 32-thread desktop, at smaller viewports and p50 per image with a resident engine —
+which is why they are lower. Treat both as a shape, not a promise for your hardware.
 
 | | Linux (WSL2) | Windows 11 |
 |---|---:|---:|

@@ -10,13 +10,30 @@
 
 [English](ReadMe.md) · **简体中文**
 
-ShotKit 把 **HTML 渲染成 PNG 或 WebP** —— 输入可以是 HTML 字符串、本地文件或远程 URL。它是从
-WebKit 的排版绘制引擎 WebCore 裁切出来的单进程渲染内核，**不是浏览器**：没有窗口，没有多进程外壳，
-没有自动化协议，页面 JavaScript 永不执行。
+ShotKit 把 **HTML 渲染成 PNG 或 WebP** —— 输入可以是 HTML 字符串、本地文件或远程 URL。
+它的三个目标很明确：**体积小、速度快、上手简单**。
+
+|  | ShotKit | Playwright Chromium | Puppeteer Chrome |
+|---|--:|--:|--:|
+| **单张截图（热进程）** | **91 ms** | 213 ms | 284 ms |
+| **冷启动到第一张图** | **186 ms** | 431 ms | 1,200 ms |
+| **常驻内存 RSS** | **45 MB** | 164 MB | 428 MB |
+| **引擎磁盘占用** | **64 MB** | 415 MB | 419 MB |
+| **下载体积** | **8–12 MB** | 数百 MB | 数百 MB |
+| **安装** | `npm install` | 外加浏览器下载 | 外加浏览器下载 |
+
+<sub>1280×800 full-page PNG，同一台机器（i9-14900KF / Windows），Puppeteer 25.3 / Playwright 1.61，
+三次取最快。测试口径与原始数据见 [`demo/browser-benchmark`](demo/browser-benchmark/)。</sub>
+
+也就是说：**热截图快 3 倍，冷启动快 6 倍，内存约为无头 Chrome 的十分之一**。原因是 ShotKit 根本
+不是浏览器——它是从 WebKit 的排版绘制引擎 WebCore 裁切出来的单进程渲染内核：没有窗口，没有多进程
+外壳，没有自动化协议，页面 JavaScript 永不执行。
 
 适合的场景是服务端出图：OG / 社交卡片生成、报表渲染、邮件与模板预览、缩略图、图表与发票出图，
 以及静态页面的视觉回归。当你要渲染的页面本来就不需要 JavaScript 运行时，它比用 Puppeteer 或
-Playwright 驱动无头 Chrome 要轻得多。
+Playwright 驱动无头 Chrome 轻得多。
+
+**三行拿到第一张图：**
 
 ```bash
 npm install @shotkit/node
@@ -49,8 +66,6 @@ npm 通过带 `os`/`cpu` 限制的可选依赖，只会为当前平台装下唯�
 | 进程模型 | 单进程、单渲染线程 | 多进程 |
 | 图形路径 | Skia CPU 软光栅（macOS 用 CoreGraphics） | GPU 加合成进程 |
 | 嵌入方式 | Node.js SDK、CLI、JSONL、C ABI | 自动化协议（CDP） |
-| 分发体积 | 8–12 MB 压缩包 | 数百 MB |
-| 冷启动到第一张图 | 37 ms（Linux）/ 87 ms（Windows） | 通常数百 ms |
 
 取舍很明确：放弃交互式和客户端渲染的页面，换来小得多的分发体积、更低的常驻开销，
 以及更可预测的静态渲染结果。
@@ -86,7 +101,8 @@ iframe 目前尚未支持。
 
 ## 性能
 
-在一台 32 线程桌面机上实测，单张 p50，引擎常驻。这些数字用来说明量级，不构成对你的硬件的承诺。
+开头那张表是各引擎在 1280×800 full-page 下的横向对比。下面这组是 SDK 自己的基准，视口更小、
+取单张 p50 且引擎常驻，所以数值更低。两组都只用来说明量级，不构成对你的硬件的承诺。
 
 | | Linux（WSL2） | Windows 11 |
 |---|---:|---:|
