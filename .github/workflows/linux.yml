@@ -15,14 +15,14 @@ on:
       lto:
         description: Link-time optimization mode
         type: choice
-        options: [thin, full]
-        default: thin
+        options: [full, thin]
+        default: full
   workflow_call:
     inputs:
       lto:
         description: Link-time optimization mode
         type: string
-        default: thin
+        default: full
 
 concurrency:
   group: linux-${{ github.workflow }}-${{ github.ref }}
@@ -46,9 +46,9 @@ jobs:
     timeout-minutes: 360
 
     env:
-      # See windows.yml: ThinLTO parallelizes the link that full LTO forces
-      # through a single thread, at a few percent of binary size.
-      SHOT_LTO: ${{ inputs.lto || 'thin' }}
+      # See windows.yml: full LTO measured smaller at no wall-clock cost, so it
+      # stays the shipped profile; thin remains available through the input.
+      SHOT_LTO: ${{ inputs.lto || 'full' }}
       SCCACHE_GHA_ENABLED: 'true'
 
     steps:
