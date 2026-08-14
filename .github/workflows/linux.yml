@@ -11,7 +11,18 @@ on:
       - '**.md'
       - '.githooks/**'
   workflow_dispatch:
+    inputs:
+      lto:
+        description: Link-time optimization mode
+        type: choice
+        options: [thin, full]
+        default: thin
   workflow_call:
+    inputs:
+      lto:
+        description: Link-time optimization mode
+        type: string
+        default: thin
 
 concurrency:
   group: linux-${{ github.workflow }}-${{ github.ref }}
@@ -33,6 +44,12 @@ jobs:
 
     runs-on: ${{ matrix.runner }}
     timeout-minutes: 360
+
+    env:
+      # See windows.yml: ThinLTO parallelizes the link that full LTO forces
+      # through a single thread, at a few percent of binary size.
+      SHOT_LTO: ${{ inputs.lto || 'thin' }}
+      SCCACHE_GHA_ENABLED: 'true'
 
     steps:
       - name: Checkout the ShotKit build closure
@@ -68,9 +85,39 @@ jobs:
           cmake --version
           ninja --version
 
-      - name: Configure ShotKit with Full LTO
+      # Strictly an optimization — a failed setup leaves the build uncached
+      # rather than broken. See windows.yml.
+      - name: Set up the compiler cache
+        id: sccache
+        continue-on-error: true
+        uses: mozilla-actions/sccache-action@v0.0.11
+
+      - name: Enable the compiler cache
+        if: steps.sccache.outcome == 'success'
+        run: echo "SHOT_COMPILER_LAUNCHER=sccache" >> "$GITHUB_ENV"
+
+      - name: Configure ShotKit
         run: |
           free -h
+          echo "LTO mode: $SHOT_LTO; compiler launcher: ${SHOT_COMPILER_LAUNCHER:-(none)}"
+
+          # Full LTO merges the whole bitcode graph in one linker process, so
+          # lld is serialized to keep the memory peak inside a hosted runner.
+          # ThinLTO shards that work and can use real parallelism.
+          if [[ "$SHOT_LTO" == "full" ]]; then
+            lto_link_flags="-Wl,--threads=1"
+          else
+            lto_link_flags="-Wl,--thinlto-jobs=2"
+          fi
+
+          launcher_args=()
+          if [[ -n "${SHOT_COMPILER_LAUNCHER:-}" ]]; then
+            launcher_args+=(
+              "-DCMAKE_C_COMPILER_LAUNCHER=$SHOT_COMPILER_LAUNCHER"
+              "-DCMAKE_CXX_COMPILER_LAUNCHER=$SHOT_COMPILER_LAUNCHER"
+            )
+          fi
+
           cmake -S . -B WebKitBuild/shot-linux -G Ninja \
             -DPORT=Shot \
             -DCMAKE_BUILD_TYPE=MinSizeRel \
@@ -78,14 +125,20 @@ jobs:
             -DCMAKE_CXX_COMPILER=clang++-18 \
             -DCMAKE_AR="$(command -v llvm-ar-18)" \
             -DCMAKE_RANLIB="$(command -v llvm-ranlib-18)" \
-            -DCMAKE_EXE_LINKER_FLAGS="-fuse-ld=lld -Wl,--threads=1" \
-            -DCMAKE_SHARED_LINKER_FLAGS="-fuse-ld=lld -Wl,--threads=1" \
-            -DLTO_MODE=full
+            -DCMAKE_EXE_LINKER_FLAGS="-fuse-ld=lld $lto_link_flags" \
+            -DCMAKE_SHARED_LINKER_FLAGS="-fuse-ld=lld $lto_link_flags" \
+            -DLTO_MODE="$SHOT_LTO" \
+            "${launcher_args[@]}"
 
       - name: Build ShotKit
         run: |
-          ninja -C WebKitBuild/shot-linux -j2 shotcli
+          ninja -C WebKitBuild/shot-linux -j3 shotcli
           free -h
+
+      - name: Compiler cache statistics
+        if: always() && steps.sccache.outcome == 'success'
+        continue-on-error: true
+        run: sccache --show-stats
 
       - name: Smoke test PNG and WebP
         run: |
@@ -132,13 +185,14 @@ jobs:
           tar -C WebKitBuild/releases -cJf "WebKitBuild/releases/${name}.tar.xz" "$name"
           sha256sum "WebKitBuild/releases/${name}.tar.xz" > "WebKitBuild/releases/${name}.tar.xz.sha256"
           archive_bytes=$(stat -c %s "WebKitBuild/releases/${name}.tar.xz")
+          echo "release tar.xz: ${archive_bytes} bytes (budget 18000000, lto=${SHOT_LTO})"
           test "$archive_bytes" -le 18000000
           ls -lh "$stage/bin/shotcli" "$stage/lib/libshot.so" "WebKitBuild/releases/${name}.tar.xz"
 
       - name: Upload compressed release
         uses: actions/upload-artifact@v7
         with:
-          name: shotkit-linux-${{ matrix.arch }}-fulllto
+          name: shotkit-linux-${{ matrix.arch }}
           path: |
             WebKitBuild/releases/*.tar.xz
             WebKitBuild/releases/*.tar.xz.sha256

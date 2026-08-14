@@ -1,9 +1,14 @@
 name: Publish
 
-# Build all six ShotKit runtimes, stage them into the @shotkit/* platform
-# subpackages, and publish the npm packages tokenlessly via OIDC Trusted
-# Publishing. Trigger by publishing a GitHub Release (tag vX.Y.Z), or run
-# manually with dry-run to rehearse without touching the registry.
+# Publish the npm packages tokenlessly via OIDC Trusted Publishing. Trigger by
+# publishing a GitHub Release (tag vX.Y.Z), or run manually with dry-run to
+# rehearse without touching the registry.
+#
+# The six platform runtimes are NOT rebuilt when the tagged commit already has
+# successful Windows/Linux/macOS runs whose artifacts are still live — a release
+# then costs minutes instead of the ~2 hours a full three-platform rebuild takes.
+# Rebuilding is the automatic fallback when any artifact is missing or expired,
+# and can be forced with the force-rebuild input.
 #
 # Every published package (@shotkit/node + 6 platform packages) must carry an
 # npm trusted-publisher binding to this repository and this workflow file.
@@ -17,6 +22,10 @@ on:
         description: npm publish --dry-run (no registry writes)
         type: boolean
         default: true
+      force-rebuild:
+        description: Rebuild the runtimes even if reusable artifacts exist
+        type: boolean
+        default: false
 
 concurrency:
   group: publish-${{ github.ref }}
@@ -26,19 +35,95 @@ permissions:
   contents: read
 
 jobs:
+  resolve:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    permissions:
+      contents: read
+      actions: read
+    outputs:
+      reuse: ${{ steps.find.outputs.reuse }}
+      run-ids: ${{ steps.find.outputs.run-ids }}
+    steps:
+      - name: Look for reusable runtime artifacts
+        id: find
+        env:
+          GH_TOKEN: ${{ github.token }}
+          SHA: ${{ github.sha }}
+          FORCE_REBUILD: ${{ inputs.force-rebuild }}
+        run: |
+          set -euo pipefail
+
+          if [[ "${FORCE_REBUILD:-false}" == "true" ]]; then
+            echo "force-rebuild requested — building from source"
+            echo "reuse=false" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+
+          # Every artifact the publish job needs, and the workflow that makes it.
+          expected="shotkit-windows-x64 shotkit-windows-arm64
+                    shotkit-linux-x64 shotkit-linux-arm64
+                    shotkit-macos-x64 shotkit-macos-arm64"
+
+          run_ids=()
+          for workflow in windows.yml linux.yml macos.yml; do
+            id=$(gh api \
+              "repos/$GITHUB_REPOSITORY/actions/workflows/$workflow/runs?head_sha=$SHA&status=success&per_page=50" \
+              --jq '.workflow_runs | sort_by(.run_started_at) | reverse | .[0].id // empty')
+            if [[ -z "$id" ]]; then
+              echo "no successful $workflow run for $SHA — building from source"
+              echo "reuse=false" >> "$GITHUB_OUTPUT"
+              exit 0
+            fi
+            echo "$workflow -> run $id"
+            run_ids+=("$id")
+          done
+
+          available=""
+          for id in "${run_ids[@]}"; do
+            available+=$(gh api "repos/$GITHUB_REPOSITORY/actions/runs/$id/artifacts" \
+              --jq '.artifacts[] | select(.expired == false) | .name')$'\n'
+          done
+
+          for want in $expected; do
+            if ! grep -qx -- "$want" <<<"$available"; then
+              echo "artifact $want is missing or expired — building from source"
+              echo "reuse=false" >> "$GITHUB_OUTPUT"
+              exit 0
+            fi
+          done
+
+          echo "reusing runtimes from runs: ${run_ids[*]}"
+          echo "reuse=true" >> "$GITHUB_OUTPUT"
+          echo "run-ids=${run_ids[*]}" >> "$GITHUB_OUTPUT"
+
   windows:
+    needs: resolve
+    if: needs.resolve.outputs.reuse != 'true'
     uses: ./.github/workflows/windows.yml
   linux:
+    needs: resolve
+    if: needs.resolve.outputs.reuse != 'true'
     uses: ./.github/workflows/linux.yml
   macos:
+    needs: resolve
+    if: needs.resolve.outputs.reuse != 'true'
     uses: ./.github/workflows/macos.yml
 
   publish:
-    needs: [windows, linux, macos]
+    needs: [resolve, windows, linux, macos]
+    # The three build jobs are skipped on the reuse path; only a genuine
+    # failure or cancellation should stop the publish.
+    if: >-
+      always()
+      && needs.resolve.result == 'success'
+      && !contains(needs.*.result, 'failure')
+      && !contains(needs.*.result, 'cancelled')
     runs-on: ubuntu-latest
     timeout-minutes: 30
     permissions:
       contents: read
+      actions: read # gh run download, on the artifact reuse path
       id-token: write # npm Trusted Publishing (OIDC) — tokenless publish
     defaults:
       run:
@@ -57,20 +142,36 @@ jobs:
           node-version: 24 # ships npm >= 11.5, which supports OIDC publish
           registry-url: https://registry.npmjs.org
 
-      - name: Download runtime archives
+      - name: Download runtime archives from this run
+        if: needs.resolve.outputs.reuse != 'true'
         uses: actions/download-artifact@v7
         with:
           path: ${{ runner.temp }}/runtimes
           pattern: shotkit-*
           merge-multiple: true
 
+      - name: Download runtime archives from the tagged commit's builds
+        if: needs.resolve.outputs.reuse == 'true'
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+          RUN_IDS: ${{ needs.resolve.outputs.run-ids }}
+        run: |
+          mkdir -p "$RUNNER_TEMP/runtimes"
+          for id in $RUN_IDS; do
+            gh run download "$id" --repo "$GITHUB_REPOSITORY" \
+              --pattern 'shotkit-*' --dir "$RUNNER_TEMP/runtimes"
+          done
+
       - run: npm ci
 
       - name: Stage runtimes into platform packages
         shell: bash
         run: |
+          # Archives land flat from download-artifact and one directory deep
+          # from gh run download, so locate them rather than globbing a level.
           staged=0
-          for archive in "$RUNNER_TEMP"/runtimes/*.tar.xz; do
+          while IFS= read -r archive; do
             name="$(basename "$archive" .tar.xz)"
             if [[ ! "$name" =~ -(windows|linux|macos)-(x64|arm64)$ ]]; then
               echo "unrecognized runtime archive: $name" >&2
@@ -82,12 +183,13 @@ jobs:
               macos)   platform="darwin-$arch" ;;
               linux)   platform="linux-$arch" ;;
             esac
-            extracted="$RUNNER_TEMP/runtimes/$name"
-            mkdir -p "$extracted"
-            tar -xJf "$archive" -C "$RUNNER_TEMP/runtimes"
+            # Each archive holds a single top-level directory named after it;
+            # unpack beside the archive so both download layouts resolve.
+            extracted="$(dirname "$archive")/$name"
+            tar -xJf "$archive" -C "$(dirname "$archive")"
             npx tsx tools/stage-platform.ts "$platform" "$extracted"
             staged=$((staged + 1))
-          done
+          done < <(find "$RUNNER_TEMP/runtimes" -type f -name '*.tar.xz' | sort)
           # All six targets must be present — a missing platform would publish
           # a main package whose optional dependency cannot be resolved.
           if [[ "$staged" -ne 6 ]]; then

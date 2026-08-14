@@ -11,7 +11,18 @@ on:
       - '**.md'
       - '.githooks/**'
   workflow_dispatch:
+    inputs:
+      lto:
+        description: Link-time optimization mode
+        type: choice
+        options: [thin, full]
+        default: thin
   workflow_call:
+    inputs:
+      lto:
+        description: Link-time optimization mode
+        type: string
+        default: thin
 
 concurrency:
   group: windows-${{ github.workflow }}-${{ github.ref }}
@@ -41,6 +52,11 @@ jobs:
 
     env:
       VCPKG_FEATURE_FLAGS: manifests,binarycaching
+      # ThinLTO is the default profile: it keeps cross-module optimization but
+      # drops the monolithic full-LTO memory peak, which is what forced the
+      # single-threaded link and -j2 throttle that made every run take hours.
+      SHOT_LTO: ${{ inputs.lto || 'thin' }}
+      SCCACHE_GHA_ENABLED: 'true'
 
     steps:
       - name: Checkout the ShotKit build closure
@@ -68,6 +84,20 @@ jobs:
         with:
           path: ${{ runner.temp }}\vcpkg-binary-cache
           key: vcpkg-windows-shot-${{ matrix.arch }}-${{ hashFiles('vcpkg.json', 'vcpkg-configuration.json', 'WebKitLibraries/ports/**', format('WebKitLibraries/triplets/{0}.cmake', matrix.triplet)) }}
+
+      # sccache turns the ~85 minute cold compile into a mostly-cached one when
+      # only ShotKit sources moved. It is strictly an optimization: if the setup
+      # fails (no prebuilt binary for this runner arch, cache service outage),
+      # the build still runs, just uncached.
+      - name: Set up the compiler cache
+        id: sccache
+        continue-on-error: true
+        uses: mozilla-actions/sccache-action@v0.0.11
+
+      - name: Enable the compiler cache
+        if: steps.sccache.outcome == 'success'
+        shell: bash
+        run: echo "SHOT_COMPILER_LAUNCHER=sccache" >> "$GITHUB_ENV"
 
       - name: Ensure the arm64 host toolchain
         if: matrix.arch == 'arm64'
@@ -192,17 +222,37 @@ jobs:
           $pageFiles = Get-CimInstance Win32_PageFileUsage
           Write-Host ("physical memory: {0:N1} MiB; free virtual memory: {1:N1} MiB" -f ($computer.TotalPhysicalMemory / 1MB), ($os.FreeVirtualMemory / 1KB))
           $pageFiles | Format-Table Name, AllocatedBaseSize, CurrentUsage, PeakUsage
+          Write-Host "LTO mode: $env:SHOT_LTO; compiler launcher: $(if ($env:SHOT_COMPILER_LAUNCHER) { $env:SHOT_COMPILER_LAUNCHER } else { '(none)' })"
 
-          pwsh Source/WebKitShot/build-shot.ps1 `
-            -Configure -Build `
-            -Root $env:GITHUB_WORKSPACE `
-            -VcpkgRoot $env:SHOT_VCPKG_ROOT `
-            -VcpkgInstalledDir $env:SHOT_VCPKG_INSTALLED `
-            -Arch ${{ matrix.arch }} `
-            -VcpkgTriplet ${{ matrix.triplet }} `
-            -LtoMode full `
-            -LinkThreads 1 `
-            -Jobs 2
+          $buildArguments = @(
+            'Source/WebKitShot/build-shot.ps1',
+            '-Configure', '-Build',
+            '-Root', $env:GITHUB_WORKSPACE,
+            '-VcpkgRoot', $env:SHOT_VCPKG_ROOT,
+            '-VcpkgInstalledDir', $env:SHOT_VCPKG_INSTALLED,
+            '-Arch', '${{ matrix.arch }}',
+            '-VcpkgTriplet', '${{ matrix.triplet }}',
+            '-LtoMode', $env:SHOT_LTO,
+            '-Jobs', '3'
+          )
+          if ($env:SHOT_LTO -eq 'full') {
+            # Full LTO merges the whole bitcode graph in one linker process;
+            # serializing lld keeps the memory peak inside a hosted runner.
+            $buildArguments += @('-LinkThreads', '1')
+          } else {
+            $buildArguments += @('-LtoJobs', '2')
+          }
+          if ($env:SHOT_COMPILER_LAUNCHER) {
+            $buildArguments += @('-CompilerLauncher', $env:SHOT_COMPILER_LAUNCHER)
+          }
+          pwsh @buildArguments
+          if ($LASTEXITCODE) { throw "ShotKit build failed with exit code $LASTEXITCODE" }
+
+      - name: Compiler cache statistics
+        if: always() && steps.sccache.outcome == 'success'
+        continue-on-error: true
+        shell: bash
+        run: sccache --show-stats
 
       - name: Smoke test PNG and WebP
         shell: pwsh
@@ -241,7 +291,7 @@ jobs:
           pwsh Source/WebKitShot/tools/package-release.ps1 `
             -Root $env:GITHUB_WORKSPACE `
             -Version $version `
-            -LtoMode full `
+            -LtoMode $env:SHOT_LTO `
             -Architecture ${{ matrix.arch }} `
             -VcpkgTriplet ${{ matrix.triplet }} `
             -MaxPackageBytes 22000000
@@ -249,7 +299,7 @@ jobs:
       - name: Upload compressed release
         uses: actions/upload-artifact@v7
         with:
-          name: shotkit-windows-${{ matrix.arch }}-fulllto
+          name: shotkit-windows-${{ matrix.arch }}
           path: |
             WebKitBuild/releases/*.tar.xz
             WebKitBuild/releases/*.tar.xz.sha256

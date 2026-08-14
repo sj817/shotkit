@@ -34,6 +34,9 @@ jobs:
     runs-on: ${{ matrix.runner }}
     timeout-minutes: 360
 
+    env:
+      SCCACHE_GHA_ENABLED: 'true'
+
     steps:
       - name: Checkout the ShotKit build closure
         uses: actions/checkout@v7
@@ -80,16 +83,47 @@ jobs:
           ninja --version
           clang --version
 
+      # macOS already builds with LTO off and is the fastest of the three
+      # platforms, so the compiler cache is the only lever worth pulling here.
+      # A failed setup leaves the build uncached rather than broken.
+      - name: Set up the compiler cache
+        id: sccache
+        continue-on-error: true
+        uses: mozilla-actions/sccache-action@v0.0.11
+
+      - name: Enable the compiler cache
+        if: steps.sccache.outcome == 'success'
+        run: echo "SHOT_COMPILER_LAUNCHER=sccache" >> "$GITHUB_ENV"
+
       - name: Configure ShotKit
         run: |
+          echo "compiler launcher: ${SHOT_COMPILER_LAUNCHER:-(none)}"
+          launcher_args=()
+          if [[ -n "${SHOT_COMPILER_LAUNCHER:-}" ]]; then
+            # The Apple port compiles a large amount of Objective-C++, so the
+            # ObjC launchers matter as much as the C/C++ ones here.
+            launcher_args+=(
+              "-DCMAKE_C_COMPILER_LAUNCHER=$SHOT_COMPILER_LAUNCHER"
+              "-DCMAKE_CXX_COMPILER_LAUNCHER=$SHOT_COMPILER_LAUNCHER"
+              "-DCMAKE_OBJC_COMPILER_LAUNCHER=$SHOT_COMPILER_LAUNCHER"
+              "-DCMAKE_OBJCXX_COMPILER_LAUNCHER=$SHOT_COMPILER_LAUNCHER"
+            )
+          fi
+
           cmake -S . -B WebKitBuild/shot-macos -G Ninja \
             -DPORT=Shot \
             -DCMAKE_BUILD_TYPE=MinSizeRel \
             -DCMAKE_PREFIX_PATH="$CMAKE_PREFIX_PATH" \
-            -DLTO_MODE=OFF
+            -DLTO_MODE=OFF \
+            "${launcher_args[@]}"
 
       - name: Build ShotKit
         run: ninja -C WebKitBuild/shot-macos -j3 shotcli
+
+      - name: Compiler cache statistics
+        if: always() && steps.sccache.outcome == 'success'
+        continue-on-error: true
+        run: sccache --show-stats
 
       - name: Verify internal link closure
         run: |

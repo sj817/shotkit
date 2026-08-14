@@ -20,6 +20,7 @@ param(
     [ValidateRange(0, 256)]
     [int]$LinkThreads = 0,
     [string]$ThinLTOCacheDir = '',
+    [string]$CompilerLauncher = '',
     [string]$LlvmBin = ''
 )
 
@@ -136,6 +137,10 @@ if ($Configure) {
         $ThinLTOCacheDir = [IO.Path]::GetFullPath($ThinLTOCacheDir)
         New-Item -ItemType Directory -Force -Path $ThinLTOCacheDir | Out-Null
         $cmakeArguments += "-DSHOT_THINLTO_CACHE_DIR=$($ThinLTOCacheDir.Replace('\', '/'))"
+    }
+    if ($CompilerLauncher) {
+        $cmakeArguments += "-DCMAKE_C_COMPILER_LAUNCHER=$CompilerLauncher"
+        $cmakeArguments += "-DCMAKE_CXX_COMPILER_LAUNCHER=$CompilerLauncher"
     }
 
     & cmake @cmakeArguments
