@@ -1,0 +1,84 @@
+name: Node SDK
+
+# The SDK used to be built only during a publish, which meant a broken bundler
+# config or manifest surfaced at release time. This runs the same build on every
+# change to the binding.
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'Source/WebKitShot/bindings/node/**'
+      - '.github/workflows/node.yml'
+  pull_request:
+    paths:
+      - 'Source/WebKitShot/bindings/node/**'
+      - '.github/workflows/node.yml'
+  workflow_dispatch:
+
+concurrency:
+  group: node-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    defaults:
+      run:
+        working-directory: Source/WebKitShot/bindings/node
+
+    steps:
+      - name: Checkout the node binding
+        uses: actions/checkout@v7
+        with:
+          fetch-depth: 1
+          sparse-checkout-cone-mode: false
+          sparse-checkout: |
+            /Source/WebKitShot/bindings/node/
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: npm
+          cache-dependency-path: Source/WebKitShot/bindings/node/package-lock.json
+
+      - run: npm ci
+
+      - run: npm run typecheck
+
+      # tsdown runs publint as part of the build, so a broken exports map or a
+      # bin pointing at a file the bundler no longer emits fails here instead of
+      # after a publish.
+      - run: npm run build
+
+      - name: Package entry points resolve
+        shell: bash
+        run: |
+          node -e "const m = require('@shotkit/node');
+            if (typeof m.launch !== 'function') throw new Error('CJS entry is missing launch');
+            console.log('CJS entry ok');"
+          node -e "import('@shotkit/node').then((m) => {
+            if (typeof m.launch !== 'function') throw new Error('ESM entry is missing launch');
+            console.log('ESM entry ok');
+          });"
+
+      # No platform runtime is installed here, so this exercises the CLI's
+      # not-found path: a clear message and the shell's 127 for "not executable".
+      # The screenshot tests need a runtime and run in the platform workflows.
+      - name: CLI fails cleanly without a runtime
+        shell: bash
+        run: |
+          set +e
+          output=$(node dist/cli.mjs --shotkit-bin 2>&1)
+          code=$?
+          set -e
+          printf '%s\n' "$output"
+          if [[ "$code" -ne 127 ]]; then
+            echo "expected exit 127 from the CLI, got $code" >&2
+            exit 1
+          fi
+          grep -q 'no runtime found' <<<"$output"
