@@ -1,7 +1,9 @@
 const assert = require('node:assert/strict');
 const test = require('node:test');
 
-const { launch } = require('../dist/index.cjs');
+// Self-reference by package name so the test exercises the published "exports"
+// map rather than a build-output path that changes with the bundler.
+const { launch } = require('@shotkit/node');
 
 test('CommonJS require entry works', async () => {
   const shot = await launch();

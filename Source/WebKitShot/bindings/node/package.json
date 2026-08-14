@@ -4,15 +4,24 @@
   "description": "Turn HTML or a URL into PNG/WebP screenshots without a browser — WebKit rendering, no page JavaScript, prebuilt binaries for Windows, Linux and macOS",
   "license": "UNLICENSED",
   "type": "module",
+  "sideEffects": false,
   "main": "./dist/index.cjs",
-  "module": "./dist/index.js",
-  "types": "./dist/index.d.ts",
+  "module": "./dist/index.mjs",
+  "types": "./dist/index.d.cts",
   "exports": {
     ".": {
-      "types": "./dist/index.d.ts",
-      "import": "./dist/index.js",
-      "require": "./dist/index.cjs"
+      "import": {
+        "types": "./dist/index.d.mts",
+        "default": "./dist/index.mjs"
+      },
+      "require": {
+        "types": "./dist/index.d.cts",
+        "default": "./dist/index.cjs"
+      }
     }
+  },
+  "bin": {
+    "shotkit": "./dist/cli.mjs"
   },
   "files": [
     "dist/",
@@ -22,7 +31,7 @@
     "node": ">=18.18"
   },
   "scripts": {
-    "build": "tsup src/index.ts --format esm,cjs --dts --sourcemap --clean --shims",
+    "build": "tsdown",
     "typecheck": "tsc --noEmit",
     "test": "npm run build && node --test test/*.test.mjs test/*.test.cjs",
     "stage": "tsx tools/stage-platform.ts",
@@ -31,7 +40,8 @@
   },
   "devDependencies": {
     "@types/node": "26.1.1",
-    "tsup": "8.5.1",
+    "publint": "0.3.23",
+    "tsdown": "0.22.14",
     "tsx": "4.23.1",
     "typescript": "5.9.3"
   },

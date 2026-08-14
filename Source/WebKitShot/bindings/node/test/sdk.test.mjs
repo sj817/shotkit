@@ -5,7 +5,9 @@ import path from 'node:path';
 import test from 'node:test';
 import { pathToFileURL } from 'node:url';
 
-import { launch, ShotKitError } from '../dist/index.js';
+// Self-reference by package name so the test exercises the published "exports"
+// map rather than a build-output path that changes with the bundler.
+import { launch, ShotKitError } from '@shotkit/node';
 
 const outputDirectory = path.join(tmpdir(), 'shotkit-node-sdk-test');
 
