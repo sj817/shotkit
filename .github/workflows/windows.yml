@@ -313,6 +313,68 @@ jobs:
         shell: bash
         run: sccache --show-stats
 
+      # 2026-08-15 首次上游同步后，Windows arm64 的冒烟测试以 0xC0000005（访问违例）
+      # 崩在第一次出图，x64 同样的输入正常。远程调试没有交互式手段，所以用一个分段
+      # 阶梯把故障面切开：无参（只考验 DLL 加载与静态初始化）→ 空文档（渲染管线，
+      # 无字体无文本）→ 纯 ASCII（字体与文本整形）→ 带 CSS 与非 ASCII 字形。
+      # 每级只报退出码不失败，真正的门禁仍是后面的冒烟步骤。
+      # 顺带开 WER LocalDumps，崩了就尽力用 cdb 打一份栈回来。
+      - name: Diagnose renderer crash (arm64 triage, non-fatal)
+        if: matrix.arch == 'arm64'
+        shell: pwsh
+        continue-on-error: true
+        timeout-minutes: 10
+        run: |
+          $ErrorActionPreference = 'Continue'
+          $bin = Join-Path $env:GITHUB_WORKSPACE 'WebKitBuild\shot\bin'
+          $cli = Join-Path $bin 'shotcli.exe'
+          $dumps = Join-Path $env:RUNNER_TEMP 'crashdumps'
+          New-Item -ItemType Directory -Force -Path $dumps | Out-Null
+          # DontShowUI 必须先设：崩溃进程若停在 WER 对话框上会把 runner 挂到超时，
+          # 这一条比转储本身更要紧。
+          Set-ItemProperty -Path 'HKLM:\SOFTWARE\Microsoft\Windows\Windows Error Reporting' `
+            -Name DontShowUI -Value 1 -Type DWord -ErrorAction SilentlyContinue
+          $wer = 'HKLM:\SOFTWARE\Microsoft\Windows\Windows Error Reporting\LocalDumps\shotcli.exe'
+          New-Item -Path $wer -Force | Out-Null
+          Set-ItemProperty -Path $wer -Name DumpFolder -Value $dumps -Type ExpandString
+          Set-ItemProperty -Path $wer -Name DumpType -Value 2 -Type DWord
+
+          $cases = @(
+            @{ name = '0 无参（DLL 加载 + 静态初始化）'; html = $null },
+            @{ name = '1 空文档（渲染管线，无字体无文本）'; html = '<!doctype html><html><body></body></html>' },
+            @{ name = '2 纯 ASCII 文本（字体与文本整形）';  html = '<!doctype html><body>hello' },
+            @{ name = '3 带 CSS 与非 ASCII 字形';           html = '<!doctype html><meta charset=utf-8><style>body{background:#eef2f7;font:32px sans-serif}</style><h1>ShotKit CI ✓</h1>' }
+          )
+          foreach ($c in $cases) {
+            if ($null -eq $c.html) {
+              & $cli 2>&1 | Out-String | Write-Host
+            } else {
+              $f = Join-Path $env:RUNNER_TEMP 'diag.html'
+              $c.html | Set-Content -LiteralPath $f -Encoding utf8NoBOM
+              & $cli --html $f --out (Join-Path $env:RUNNER_TEMP 'diag.png') --width 64 --height 64 2>&1 |
+                Out-String | Write-Host
+            }
+            $code = $LASTEXITCODE
+            $tag = if ($code -eq -1073741819) { '访问违例 0xC0000005' } elseif ($code -eq 0) { 'OK' } else { "退出码 $code" }
+            Write-Host "[阶梯] $($c.name) -> $tag"
+          }
+
+          $found = @(Get-ChildItem $dumps -Filter *.dmp -ErrorAction SilentlyContinue)
+          Write-Host "崩溃转储: $($found.Count) 个"
+          if ($found) {
+            $cdb = @(
+              'C:\Program Files (x86)\Windows Kits\10\Debuggers\arm64\cdb.exe',
+              'C:\Program Files (x86)\Windows Kits\10\Debuggers\x64\cdb.exe',
+              'C:\Program Files\Windows Kits\10\Debuggers\arm64\cdb.exe'
+            ) | Where-Object { Test-Path $_ } | Select-Object -First 1
+            if ($cdb) {
+              & $cdb -z $found[0].FullName -c '.symfix; .reload; !analyze -v; kb; q' 2>&1 |
+                Select-Object -First 200 | Out-String | Write-Host
+            } else {
+              Write-Host 'runner 上没有 cdb.exe，只能靠上面的阶梯定位'
+            }
+          }
+
       - name: Smoke test PNG and WebP
         shell: pwsh
         run: |

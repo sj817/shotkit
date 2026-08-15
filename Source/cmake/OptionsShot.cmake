@@ -302,6 +302,26 @@ if (SHOT_HAS_WINVALID_CONSTEXPR)
     add_compile_options("$<$<COMPILE_LANGUAGE:CXX>:-Wno-invalid-constexpr>")
 endif ()
 
+# 2026-08-15 上游同步：WebKitCompilerFlags.cmake 新增了
+#     if (LTO_MODE AND COMPILER_IS_CLANG)
+#         add_definitions(-DHAVE_PRESERVE_MOST=1)
+# 没有任何平台限制，而 pas_utils_prefix.h / WTF/Compiler.h 里的开关是
+#     #if defined(HAVE_PRESERVE_MOST) && HAVE_PRESERVE_MOST && defined(__aarch64__)
+# 于是 __attribute__((preserve_most)) 在「aarch64 + clang + LTO」的任意组合上生效，
+# 包括 aarch64-pc-windows-msvc —— 而 WebKit 上游没有 Windows ARM64 端口，这个 ABI
+# 组合从来没人构建过。实测：Windows arm64 全量 LTO 构建成功，但 shotcli 出图时以
+# 0xC0000005 崩溃；同一份代码 Windows x64 正常（x86-64 不满足 __aarch64__），
+# Linux arm64 也正常（同样开着 -DLTO_MODE=full，preserve_most 确实生效且没问题）。
+# 三方对照把问题锁死在 Windows ARM64 的调用约定实现上。
+#
+# preserve_most 是纯优化（缩小调用方需要保存的寄存器集），关掉只损失一点分配器
+# 快路径的寄存器压力，不影响正确性。只在 Windows 上摘除，保留 Linux arm64 的收益。
+# WebKitCompilerFlags 在 WebKitCommon.cmake:329 被包含，早于 Options${PORT}:340，
+# 同一目录作用域，所以 remove_definitions 的时序是确定的。
+if (WIN32)
+    remove_definitions(-DHAVE_PRESERVE_MOST=1)
+endif ()
+
 # ---- 体积极致化（AGENTS.md 4.5①）：死代码消除三件套 ----
 # ① 关掉层间 dllexport：bmalloc/WTF/JSC/PAL/WebCore 全是 OBJECT 静态汇入 libshot，层间无
 #    DLL 边界。上游 *_EXPORT 宏默认展开为 __declspec(dllexport)，会把上万个内部符号钉在

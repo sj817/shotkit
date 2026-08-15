@@ -172,6 +172,29 @@ git apply --3way ../upstream.patch
    > 补完一处后建议顺手扫同族：把该头文件里同一 `#if` 块内声明的方法全部列出，
    > `git grep` 它们的调用点，逐个回溯所在的 `#if` 栈，确认没有第二处漏网。
 
+9. **上游新增的编译期开关没有平台限制，在上游从不构建的目标三元组上有害** →
+   构建全绿、运行期崩溃，是最贵的一类（要跑满一次构建才暴露）。
+   查：patch 里新增的 `add_definitions(-DHAVE_*)` / `add_compile_options`，
+   看它的启用条件里有没有平台维度；再看被它激活的头文件开关是按什么门控的。
+
+   > **本 fork 独有的目标三元组是 `aarch64-pc-windows-msvc`** —— WebKit 上游没有
+   > Windows ARM64 端口，任何按 `__aarch64__` 或 `CPU(ARM64)` 门控的新代码，上游都
+   > 只在 Darwin/Linux 的 aarch64 上验证过。这是本 fork 最没有上游兜底的一格。
+   >
+   > 2026-08-15：上游新增 `if (LTO_MODE AND COMPILER_IS_CLANG) add_definitions(-DHAVE_PRESERVE_MOST=1)`
+   > （无平台限制），配合 `pas_utils_prefix.h` / `WTF/Compiler.h` 里的
+   > `#if defined(HAVE_PRESERVE_MOST) && HAVE_PRESERVE_MOST && defined(__aarch64__)`，
+   > 让 `__attribute__((preserve_most))` 在 Windows ARM64 上生效，`shotcli` 出图时
+   > 0xC0000005。三方对照定位：Windows x64 正常（不满足 `__aarch64__`）、
+   > **Linux arm64 正常**（同样 `-DLTO_MODE=full`，preserve_most 确实生效且没问题）、
+   > 只有 Windows arm64 崩 —— 问题锁在该 ABI 的调用约定实现上。
+   > 修法见 `OptionsShot.cmake`：`if (WIN32) remove_definitions(-DHAVE_PRESERVE_MOST=1)`。
+   > preserve_most 是纯优化，关掉不影响正确性，且保留了 Linux arm64 的收益。
+   >
+   > 排查手法值得复用：**先用「哪些平台过、哪些平台崩」做三方对照**，把嫌疑收敛到
+   > 单一维度（这里是 OS/ABI，因为架构与 LTO 都被 Linux arm64 排除了），再去读 diff。
+   > 直接在 3188 个文件、7.3 万行的 patch 里找是无界的。
+
 **内容对等校验**（第 2 节的不变量）：
 
 ```sh
