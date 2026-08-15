@@ -195,6 +195,18 @@ if (APPLE)
     # single-process, OBJECT-library shape below. Page scripts and browser-only
     # features remain governed by the Shot option matrix above.
     include(OptionsCocoa)
+
+    # 2026-08-15 上游同步：OptionsCocoa 新增了 -explicit-module-build。它在公开
+    # Xcode 工具链上会让 PAL 的 Swift 模块构建撞出依赖环：
+    #   _DarwinFoundation3.swiftmodule -> CxxStdlib.swiftinterface -> _DarwinFoundation3
+    # 上游那段选项自己的注释就写着是「为兼容内部 SDK」，而我们的 CI 用的是公开
+    # SDK。隐式模块构建是长期默认路径，本项目的 macOS CI 一直用它且是绿的，
+    # 所以只在 Shot 端口把这个标志摘掉，不动上游文件。
+    get_property(_shot_compile_options DIRECTORY PROPERTY COMPILE_OPTIONS)
+    list(FILTER _shot_compile_options EXCLUDE REGEX "explicit-module-build")
+    set_property(DIRECTORY PROPERTY COMPILE_OPTIONS ${_shot_compile_options})
+    unset(_shot_compile_options)
+
     # Cocoa PAL implements CryptoDigest through its generated Swift/CryptoKit
     # bridge. Static loading paths use the digest even when page JS is disabled.
     set(SWIFT_REQUIRED ON)
