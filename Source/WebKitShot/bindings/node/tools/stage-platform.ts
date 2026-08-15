@@ -4,14 +4,14 @@
 //   platform:  win32-x64 | win32-arm64 | linux-x64 | linux-arm64 | darwin-x64 | darwin-arm64
 //   sourceDir: an extracted release archive (or any dir with the same layout).
 //              Defaults, for local Windows development, to the compact release
-//              WebKitBuild/releases/shotkit-<version>-windows-<arch> and falls
-//              back to WebKitBuild/shot-dist.
+//              WebKitBuild/releases/shotkit-windows-<arch> and falls back to
+//              WebKitBuild/shot-dist.
 //
 // Windows runtimes are flat (shotcli.exe + *.dll); Linux/macOS use bin/ + lib/
 // (the executable finds libshot via $ORIGIN/../lib or @loader_path/../lib).
 // Non-runtime payload (include/, docs, checksums, screenshots) is skipped.
 
-import { cp, mkdir, readdir, readFile, rm, stat } from 'node:fs/promises';
+import { cp, mkdir, readdir, rm, stat } from 'node:fs/promises';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 
@@ -38,9 +38,8 @@ async function exists(candidate: string): Promise<boolean> {
 }
 
 async function defaultSource(): Promise<string> {
-  const metadata = JSON.parse(await readFile(path.join(packageDirectory, 'package.json'), 'utf8')) as { version: string };
   const [, arch] = platform.split('-');
-  const compact = path.join(repositoryRoot, 'WebKitBuild', 'releases', `shotkit-${metadata.version}-windows-${arch}`);
+  const compact = path.join(repositoryRoot, 'WebKitBuild', 'releases', `shotkit-windows-${arch}`);
   if (platform.startsWith('win32-') && await exists(path.join(compact, 'shotcli.exe')))
     return compact;
   return path.join(repositoryRoot, 'WebKitBuild', 'shot-dist');

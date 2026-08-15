@@ -1,11 +1,10 @@
-import { cp, mkdir, readFile, readdir, rm, stat } from 'node:fs/promises';
+import { cp, mkdir, readdir, rm, stat } from 'node:fs/promises';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 
 const packageDirectory = path.dirname(path.dirname(fileURLToPath(import.meta.url)));
 const repositoryRoot = path.resolve(packageDirectory, '..', '..', '..', '..');
-const packageMetadata = JSON.parse(await readFile(path.join(packageDirectory, 'package.json'), 'utf8')) as { version: string };
-const compactRelease = path.join(repositoryRoot, 'WebKitBuild', 'releases', `shotkit-${packageMetadata.version}-windows-x64`);
+const compactRelease = path.join(repositoryRoot, 'WebKitBuild', 'releases', 'shotkit-windows-x64');
 const developmentRuntime = path.join(repositoryRoot, 'WebKitBuild', 'shot-dist');
 let source = path.resolve(process.env.SHOT_DIST || compactRelease);
 if (!process.env.SHOT_DIST) {
