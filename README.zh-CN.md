@@ -252,7 +252,8 @@ PNG / WebP
 - 页面脚本在设置、解析预加载、最终网络调度多层被拒绝，既不执行也不下载；
 - bmalloc、WTF、JavaScriptCore、PAL、WebCore 以 OBJECT 库汇入同一个共享库，对外只暴露 C ABI。
 
-设计取舍、裁剪依据和体积账本见 [`AGENTS.md`](AGENTS.md)。
+设计取舍与裁剪依据见 [`docs/architecture.md`](docs/architecture.md)，
+体积账本见 [`docs/size-ledger.md`](docs/size-ledger.md)。
 
 ## 从源码构建
 
@@ -319,7 +320,8 @@ ninja -C WebKitBuild/shot-macos shotcli
 | [`Source/cmake/OptionsShot.cmake`](Source/cmake/OptionsShot.cmake) | Shot 端口特性与依赖矩阵 |
 | [`Source/WebCore/ShotPruning.cmake`](Source/WebCore/ShotPruning.cmake) | WebCore IDL/绑定裁剪入口 |
 | [`upstream-sync/`](upstream-sync/) | 上游同步流程、基线提交、偏离清单 |
-| [`AGENTS.md`](AGENTS.md) | 架构决策、风险、体积账本与路线图 |
+| [`docs/`](docs/) | 架构、构建开关、体积账本、实施进度、工作约定 |
+| [`AGENTS.md`](AGENTS.md) | 入口：当前状态、已拍板决策、文档索引 |
 
 `main` 是无上游历史的精简发布快照，只保留 ShotKit 的构建闭包。它与上游 WebKit 没有共同祖先，
 所以同步上游不是分支合并，而是路径域的补丁重放。同步流程、基线提交与上游偏离清单都在
@@ -330,7 +332,7 @@ ninja -C WebKitBuild/shot-macos shotcli
 欢迎提 Issue 和 PR。提交裁剪类改动时，请一并说明：对静态截图能力的影响、共享库与发布归档的实测
 体积变化，以及你跑过的 PNG/WebP、网络、XML/XSLT 或多语言回归。
 
-本仓库是 WebKit 的 snapshot fork，不以持续 rebase 上游为目标。工作约定见 [`AGENTS.md`](AGENTS.md)。
+本仓库是 WebKit 的 snapshot fork，不以持续 rebase 上游为目标。工作约定见 [`docs/conventions.md`](docs/conventions.md)。
 
 ## 许可证
 

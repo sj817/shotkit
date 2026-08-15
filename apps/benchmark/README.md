@@ -65,12 +65,11 @@ npm run benchmark
 
 ## `shotcli --serve` 协议
 
-启动后 stdout 首行是 ready 消息。之后 stdin 每行一条 JSON 请求，stdout 同序返回一行 JSON：
+基准脚本用常驻模式测「热请求」耗时——启动后 stdin 每行一条 JSON 请求，stdout 同序返回一行：
 
 ```json
 {"id":1,"url":"https://example.com","out":"example.png","width":1280,"height":800,"full_page":true,"format":"png"}
-{"id":2,"html_file":"page.html","out":"page.webp","format":"webp","quality":82}
-{"op":"shutdown"}
 ```
 
-每条渲染响应包含 `status`、`bytes` 和 CLI 内部统计的 `duration_ms`。单个请求失败不会退出服务进程。
+协议的完整定义（ready 消息、全部字段、错误语义）见
+[docs/language-bindings.md](../../docs/language-bindings.md)，那里是规范源。

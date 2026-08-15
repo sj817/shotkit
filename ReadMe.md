@@ -263,7 +263,8 @@ PNG / WebP
 - bmalloc, WTF, JavaScriptCore, PAL, and WebCore link into one shared library as OBJECT libraries,
   with only the C ABI visible.
 
-Design notes, pruning rationale, and the size ledger live in [`AGENTS.md`](AGENTS.md).
+Design notes and the pruning rationale are in [`docs/architecture.md`](docs/architecture.md);
+the size ledger is in [`docs/size-ledger.md`](docs/size-ledger.md).
 
 ## Building from source
 
@@ -334,7 +335,8 @@ More detail, including archive layout and platform dependencies:
 | [`Source/cmake/OptionsShot.cmake`](Source/cmake/OptionsShot.cmake) | Shot port features and dependency matrix |
 | [`Source/WebCore/ShotPruning.cmake`](Source/WebCore/ShotPruning.cmake) | WebCore IDL/binding pruning |
 | [`upstream-sync/`](upstream-sync/) | Upstream sync procedure, baseline commit, deviation ledger |
-| [`AGENTS.md`](AGENTS.md) | Architecture decisions, risks, size ledger, roadmap |
+| [`docs/`](docs/) | Architecture, build options, size ledger, changelog, conventions |
+| [`AGENTS.md`](AGENTS.md) | Entry point: current status, locked decisions, doc index |
 
 `main` is a squashed release snapshot carrying only the ShotKit build closure — it shares no
 ancestry with upstream WebKit, so syncing is a path-scoped patch replay rather than a merge.
@@ -348,7 +350,7 @@ screenshot capability, the measured size change of the shared library and the re
 which PNG/WebP, network, XML/XSLT, or multilingual regressions you ran.
 
 This is a snapshot fork of WebKit and does not aim to continuously rebase on upstream. Working
-conventions are in [`AGENTS.md`](AGENTS.md).
+conventions are in [`docs/conventions.md`](docs/conventions.md).
 
 ## License
 
