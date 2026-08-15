@@ -187,7 +187,11 @@ jobs:
           ldd "$stage/lib/libshot.so" > "$stage/DEPENDENCIES.txt"
           cp ReadMe.md "$stage/README.md"
           tar -C WebKitBuild/releases -cJf "WebKitBuild/releases/${name}.tar.xz" "$name"
-          sha256sum "WebKitBuild/releases/${name}.tar.xz" > "WebKitBuild/releases/${name}.tar.xz.sha256"
+          # Record the checksum against the bare file name, not the path it was
+          # built at: consumers unpack the artifact somewhere else entirely, and
+          # a stored path makes `sha256sum -c` hunt for a directory that is not
+          # there. Matches what package-release.ps1 writes on Windows.
+          ( cd WebKitBuild/releases && sha256sum "${name}.tar.xz" > "${name}.tar.xz.sha256" )
           archive_bytes=$(stat -c %s "WebKitBuild/releases/${name}.tar.xz")
           echo "release tar.xz: ${archive_bytes} bytes (budget 18000000, lto=${SHOT_LTO})"
           test "$archive_bytes" -le 18000000

@@ -215,16 +215,41 @@ jobs:
       - run: npm run typecheck
       - run: npm run build
 
-      - name: Stamp the release version
-        if: github.event_name == 'release'
+      # The checked-in version is deliberately stale; the version actually
+      # published comes from the release tag. A dispatch rehearsal has no tag,
+      # so it synthesises one — see below for why that is not a publish hazard.
+      - name: Stamp the version being published
         shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TAG: ${{ github.event.release.tag_name }}
         run: |
-          tag="${{ github.event.release.tag_name }}"
-          version="${tag#v}"
+          if [[ "$GITHUB_EVENT_NAME" == "release" ]]; then
+            version="${TAG#v}"
+            label="release tag '$TAG'"
+          else
+            # A rehearsal used to keep the checked-in version (0.1.0), which npm
+            # rejects outright once anything higher is published — so the
+            # rehearsal could never pass, whatever it was actually testing. A
+            # safety net that always fails is worse than none: it trains you to
+            # read every failure as the known noise. Synthesise a version above
+            # the newest release so the rehearsal fails only on real problems.
+            latest="$(gh release list --repo "$GITHUB_REPOSITORY" --limit 1 \
+              --json tagName --jq '.[0].tagName // empty')"
+            latest="${latest#v}"
+            latest="${latest:-$(node -p 'require("./package.json").version')}"
+            if [[ ! "$latest" =~ ^([0-9]+)\.([0-9]+)\.([0-9]+) ]]; then
+              echo "cannot derive a rehearsal version from '$latest'" >&2
+              exit 1
+            fi
+            version="${BASH_REMATCH[1]}.${BASH_REMATCH[2]}.$(( BASH_REMATCH[3] + 1 ))"
+            label="rehearsal version above $latest"
+          fi
           if [[ ! "$version" =~ ^[0-9]+\.[0-9]+\.[0-9]+([-.].+)?$ ]]; then
-            echo "release tag '$tag' is not a semver version" >&2
+            echo "$label is not a semver version: '$version'" >&2
             exit 1
           fi
+          echo "publishing as $version ($label)"
           npm version "$version" --no-git-tag-version --allow-same-version
 
       # Aligns every platform package to the main version and injects the
@@ -236,7 +261,17 @@ jobs:
         shell: bash
         run: |
           flags=(--access public)
-          if [[ "${{ github.event_name }}" == "workflow_dispatch" && "${{ inputs.dry-run }}" == "true" ]]; then
+          if [[ "$GITHUB_EVENT_NAME" == "workflow_dispatch" ]]; then
+            # Now that a rehearsal stamps a version above the newest release,
+            # unticking dry-run would push a real version that no tag, release
+            # notes or archives back — the assets job is release-only. What used
+            # to block that was npm refusing the stale 0.1.0, which is luck, not
+            # a guard. Republishing after a partial failure is a re-run of the
+            # release-triggered run, so nothing legitimate needs this path.
+            if [[ "${{ inputs.dry-run }}" != "true" ]]; then
+              echo "manual publishing is not supported — publish a Release instead" >&2
+              exit 1
+            fi
             flags+=(--dry-run)
             echo "dry run — nothing will be published"
           fi
@@ -318,8 +353,23 @@ jobs:
             target="shotkit-${version}-${BASH_REMATCH[1]}-${BASH_REMATCH[2]}.tar.xz"
             [[ "$base.tar.xz" == "$target" ]] && continue
 
-            ( cd "$directory" && sha256sum -c "${base}.tar.xz.sha256" )
-            hash="$(awk '{print $1}' "${directory}/${base}.tar.xz.sha256")"
+            # The build workflows record the checksum against the path they
+            # produced it at (WebKitBuild/releases/...), but the archives are
+            # downloaded here into a flat temporary directory, so `sha256sum -c`
+            # dutifully looks for a path that does not exist and reports the
+            # archive as unreadable. Compare the hash column ourselves instead —
+            # same verification, no dependency on where the file used to live.
+            checksum="${directory}/${base}.tar.xz.sha256"
+            hash="$(awk 'NR == 1 { print $1 }' "$checksum")"
+            if [[ ! "$hash" =~ ^[0-9a-f]{64}$ ]]; then
+              echo "no usable sha256 in $checksum: '$hash'" >&2
+              exit 1
+            fi
+            actual="$(sha256sum "$archive" | awk '{print $1}')"
+            if [[ "$hash" != "$actual" ]]; then
+              echo "$base.tar.xz checksum mismatch: expected $hash, got $actual" >&2
+              exit 1
+            fi
             mv "$archive" "${directory}/${target}"
             rm -f "${directory}/${base}.tar.xz.sha256"
             printf '%s  %s\n' "$hash" "$target" > "${directory}/${target}.sha256"
