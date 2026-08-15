@@ -53,8 +53,6 @@ jobs:
             /WebKitLibraries/
             /CMakeLists.txt
             /CMakePresets.json
-            /Makefile
-            /Makefile.shared
             /AGENTS.md
             /ReadMe.md
 

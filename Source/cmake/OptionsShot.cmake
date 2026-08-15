@@ -59,6 +59,16 @@ endif ()
 set(ENABLE_WEBKIT OFF)
 set(ENABLE_WEBKIT_LEGACY OFF)
 
+# WebInspectorUI / Tools 的默认值在 WebKitCommon.cmake 里是 ON（且只有
+# `if (NOT DEFINED)` 保护），此处不显式关掉的话：
+#   - Source/CMakeLists.txt 会 add_subdirectory(WebInspectorUI)，且
+#     Source/WebCore/CMakeLists.txt 把它列进 WebCore_DEPENDENCIES，于是每次
+#     构建都白跑一遍 inspector 前端资源打包（我们 SHOT_NO_INSPECTOR=1，用不到）；
+#   - 顶层 CMakeLists.txt 会 add_subdirectory(Tools)，虽然 API/Layout 测试都已
+#     关掉、最终一个 target 也不产生，但白走一遍配置。
+set(ENABLE_WEBINSPECTORUI OFF)
+set(ENABLE_TOOLS OFF)
+
 set(CMAKE_ARCHIVE_OUTPUT_DIRECTORY_DEBUG "${CMAKE_ARCHIVE_OUTPUT_DIRECTORY}")
 set(CMAKE_ARCHIVE_OUTPUT_DIRECTORY_RELEASE "${CMAKE_ARCHIVE_OUTPUT_DIRECTORY}")
 set(CMAKE_LIBRARY_OUTPUT_DIRECTORY_DEBUG "${CMAKE_LIBRARY_OUTPUT_DIRECTORY}")

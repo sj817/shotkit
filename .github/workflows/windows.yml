@@ -76,8 +76,6 @@ jobs:
             /WebKitLibraries/
             /CMakeLists.txt
             /CMakePresets.json
-            /Makefile
-            /Makefile.shared
             /vcpkg.json
             /vcpkg-configuration.json
             /AGENTS.md
