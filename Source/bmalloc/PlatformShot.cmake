@@ -1,3 +1,3 @@
 if (APPLE)
-    include(PlatformMac.cmake)
+    include(PlatformCocoa.cmake)
 endif ()

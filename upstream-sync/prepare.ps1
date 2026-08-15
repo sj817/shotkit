@@ -10,6 +10,8 @@
 
 param(
     [string]$Root = [IO.Path]::GetFullPath((Join-Path $PSScriptRoot '..')),
+    # 只跑同步后的静态检查（不联网）：我们端口文件里的 include() 是否仍能解析。
+    [switch]$Verify,
     # 上游目标：分支名或提交哈希。默认取上游 main 的当前顶端。
     [string]$TargetRef = 'main',
     # scratch 仓位置。默认放在仓库外的兄弟目录，避免污染产品仓的 .git。
@@ -21,6 +23,35 @@ param(
 
 $ErrorActionPreference = 'Stop'
 $Root = [IO.Path]::GetFullPath($Root)
+
+# ---- -Verify：同步后的静态检查（README 第 6 节第 4 类）----
+# 我们自己的端口文件不在上游补丁里，所以上游把它们 include 的文件改名/删掉时
+# 不会产生冲突，直到配置期才炸；而且只在对应平台上炸（2026-08-15 的
+# PlatformMac -> PlatformCocoa 改名，Windows 本地构建完全无感）。
+if ($Verify) {
+    $ourFiles = @(Get-ChildItem -Path (Join-Path $Root 'Source') -Recurse -Filter 'PlatformShot.cmake' -File) +
+                @(Get-ChildItem -Path (Join-Path $Root 'Source') -Recurse -Filter 'ShotPruning.cmake' -File) +
+                @(Get-Item (Join-Path $Root 'Source/cmake/OptionsShot.cmake') -ErrorAction SilentlyContinue)
+    $bad = 0
+    foreach ($f in $ourFiles) {
+        $dir = Split-Path -Parent $f.FullName
+        foreach ($m in [regex]::Matches((Get-Content -Raw -LiteralPath $f.FullName),
+                       'include\(\s*(?:\$\{CMAKE_CURRENT_SOURCE_DIR\}/)?([A-Za-z0-9_/.\-]+\.cmake)\s*\)')) {
+            $t = $m.Groups[1].Value
+            $found = @($t, (Join-Path $dir $t), (Join-Path $Root "Source/cmake/$t")) |
+                     Where-Object { Test-Path -LiteralPath $_ }
+            if (-not $found) {
+                $rel = $f.FullName.Substring($Root.Length + 1)
+                Write-Host "缺失  $rel -> include($t)"
+                $bad++
+            }
+        }
+    }
+    Write-Host "检查 $($ourFiles.Count) 个端口文件，缺失 include: $bad"
+    if ($bad) { throw "端口文件引用了不存在的上游 cmake（多半是上游改名/删除），见上方清单" }
+    Write-Host "端口文件的 include 全部可解析。"
+    return
+}
 if (-not $ScratchDir) { $ScratchDir = Join-Path (Split-Path -Parent $Root) 'webkit-upstream' }
 $ScratchDir = [IO.Path]::GetFullPath($ScratchDir)
 

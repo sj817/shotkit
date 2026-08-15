@@ -110,6 +110,15 @@ git apply --3way ../upstream.patch
 3. **上游改了导出宏/构建宏** → `SHOT_NO_DLLEXPORT`（`WTF/wtf/ExportMacros.h`、
    `bmalloc/BExport.h`）、`JS_NO_EXPORT`、`SHOT_NO_INSPECTOR`、`SHOT_NO_SCRIPT`
    的分支插入点可能漂移。查：确认这些宏的 `#if` 分支仍在生效位置上。
+4. **上游重命名/删除了我们 include 的文件** → 我们自己的文件（各层 `PlatformShot.cmake`、
+   `ShotPruning.cmake`）不在补丁里，所以**不会产生冲突**，但它们指向的上游文件可能
+   已经不存在了，直到配置期才炸。
+   `prepare.ps1 -Verify` 会检查我们端口文件里的每个 `include()` 是否仍能解析。
+
+   > 2026-08-15 首次同步就踩到了：上游把各模块的 `PlatformMac.cmake` 整体重命名为
+   > `PlatformCocoa.cmake`（引入 `Cocoa` 端口），我们 5 个 `PlatformShot.cmake` 的
+   > `include(PlatformMac.cmake)` 全部失效。Windows 本地构建完全无感——它走
+   > `PlatformWin.cmake` 分支——只有 macOS CI 报错。**跨平台的偏离必须靠 CI 兜底。**
 
 **内容对等校验**（第 2 节的不变量）：
 

@@ -8,8 +8,8 @@ if (WIN32)
     list(REMOVE_ITEM WebCore_SOURCES platform/text/LocaleICU.cpp)
     list(APPEND WebCore_SOURCES platform/text/LocaleNone.cpp)
 elseif (APPLE)
-    include(${CMAKE_CURRENT_SOURCE_DIR}/PlatformMac.cmake)
-    # PlatformMac normally builds WebCore.framework and codesigns it. Shot
+    include(${CMAKE_CURRENT_SOURCE_DIR}/PlatformCocoa.cmake)
+    # PlatformCocoa normally builds WebCore.framework and codesigns it. Shot
     # folds WebCore OBJECT files into libshot, so OBJECT targets cannot carry
     # that framework POST_BUILD command.
     set(WebCore_POST_BUILD_COMMAND "")
