@@ -14,7 +14,11 @@ if (-not $VcpkgTriplet) { $VcpkgTriplet = "$Architecture-windows-webkit" }
 $Root = [IO.Path]::GetFullPath($Root)
 $BuildRoot = [IO.Path]::GetFullPath((Join-Path $Root 'WebKitBuild'))
 $Releases = [IO.Path]::GetFullPath((Join-Path $BuildRoot 'releases'))
-$ArtifactName = "shotkit-$Version-windows-$Architecture"
+# No version in the name: the archive unpacks to a stable
+# shotkit-windows-<arch>/ directory. $Version still labels the payload (README,
+# manifest.json), and the release workflow stamps the tag onto the file name of
+# the public download.
+$ArtifactName = "shotkit-windows-$Architecture"
 $Stage = [IO.Path]::GetFullPath((Join-Path $Releases $ArtifactName))
 $Tar = [IO.Path]::GetFullPath((Join-Path $BuildRoot "$ArtifactName.tar"))
 $Archive = [IO.Path]::GetFullPath((Join-Path $Releases "$ArtifactName.tar.xz"))
@@ -54,8 +58,9 @@ This is a conventional compressed distribution: extract the complete archive
 before use. The extracted shot.dll is the rendering core and never performs
 runtime extraction or writes a cache under LOCALAPPDATA.
 
-Extract:
-  tar.exe -xf $ArtifactName.tar.xz
+Extract (the downloaded file name carries the release version; the directory
+it unpacks into does not):
+  tar.exe -xf shotkit-<version>-windows-$Architecture.tar.xz
   cd $ArtifactName
 
 CLI:

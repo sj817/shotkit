@@ -172,9 +172,12 @@ jobs:
 
       - name: Package release archive
         run: |
-          version="0.1.0-ci.${GITHUB_RUN_NUMBER}"
-          name="shotkit-${version}-linux-${{ matrix.arch }}"
+          # No version in the name: the archive unpacks to a stable
+          # shotkit-linux-<arch>/ directory. The release job stamps the tag onto
+          # the file name of the public download.
+          name="shotkit-linux-${{ matrix.arch }}"
           stage="WebKitBuild/releases/${name}"
+          rm -rf "$stage"
           mkdir -p "$stage/bin" "$stage/lib" "$stage/include"
           cp WebKitBuild/shot-linux/bin/shotcli "$stage/bin/"
           cp WebKitBuild/shot-linux/lib/libshot.so "$stage/lib/"
