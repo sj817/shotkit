@@ -23,7 +23,7 @@
 #      —— WHATWG Encoding Standard 不含 EUC-TW / ISO-2022-CN，浏览器不解码这两族编码
 #      （随 -PruneUnusedConverters 一起移除，见下）。
 #
-# 用法：pwsh Source/WebKitShot/tools/slim-icu.ps1 [-DatPath <icudtNNl.dat>] [-Out <icudtNN.dll>]
+# 用法：pwsh scripts/slim-icu.ps1 [-DatPath <icudtNNl.dat>] [-Out <icudtNN.dll>]
 #          [-PruneUnusedConverters]
 #       CI 与本地统一用 pwsh 调用；链接步骤依赖 VS 的 vcvarsall.bat + link.exe。
 #
@@ -37,7 +37,7 @@
 # 裁剪（cjdict 近空替换 / unames / 时区）只能由本脚本做确定性的 icupkg 后处理。
 
 param(
-    [string]$Root = [IO.Path]::GetFullPath((Join-Path $PSScriptRoot '..\..\..')),
+    [string]$Root = [IO.Path]::GetFullPath((Join-Path $PSScriptRoot '..')),
     [string]$VcpkgRoot = '',
     [string]$VcpkgInstalledDir = '',
     [string]$VcpkgTriplet = 'x64-windows-webkit',

@@ -23,7 +23,7 @@ ShotKit 把 **HTML 渲染成 PNG 或 WebP** —— 输入可以是 HTML 字符�
 | **安装** | `npm install` | 外加浏览器下载 | 外加浏览器下载 |
 
 <sub>1280×800 full-page PNG，同一台机器（i9-14900KF / Windows），Puppeteer 25.3 / Playwright 1.61，
-三次取最快。测试口径与原始数据见 [`demo/browser-benchmark`](demo/browser-benchmark/)。</sub>
+三次取最快。测试口径与原始数据见 [`apps/benchmark`](apps/benchmark/)。</sub>
 
 也就是说：**热截图快 3 倍，冷启动快 6 倍，内存约为无头 Chrome 的十分之一**。原因是 ShotKit 根本
 不是浏览器——它是从 WebKit 的排版绘制引擎 WebCore 裁切出来的单进程渲染内核：没有窗口，没有多进程
@@ -157,7 +157,7 @@ try {
 `scale`、`fullPage`、`timeoutMs`、`baseURL`、`userAgent`、`mimeType`、`allowFileURLs`。
 返回：`{ data: Buffer, bytes, durationMs, elapsedMs, outputPath? }`。
 
-完整 SDK 文档见 [`bindings/node/README.md`](Source/WebKitShot/bindings/node/README.md)。
+完整 SDK 文档见 [`bindings/node/README.md`](apps/node/README.md)。
 
 ## CLI
 
@@ -210,11 +210,11 @@ shotcli (--html <file> | --stdin | --url <url>) --out <image>
 ```
 
 请求在单个渲染线程上顺序执行，需要并行就起多个进程。协议细节与 Python 示例见
-[跨语言调用文档](Source/WebKitShot/docs/language-bindings.md)。
+[跨语言调用文档](docs/language-bindings.md)。
 
 ## C ABI
 
-公开头文件是 [`Source/WebKitShot/capi/shot.h`](Source/WebKitShot/capi/shot.h)。`shot.dll`、
+公开头文件是 [`shot/capi/shot.h`](shot/capi/shot.h)。`shot.dll`、
 `libshot.so`、`libshot.dylib` 各自只导出 10 个 `shot_*` 符号，小到可以直接用 Python ctypes/cffi、
 Go cgo、Rust FFI 或 C# 绑定。
 
@@ -261,7 +261,7 @@ WebKit 规模不小，普通机器上大概要花掉近一个小时。只想用�
 
 ```powershell
 # Windows：VS C++ Build Tools、LLVM/clang-cl、CMake、Ninja、Ruby、Perl、gperf、Bison/Flex、vcpkg
-pwsh Source/WebKitShot/build-shot.ps1 -Configure -Build
+pwsh scripts/build-shot.ps1 -Configure -Build
 ```
 
 ```bash
@@ -283,7 +283,7 @@ cmake -S . -B WebKitBuild/shot-macos -G Ninja \
 ninja -C WebKitBuild/shot-macos shotcli
 ```
 
-归档布局、平台依赖等更多细节见[入门指南](Source/WebKitShot/docs/getting-started.md)。
+归档布局、平台依赖等更多细节见[入门指南](docs/getting-started.md)。
 
 ## 已知限制与安全边界
 
@@ -309,11 +309,15 @@ ninja -C WebKitBuild/shot-macos shotcli
 
 | 路径 | 内容 |
 |---|---|
-| [`Source/WebKitShot/`](Source/WebKitShot/) | 内核、C ABI、CLI、SDK、测试与发布工具 |
-| [`Source/WebKitShot/bindings/node/`](Source/WebKitShot/bindings/node/) | `@shotkit/node` SDK |
+| [`shot/`](shot/) | 渲染内核、C ABI 与 CLI —— 产品的 C++ 源码 |
+| [`apps/node/`](apps/node/) | `@shotkit/node` SDK |
+| [`apps/benchmark/`](apps/benchmark/) | 跨引擎基准工具与结果 |
+| [`scripts/`](scripts/) | 构建、ICU 裁剪、分发与发布工具 |
+| [`tests/`](tests/) | fixture 服务器、no-script-network 校验、泄漏 harness |
+| [`docs/`](docs/) | 入门、跨语言调用、设计笔记 |
+| [`Source/`](Source/) | 上游 WebKit，以及 `PlatformShot.cmake` 端口钩子 |
 | [`Source/cmake/OptionsShot.cmake`](Source/cmake/OptionsShot.cmake) | Shot 端口特性与依赖矩阵 |
 | [`Source/WebCore/ShotPruning.cmake`](Source/WebCore/ShotPruning.cmake) | WebCore IDL/绑定裁剪入口 |
-| [`demo/browser-benchmark/`](demo/browser-benchmark/) | 跨引擎基准工具与结果 |
 | [`AGENTS.md`](AGENTS.md) | 架构决策、风险、体积账本与路线图 |
 
 仓库维持两条线：`main` 是无上游历史的精简发布快照，只保留 ShotKit 的构建闭包；`shotkit` 保留完整

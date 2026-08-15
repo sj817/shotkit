@@ -1,10 +1,10 @@
-# WebKitShot — ShotKit 截图内核
+# shot — ShotKit 截图内核
 #
 # libshot: the direct C ABI library, with WebCore/JSC linked into one DLL.
 # shotcli: a thin client of libshot.
 # 见仓库根 AGENTS.md。
 
-set(SHOTKIT_DIR "${CMAKE_CURRENT_SOURCE_DIR}/ShotKit")
+set(SHOTKIT_DIR "${CMAKE_CURRENT_SOURCE_DIR}/kernel")
 
 # WebCore 内部头（DocumentWriter/FrameSnapshotting 等）的 include 目录，libshot 编译需要。
 set(_shotkit_includes

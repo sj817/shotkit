@@ -20,7 +20,7 @@ const SKIPPED_DIRECTORIES = new Set(['include']);
 const SKIPPED_EXTENSIONS = new Set(['.txt', '.md', '.png', '.sha256', '.h']);
 
 const packageDirectory = path.dirname(path.dirname(fileURLToPath(import.meta.url)));
-const repositoryRoot = path.resolve(packageDirectory, '..', '..', '..', '..');
+const repositoryRoot = path.resolve(packageDirectory, '..', '..');
 
 const [platform, explicitSource] = process.argv.slice(2);
 if (!platform || !PLATFORMS.includes(platform)) {

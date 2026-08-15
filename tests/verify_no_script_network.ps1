@@ -1,11 +1,11 @@
 param(
+    [string]$Root = [IO.Path]::GetFullPath((Join-Path $PSScriptRoot '..')),
     [string]$BuildDir,
     [int]$Port = 8988,
     [string]$VcpkgTriplet = 'x64-windows-webkit'
 )
 
 $ErrorActionPreference = 'Stop'
-$Root = (Resolve-Path (Join-Path $PSScriptRoot '..\..\..')).Path
 if (-not $BuildDir) {
     $BuildDir = Join-Path $Root 'WebKitBuild\shot'
 }

@@ -100,7 +100,7 @@ shotcli (--html <file> | --stdin | --url <url>) --out <image>
 所需工具包括 Visual Studio C++ Build Tools、Windows SDK、LLVM/clang-cl、CMake、Ninja、Ruby、Perl、gperf、Bison/Flex 和 vcpkg 依赖。
 
 ```powershell
-pwsh Source/WebKitShot/build-shot.ps1 -Configure -Build
+pwsh scripts/build-shot.ps1 -Configure -Build
 ```
 
 脚本自动发现 Visual Studio、LLVM 和 vcpkg。可通过 `-Root`、`-LlvmBin`、`-VcpkgRoot` 与 `-VcpkgInstalledDir` 指定路径。完整 full LTO 链接的内存峰值较高；普通开发可复用已有 `WebKitBuild/shot` 做增量构建。

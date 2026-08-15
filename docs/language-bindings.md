@@ -5,7 +5,7 @@ ShotKit 提供两层稳定入口：
 1. `shot.dll` / `libshot.so` / `libshot.dylib` 的 C ABI，适合 Python ctypes/cffi、Go cgo、Rust FFI 等进程内绑定；
 2. `shotcli --serve` 的 JSONL 常驻协议，适合不希望处理原生链接和主线程约束的语言。
 
-Node.js 优先使用 `Source/WebKitShot/bindings/node/` 的 `@shotkit/node`。它封装了第二种入口，返回 Promise 与 Buffer，同时支持 ESM 和 CommonJS。
+Node.js 优先使用 `apps/node/` 的 `@shotkit/node`。它封装了第二种入口，返回 Promise 与 Buffer，同时支持 ESM 和 CommonJS。
 
 ## JSONL 常驻协议
 

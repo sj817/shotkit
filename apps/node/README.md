@@ -94,7 +94,7 @@ await shot.close();
 ## 开发、测试、发布
 
 ```powershell
-cd D:\Github\webkit\Source\WebKitShot\bindings\node
+cd apps\node   # 仓库根目录下
 npm install
 npm run typecheck
 

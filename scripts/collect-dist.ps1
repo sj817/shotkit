@@ -4,7 +4,7 @@
 # and is therefore added explicitly.
 
 param(
-    [string]$Root = [IO.Path]::GetFullPath((Join-Path $PSScriptRoot '..\..\..')),
+    [string]$Root = [IO.Path]::GetFullPath((Join-Path $PSScriptRoot '..')),
     [string]$Out = '',
     [string]$VcpkgTriplet = 'x64-windows-webkit'
 )

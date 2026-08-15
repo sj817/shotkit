@@ -21,10 +21,10 @@ TypeScript ESM + `tsx` 驱动的可重复浏览器基准，比较：
 先构建并收集 ShotKit 分发目录，然后安装 Node 依赖和五个浏览器构建：
 
 ```powershell
-cd D:\Github\webkit
-pwsh Source\WebKitShot\build-shot.ps1 -Build
-pwsh Source\WebKitShot\tools\collect-dist.ps1
-cd demo\browser-benchmark
+cd <仓库根目录>
+pwsh scripts\build-shot.ps1 -Build
+pwsh scripts\collect-dist.ps1
+cd apps\benchmark
 npm install
 npm run install:browsers
 ```

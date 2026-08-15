@@ -69,6 +69,9 @@ jobs:
           sparse-checkout: |
             /.github/
             /Source/
+            /shot/
+            /scripts/
+            /tests/
             /Tools/
             /WebKitLibraries/
             /CMakeLists.txt
@@ -192,7 +195,7 @@ jobs:
           & tar.exe -xzf $icuArchive -C $icuSource 'icu/source/data/in/icudt77l.dat'
           if ($LASTEXITCODE) { throw "ICU source extraction failed with exit code $LASTEXITCODE" }
           $icuDat = Join-Path $icuSource 'icu\source\data\in\icudt77l.dat'
-          pwsh Source/WebKitShot/tools/slim-icu.ps1 `
+          pwsh scripts/slim-icu.ps1 `
             -Root $env:GITHUB_WORKSPACE `
             -VcpkgRoot $vcpkgRoot `
             -VcpkgInstalledDir $installed `
@@ -227,7 +230,7 @@ jobs:
           Write-Host "LTO mode: $env:SHOT_LTO; compiler launcher: $(if ($env:SHOT_COMPILER_LAUNCHER) { $env:SHOT_COMPILER_LAUNCHER } else { '(none)' })"
 
           $buildArguments = @(
-            'Source/WebKitShot/build-shot.ps1',
+            'scripts/build-shot.ps1',
             '-Configure', '-Build',
             '-Root', $env:GITHUB_WORKSPACE,
             '-VcpkgRoot', $env:SHOT_VCPKG_ROOT,
@@ -272,7 +275,7 @@ jobs:
 
       - name: Verify scripts are never fetched
         shell: pwsh
-        run: pwsh Source/WebKitShot/tests/verify_no_script_network.ps1 -BuildDir "$env:GITHUB_WORKSPACE\WebKitBuild\shot" -VcpkgTriplet ${{ matrix.triplet }}
+        run: pwsh tests/verify_no_script_network.ps1 -BuildDir "$env:GITHUB_WORKSPACE\WebKitBuild\shot" -VcpkgTriplet ${{ matrix.triplet }}
 
       - name: Verify the C ABI export surface
         shell: pwsh
@@ -290,7 +293,7 @@ jobs:
         shell: pwsh
         run: |
           $version = "0.1.0-ci.$env:GITHUB_RUN_NUMBER"
-          pwsh Source/WebKitShot/tools/package-release.ps1 `
+          pwsh scripts/package-release.ps1 `
             -Root $env:GITHUB_WORKSPACE `
             -Version $version `
             -LtoMode $env:SHOT_LTO `

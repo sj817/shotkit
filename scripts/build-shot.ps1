@@ -4,7 +4,7 @@ param(
     [switch]$Configure,
     [switch]$Build,
     [switch]$Clean,
-    [string]$Root = [IO.Path]::GetFullPath((Join-Path $PSScriptRoot '..\..')),
+    [string]$Root = [IO.Path]::GetFullPath((Join-Path $PSScriptRoot '..')),
     [string]$BuildDir = '',
     [string]$VcpkgRoot = $env:VCPKG_INSTALLATION_ROOT,
     [string]$VcpkgInstalledDir = '',

@@ -1,5 +1,6 @@
 // Locating the shotcli runtime is shared by the SDK and the `shotkit` CLI, so it
 // lives here rather than in either entry point.
+import { existsSync } from 'node:fs';
 import { access } from 'node:fs/promises';
 import { createRequire } from 'node:module';
 import path from 'node:path';
@@ -34,13 +35,34 @@ function installedRuntimeDirectory(): string | undefined {
   }
 }
 
+/**
+ * The development tree's `WebKitBuild/shot-dist`, located by walking up from this
+ * package rather than by counting `..` segments. The count would be baked into the
+ * published bundle, so moving the package inside the repository would silently
+ * point the fallback at nothing. Outside a checkout the walk finds no marker and
+ * returns undefined, which is what an installed package wants anyway.
+ */
+function developmentRuntimeDirectory(): string | undefined {
+  let directory = packageDirectory;
+  for (let depth = 0; depth < 6; ++depth) {
+    const candidate = path.join(directory, 'WebKitBuild', 'shot-dist');
+    if (existsSync(candidate))
+      return candidate;
+    const parent = path.dirname(directory);
+    if (parent === directory)
+      break;
+    directory = parent;
+  }
+  return undefined;
+}
+
 export async function resolveExecutable(explicit?: string): Promise<string> {
   const runtimeDirectories = [
     installedRuntimeDirectory(),
     // Repository-development fallbacks: a staged platform subpackage, then the
     // flat Windows development runtime.
     path.join(packageDirectory, 'npm', platformKey),
-    path.resolve(packageDirectory, '..', '..', '..', '..', 'WebKitBuild', 'shot-dist'),
+    developmentRuntimeDirectory(),
   ].filter((directory): directory is string => !!directory);
 
   const executable = executableName();

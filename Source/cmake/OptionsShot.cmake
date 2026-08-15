@@ -241,7 +241,7 @@ add_definitions(-DSHOT_NO_INSPECTOR=1)
 #    对 JS-only WebCore 子系统（getComputedStyle 后端等）的引用锚，让 full LTO 清扫。
 #    机制：WebCoreMacros.cmake 的 GENERATE_BINDINGS 把该文件经 SHOT_DEGENERATE_BINDINGS
 #    环境变量传给 CodeGeneratorJS.pm。实测 Windows x64 full LTO：shot.dll −4.29 MB。
-set(SHOT_DEGENERATE_BINDINGS_FILE ${CMAKE_SOURCE_DIR}/Source/WebKitShot/tools/degenerate-bindings.txt)
+set(SHOT_DEGENERATE_BINDINGS_FILE ${CMAKE_SOURCE_DIR}/shot/degenerate-bindings.txt)
 # ② 函数级/数据级分段；③ 链接期回收未引用段。
 if (MSVC)
     add_compile_options(/Gy /Gw)

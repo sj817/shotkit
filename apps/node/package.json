@@ -76,7 +76,7 @@
   "repository": {
     "type": "git",
     "url": "git+https://github.com/sj817/shotkit.git",
-    "directory": "Source/WebKitShot/bindings/node"
+    "directory": "apps/node"
   },
   "homepage": "https://github.com/sj817/shotkit#readme",
   "bugs": {

@@ -6,7 +6,7 @@
  *
  * 构建（build 完成后，链接 libshot 导入库）：
  *   clang-cl /std:c++20 /MD /O2 leak_harness.cpp ^
- *     /I ..\capi /link ..\..\..\..\WebKitBuild\shot\lib\shot.lib
+ *     /I ..\shot\capi /link ..\WebKitBuild\shot\lib\shot.lib
  * 运行时需 shot.dll 在 PATH 或同目录。
  */
 

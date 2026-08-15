@@ -1,5 +1,5 @@
 param(
-    [string]$Root = [IO.Path]::GetFullPath((Join-Path $PSScriptRoot '..\..\..')),
+    [string]$Root = [IO.Path]::GetFullPath((Join-Path $PSScriptRoot '..')),
     [string]$Version = '0.1.0',
     [ValidateSet('off', 'thin', 'full')]
     [string]$LtoMode = 'full',
@@ -48,7 +48,7 @@ try {
 
     $Include = Join-Path $Stage 'include'
     New-Item -ItemType Directory -Force -Path $Include | Out-Null
-    Copy-Item -LiteralPath (Join-Path $Root 'Source\WebKitShot\capi\shot.h') -Destination $Include
+    Copy-Item -LiteralPath (Join-Path $Root 'shot\capi\shot.h') -Destination $Include
 
     $Readme = @"
 ShotKit $Version - Windows $Architecture
