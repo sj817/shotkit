@@ -1,0 +1,17 @@
+# 同步路径域 —— 上游 diff 只在这些路径内取。
+#
+# 依据：PORT=Shot 实际参与构建的目录。上游在这个清单之外的改动（Tools/、
+# Source/WebKit、WebKitLegacy、WebInspectorUI、WebDriver、WebGPU、
+# ThirdParty/libwebrtc 等）对本 fork 没有意义，取进来只会制造噪声与假冲突。
+#
+# 以 # 开头的行与空行会被 prepare.ps1 忽略。
+
+Source/WTF
+Source/JavaScriptCore
+Source/bmalloc
+Source/WebCore
+Source/ThirdParty/skia
+Source/ThirdParty/ANGLE
+Source/cmake
+Source/CMakeLists.txt
+CMakeLists.txt

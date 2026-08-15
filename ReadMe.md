@@ -333,11 +333,13 @@ More detail, including archive layout and platform dependencies:
 | [`Source/`](Source/) | Upstream WebKit, plus the `PlatformShot.cmake` port hooks |
 | [`Source/cmake/OptionsShot.cmake`](Source/cmake/OptionsShot.cmake) | Shot port features and dependency matrix |
 | [`Source/WebCore/ShotPruning.cmake`](Source/WebCore/ShotPruning.cmake) | WebCore IDL/binding pruning |
+| [`upstream-sync/`](upstream-sync/) | Upstream sync procedure, baseline commit, deviation ledger |
 | [`AGENTS.md`](AGENTS.md) | Architecture decisions, risks, size ledger, roadmap |
 
-The repository keeps two lines: `main` is a squashed release snapshot carrying only the ShotKit
-build closure, and `shotkit` retains full WebKit history for upstream comparison. Day-to-day work,
-issues, and pull requests target `main`.
+`main` is a squashed release snapshot carrying only the ShotKit build closure — it shares no
+ancestry with upstream WebKit, so syncing is a path-scoped patch replay rather than a merge.
+The procedure, the baseline commit, and the ledger of every upstream edit live in
+[`upstream-sync/`](upstream-sync/).
 
 ## Contributing
 

@@ -318,10 +318,12 @@ ninja -C WebKitBuild/shot-macos shotcli
 | [`Source/`](Source/) | 上游 WebKit，以及 `PlatformShot.cmake` 端口钩子 |
 | [`Source/cmake/OptionsShot.cmake`](Source/cmake/OptionsShot.cmake) | Shot 端口特性与依赖矩阵 |
 | [`Source/WebCore/ShotPruning.cmake`](Source/WebCore/ShotPruning.cmake) | WebCore IDL/绑定裁剪入口 |
+| [`upstream-sync/`](upstream-sync/) | 上游同步流程、基线提交、偏离清单 |
 | [`AGENTS.md`](AGENTS.md) | 架构决策、风险、体积账本与路线图 |
 
-仓库维持两条线：`main` 是无上游历史的精简发布快照，只保留 ShotKit 的构建闭包；`shotkit` 保留完整
-WebKit 历史，供上游对照。日常开发、Issue 与 PR 都以 `main` 为准。
+`main` 是无上游历史的精简发布快照，只保留 ShotKit 的构建闭包。它与上游 WebKit 没有共同祖先，
+所以同步上游不是分支合并，而是路径域的补丁重放。同步流程、基线提交与上游偏离清单都在
+[`upstream-sync/`](upstream-sync/)。
 
 ## 贡献
 
