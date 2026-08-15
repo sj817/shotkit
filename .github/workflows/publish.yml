@@ -140,7 +140,7 @@ jobs:
       id-token: write # npm Trusted Publishing (OIDC) — tokenless publish
     defaults:
       run:
-        working-directory: Source/WebKitShot/bindings/node
+        working-directory: apps/node
     steps:
       - name: Checkout the node binding
         uses: actions/checkout@v7
@@ -148,14 +148,14 @@ jobs:
           fetch-depth: 1
           sparse-checkout-cone-mode: false
           sparse-checkout: |
-            /Source/WebKitShot/bindings/node/
+            /apps/node/
 
       - uses: actions/setup-node@v4
         with:
           node-version: 24 # ships npm >= 11.5, which supports OIDC publish
           registry-url: https://registry.npmjs.org
           cache: npm
-          cache-dependency-path: Source/WebKitShot/bindings/node/package-lock.json
+          cache-dependency-path: apps/node/package-lock.json
 
       - name: Download runtime archives from this run
         if: needs.resolve.outputs.reuse != 'true'
@@ -270,7 +270,7 @@ jobs:
           fetch-depth: 1
           sparse-checkout-cone-mode: false
           sparse-checkout: |
-            /Source/WebKitShot/tools/release-notes.mjs
+            /scripts/release-notes.mjs
 
       - uses: actions/setup-node@v4
         with:
@@ -297,9 +297,9 @@ jobs:
               --pattern 'shotkit-*' --dir "$RUNNER_TEMP/runtimes"
           done
 
-      # The build workflows name archives after the CI run (0.1.0-ci.84) because
-      # the release version does not exist yet when they run. Relabel them to the
-      # tag before they become public downloads. The archive bytes are untouched:
+      # The build workflows name archives shotkit-<os>-<arch> with no version, so
+      # every archive unpacks into a stable directory. Stamp the tag onto the file
+      # name before they become public downloads. The archive bytes are untouched:
       # each one is verified against the checksum CI produced, and that same hash
       # is carried over under the new name.
       - name: Relabel the archives to the release version
@@ -353,7 +353,7 @@ jobs:
             --jq "[.[].tagName] | map(select(. != \"$TAG\")) | .[0] // empty")
           range=()
           if [[ -n "$previous" ]]; then range=(--previous "$previous"); fi
-          node Source/WebKitShot/tools/release-notes.mjs \
+          node scripts/release-notes.mjs \
             --tag "$TAG" --dir "$RUNNER_TEMP/runtimes" --repo "$GITHUB_REPOSITORY" \
             "${range[@]}" > "$RUNNER_TEMP/notes.md"
           gh release edit "$TAG" --repo "$GITHUB_REPOSITORY" --notes-file "$RUNNER_TEMP/notes.md"

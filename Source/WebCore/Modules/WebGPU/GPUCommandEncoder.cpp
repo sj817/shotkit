@@ -29,15 +29,49 @@
 #include "ExceptionOr.h"
 #include "GPUBuffer.h"
 #include "GPUCommandBuffer.h"
+#include "GPUDevice.h"
 #include "GPUQuerySet.h"
-#include "WebGPUDevice.h"
 
 namespace WebCore {
 
-GPUCommandEncoder::GPUCommandEncoder(Ref<WebGPU::CommandEncoder>&& backing, WebGPU::Device& device)
-    : m_backing(WTF::move(backing))
-    , m_device(&device)
+static bool isCanvasBacking(const auto& textureOrView)
 {
+    return WTF::switchOn(textureOrView, [](const auto& value) {
+        return value->isCanvasBacking();
+    });
+}
+
+static uint8_t canvasColorAttachmentMaskForDescriptor(const GPURenderPassDescriptor& descriptor)
+{
+    uint8_t result = 0;
+    for (size_t i = 0; i < descriptor.colorAttachments.size() && i < 8; ++i) {
+        auto& colorAttachment = descriptor.colorAttachments[i];
+        if (!colorAttachment)
+            continue;
+        bool rendersDirectlyToCanvas = isCanvasBacking(colorAttachment->view);
+        // Highlighting also modifies a multisample source attachment, so only do so when the page discards that source after resolving it to the canvas.
+        bool safelyResolvesToCanvas = colorAttachment->storeOp == GPUStoreOp::Discard && colorAttachment->resolveTarget && isCanvasBacking(*colorAttachment->resolveTarget);
+        if (rendersDirectlyToCanvas || safelyResolvesToCanvas)
+            result |= static_cast<uint8_t>(1 << i);
+    }
+    return result;
+}
+
+GPUCommandEncoder::GPUCommandEncoder(Ref<WebGPU::CommandEncoder>&& backing, GPUDevice& device)
+    : m_backing(WTF::move(backing))
+    , m_device(device)
+{
+}
+
+bool GPUCommandEncoder::hasActiveInspectorCanvasCallTracer() const
+{
+    RefPtr device = m_device;
+    return device && device->hasActiveInspectorCanvasCallTracer();
+}
+
+GPUDevice* GPUCommandEncoder::device() const
+{
+    return m_device;
 }
 
 String GPUCommandEncoder::label() const
@@ -52,20 +86,19 @@ void GPUCommandEncoder::setLabel(String&& label)
 
 ExceptionOr<Ref<GPURenderPassEncoder>> GPUCommandEncoder::beginRenderPass(const GPURenderPassDescriptor& renderPassDescriptor)
 {
+    auto canvasColorAttachmentMask = canvasColorAttachmentMaskForDescriptor(renderPassDescriptor);
     RefPtr encoder = protect(backing())->beginRenderPass(renderPassDescriptor.convertToBacking());
-    RefPtr device { m_device };
-    if (!encoder || !device)
+    if (!encoder)
         return Exception { ExceptionCode::InvalidStateError, "GPUCommandEncoder.beginRenderPass: Unable to begin render pass."_s };
-    return GPURenderPassEncoder::create(encoder.releaseNonNull(), *device);
+    return GPURenderPassEncoder::create(encoder.releaseNonNull(), *this, canvasColorAttachmentMask);
 }
 
 ExceptionOr<Ref<GPUComputePassEncoder>> GPUCommandEncoder::beginComputePass(const std::optional<GPUComputePassDescriptor>& computePassDescriptor)
 {
     RefPtr computePass = protect(backing())->beginComputePass(computePassDescriptor ? std::optional { computePassDescriptor->convertToBacking() } : std::nullopt);
-    RefPtr device { m_device };
-    if (!computePass || !device)
+    if (!computePass)
         return Exception { ExceptionCode::InvalidStateError, "GPUCommandEncoder.beginComputePass: Unable to begin compute pass."_s };
-    return GPUComputePassEncoder::create(computePass.releaseNonNull(), *device);
+    return GPUComputePassEncoder::create(computePass.releaseNonNull(), *this);
 }
 
 void GPUCommandEncoder::copyBufferToBuffer(
@@ -165,7 +198,7 @@ ExceptionOr<Ref<GPUCommandBuffer>> GPUCommandEncoder::finish(const std::optional
     auto result = GPUCommandBuffer::create(buffer.releaseNonNull(), *this);
     if (RefPtr device = m_device) {
         m_overrideLabel = label();
-        m_backing = device->invalidCommandEncoder();
+        m_backing = device->backing().invalidCommandEncoder();
     }
     return result;
 }

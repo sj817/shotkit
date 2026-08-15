@@ -46,12 +46,13 @@ jobs:
           sparse-checkout: |
             /.github/
             /Source/
+            /shot/
+            /scripts/
+            /tests/
             /Tools/
             /WebKitLibraries/
             /CMakeLists.txt
             /CMakePresets.json
-            /Makefile
-            /Makefile.shared
             /AGENTS.md
             /ReadMe.md
 
@@ -143,7 +144,7 @@ jobs:
 
       - name: Verify CFNetwork, scripts, and XML/XSLT
         run: |
-          python3 Source/WebKitShot/tests/fixture_server.py 8988 > "$RUNNER_TEMP/fixture.log" 2>&1 &
+          python3 tests/fixture_server.py 8988 > "$RUNNER_TEMP/fixture.log" 2>&1 &
           server_pid=$!
           trap 'kill "$server_pid" 2>/dev/null || true' EXIT
           for attempt in $(seq 1 50); do
@@ -166,13 +167,16 @@ jobs:
 
       - name: Package release archive
         run: |
-          version="0.1.0-ci.${GITHUB_RUN_NUMBER}"
-          name="shotkit-${version}-macos-${{ matrix.arch }}"
+          # No version in the name: the archive unpacks to a stable
+          # shotkit-macos-<arch>/ directory. The release job stamps the tag onto
+          # the file name of the public download.
+          name="shotkit-macos-${{ matrix.arch }}"
           stage="WebKitBuild/releases/${name}"
+          rm -rf "$stage"
           mkdir -p "$stage/bin" "$stage/lib" "$stage/include"
           cp WebKitBuild/shot-macos/bin/shotcli "$stage/bin/"
           cp WebKitBuild/shot-macos/lib/libshot.dylib "$stage/lib/"
-          cp Source/WebKitShot/capi/shot.h "$stage/include/"
+          cp shot/capi/shot.h "$stage/include/"
           strip -x "$stage/bin/shotcli" "$stage/lib/libshot.dylib"
           otool -L "$stage/lib/libshot.dylib" > "$stage/DEPENDENCIES.txt"
           cp ReadMe.md "$stage/README.md"

@@ -105,6 +105,8 @@ inline const LocaleSet& intlDurationFormatAvailableLocales() { return intlAvaila
 using CalendarID = unsigned;
 JS_EXPORT_PRIVATE const Vector<String>& intlAvailableCalendars();
 
+JS_EXPORT_PRIVATE const UncheckedKeyHashMap<String, CalendarID, ASCIICaseInsensitiveHash>& intlAvailableCalendarIndex();
+
 extern CalendarID JS_EXPORT_PRIVATE iso8601CalendarIDStorage;
 CalendarID JS_EXPORT_PRIVATE iso8601CalendarIDSlow();
 inline CalendarID iso8601CalendarID()
@@ -127,9 +129,7 @@ inline CalendarID iso8601CalendarID()
     macro(gregory, "gregory"_s) \
     macro(hebrew, "hebrew"_s) \
     macro(indian, "indian"_s) \
-    macro(islamic, "islamic"_s) \
     macro(islamicCivil, "islamic-civil"_s) \
-    macro(islamicRgsa, "islamic-rgsa"_s) \
     macro(islamicTbla, "islamic-tbla"_s) \
     macro(islamicUmalqura, "islamic-umalqura"_s) \
     macro(japanese, "japanese"_s) \

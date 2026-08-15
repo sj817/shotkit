@@ -154,7 +154,6 @@ public:
     bool needsGeforcenowWarningDisplayNoneQuirk() const;
 
     bool needsYahooVolumeSliderQuirk() const;
-    bool needsZillowFloorplanMarginQuirk() const;
 
     bool needsPrimeVideoUserSelectNoneQuirk() const;
 
@@ -207,8 +206,6 @@ public:
     void setSubFrameDomainsForStorageAccessQuirk(Vector<RegistrableDomain>&& domains) { m_subFrameDomainsForStorageAccessQuirk = WTF::move(domains); }
     const Vector<RegistrableDomain>& subFrameDomainsForStorageAccessQuirk() const LIFETIME_BOUND { return m_subFrameDomainsForStorageAccessQuirk; }
 
-    bool needsVP9FullRangeFlagQuirk() const;
-
     bool requiresUserGestureToPauseInPictureInPicture() const;
     bool requiresUserGestureToLoadInPictureInPicture() const;
     bool requiresUserGestureToPlayInFullscreen() const;
@@ -248,6 +245,7 @@ public:
     WEBCORE_EXPORT bool shouldDisableAdSkippingInPip() const;
 #endif
     bool shouldDisableLazyIframeLoadingQuirk() const;
+    bool shouldDisableMediaLayerTeardownOnPageVisibilityChangeQuirk() const;
 
     bool shouldBlockFetchWithNewlineAndLessThan() const;
     bool shouldDisableFetchMetadata() const;
@@ -273,7 +271,6 @@ public:
 
     bool NODELETE shouldDisableElementFullscreenQuirk() const;
     bool NODELETE shouldIgnorePlaysInlineRequirementQuirk() const;
-    WEBCORE_EXPORT bool shouldUseEphemeralPartitionedStorageForDOMCookies(const URL&) const;
 
 #if PLATFORM(IOS_FAMILY)
     bool shouldAllowPopupFromMicrosoftOfficeToOneDrive() const { return m_quirksData.quirkIsEnabled(QuirksData::SiteSpecificQuirk::ShouldAllowPopupFromMicrosoftOfficeToOneDrive); }
@@ -364,6 +361,7 @@ public:
 
     bool shouldLimitHLSPlaybackRate() const;
     bool shouldSuppressHLSSubtitles() const;
+    bool shouldBlockAudiblePlaybackWhileAudioIsPlaying() const;
 
     bool shouldSuppressMediaSessionPauseActionOnInterruption() const;
 

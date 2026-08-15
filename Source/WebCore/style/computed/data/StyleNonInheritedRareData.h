@@ -53,6 +53,7 @@
 #include <WebCore/StylePageSize.h>
 #include <WebCore/StylePerspective.h>
 #include <WebCore/StylePerspectiveOrigin.h>
+#include <WebCore/StylePortalTransform.h>
 #include <WebCore/StylePositionAnchor.h>
 #include <WebCore/StylePositionArea.h>
 #include <WebCore/StylePositionTryFallbacks.h>
@@ -71,6 +72,7 @@
 #include <WebCore/StyleShapeImageThreshold.h>
 #include <WebCore/StyleShapeMargin.h>
 #include <WebCore/StyleShapeOutside.h>
+#include <WebCore/StyleTextDecorationInset.h>
 #include <WebCore/StyleTextDecorationThickness.h>
 #include <WebCore/StyleTimelineTriggers.h>
 #include <WebCore/StyleTouchAction.h>
@@ -81,6 +83,7 @@
 #include <WebCore/StyleWebKitBoxReflect.h>
 #include <WebCore/StyleWebKitInitialLetter.h>
 #include <WebCore/StyleWebKitLineClamp.h>
+#include <WebCore/StyleWhiteSpaceTrim.h>
 #include <WebCore/StyleWillChange.h>
 #include <WebCore/StyleZoom.h>
 #include <wtf/DataRef.h>
@@ -166,6 +169,7 @@ public:
     Rotate rotate;
     Scale scale;
     Translate translate;
+    PortalTransform portalTransform;
 
     ContainerNames containerNames;
 
@@ -182,6 +186,7 @@ public:
     OffsetRotate offsetRotate;
 
     Color textDecorationColor;
+    TextDecorationInset textDecorationInset;
     TextDecorationThickness textDecorationThickness;
 
     ScrollTimelines scrollTimelines;
@@ -213,6 +218,8 @@ public:
     PREFERRED_TYPE(BlockStepAlign) unsigned blockStepAlign : 2;
     PREFERRED_TYPE(BlockStepInsert) unsigned blockStepInsert : 2;
     PREFERRED_TYPE(BlockStepRound) unsigned blockStepRound : 2;
+    PREFERRED_TYPE(SpatialType) unsigned spatial : 1;
+    PREFERRED_TYPE(PortalActionType) unsigned portalAction : 1;
 
     PREFERRED_TYPE(OverscrollBehavior) unsigned overscrollBehaviorX : 2;
     PREFERRED_TYPE(OverscrollBehavior) unsigned overscrollBehaviorY : 2;
@@ -240,6 +247,7 @@ public:
     PREFERRED_TYPE(PositionTryOrder) unsigned positionTryOrder : 3;
     PREFERRED_TYPE(PositionVisibility) unsigned positionVisibility : 5;
     PREFERRED_TYPE(FieldSizing) unsigned fieldSizing : 1;
+    PREFERRED_TYPE(WrapInside) unsigned wrapInside : 1;
     PREFERRED_TYPE(bool) unsigned nativeAppearanceDisabled : 1;
 #if HAVE(CORE_MATERIAL)
     PREFERRED_TYPE(AppleVisualEffect) unsigned appleVisualEffect : 5;
@@ -253,6 +261,7 @@ public:
     PREFERRED_TYPE(Contain) unsigned contain : 5;
     PREFERRED_TYPE(OverflowContinue) unsigned overflowContinue : 1;
     PREFERRED_TYPE(ScrollSnapStop) unsigned scrollSnapStop : 1;
+    PREFERRED_TYPE(WhiteSpaceTrim) unsigned whiteSpaceTrim : 3;
 
 private:
     NonInheritedRareData();

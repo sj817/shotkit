@@ -152,6 +152,10 @@ void InlineContentBuilder::adjustDisplayLines(InlineContent& inlineContent, size
         auto& line = lines[lineIndex];
         auto lineScrollableOverflowRect = line.scrollableOverflow();
         auto adjustOverflowLogicalWidthWithBlockFlowQuirk = [&] {
+            if (line.hasBlockLevelBox()) {
+                // A block box contributes its own through layoutOverflowRectForPropagation(), which uses the margin the box ended up with. See InlineDisplayLineBuilder::collectEnclosingLineGeometry.
+                return;
+            }
             auto scrollableOverflowLogicalWidth = isHorizontalWritingMode ? lineScrollableOverflowRect.width() : lineScrollableOverflowRect.height();
             if (!isLeftToRightInlineDirection && line.contentLogicalWidth() > scrollableOverflowLogicalWidth) {
                 // The only time when scrollable overflow here could be shorter than
@@ -173,7 +177,8 @@ void InlineContentBuilder::adjustDisplayLines(InlineContent& inlineContent, size
             inlineContent.setHasPaintedInlineLevelBoxes();
 
         auto firstBoxIndex = boxIndex;
-        auto lineInkOverflowRect = lineScrollableOverflowRect;
+        // A block level box on a line contributes its own ink overflow below, and only when it is not self painting.
+        auto lineInkOverflowRect = line.hasBlockLevelBox() ? FloatRect { } : lineScrollableOverflowRect;
         // Collect overflow from boxes.
         // Note while we compute ink overflow for all type of boxes including atomic inline level boxes (e.g. <iframe> <img>) as part of constructing
         // display boxes (see InlineDisplayContentBuilder) RenderBlockFlow expects visual overflow.
@@ -206,6 +211,9 @@ void InlineContentBuilder::adjustDisplayLines(InlineContent& inlineContent, size
                     childInkOverflow.move(box.left(), box.top());
                     lineInkOverflowRect.unite(childInkOverflow);
                 }
+
+                if (box.isBlockLevelBox() && renderer->isInFlowPositioned())
+                    lineScrollableOverflowRect.move(renderer->offsetForInFlowPosition());
 
                 if (!renderer->hasControlClip()) {
                     auto childScrollableOverflow = renderer->layoutOverflowRectForPropagation(renderer->parent()->writingMode());
@@ -374,12 +382,15 @@ FloatRect InlineContentBuilder::handlePartialDisplayContentUpdate(Layout::Inline
             if (numberOfNewBoxes == *numberOfDamagedBoxes)
                 return;
             auto firstCleanLineIndex = *firstDamagedLineIndex + *numberOfDamagedLines;
-            auto offset = numberOfNewBoxes - *numberOfDamagedBoxes;
             auto& lines = displayContent.lines;
             for (size_t cleanLineIndex = firstCleanLineIndex; cleanLineIndex < lines.size(); ++cleanLineIndex) {
-                ASSERT(lines[cleanLineIndex].firstBoxIndex() + offset > 0);
-                auto adjustedFirstBoxIndex = std::max<size_t>(0, lines[cleanLineIndex].firstBoxIndex() + offset);
-                lines[cleanLineIndex].setFirstBoxIndex(adjustedFirstBoxIndex);
+                auto firstBoxIndex = lines[cleanLineIndex].firstBoxIndex();
+                if (numberOfNewBoxes >= *numberOfDamagedBoxes) {
+                    lines[cleanLineIndex].setFirstBoxIndex(firstBoxIndex + (numberOfNewBoxes - *numberOfDamagedBoxes));
+                    continue;
+                }
+                auto decrease = *numberOfDamagedBoxes - numberOfNewBoxes;
+                lines[cleanLineIndex].setFirstBoxIndex(decrease > firstBoxIndex ? 0uz : firstBoxIndex - decrease);
             }
         };
         adjustCachedBoxIndexesIfNeeded();

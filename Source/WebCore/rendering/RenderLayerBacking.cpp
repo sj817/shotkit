@@ -35,6 +35,7 @@
 #include "CachedImage.h"
 #include "CanvasRenderingContext2DBase.h"
 #include "Chrome.h"
+#include "ClipPathPaintScope.h"
 #include "ColorBlending.h"
 #include "ContainerNodeInlines.h"
 #include "CornerRadii.h"
@@ -136,6 +137,10 @@
 
 #if USE(SYSTEM_PREVIEW) && ENABLE(MODEL_PROCESS) && ENABLE(INTERACTION_REGIONS_IN_EVENT_REGION)
 #include "ARKitBadgeSystemImage.h"
+#endif
+
+#if ENABLE(SPATIAL_PORTAL)
+#include "SpatialPortalController.h"
 #endif
 
 namespace WebCore {
@@ -586,7 +591,11 @@ void RenderLayerBacking::updateDebugIndicators(bool showBorder, bool showRepaint
 
     if (m_childContainmentLayer) {
         m_childContainmentLayer->setShowDebugBorder(showBorder);
-        m_childContainmentLayer->setShowFrameProcessBorders(renderer().settings().showFrameProcessBorders() && m_owningLayer.isRenderViewLayer());
+        bool showFrameProcessBorders = renderer().settings().showFrameProcessBorders() && m_owningLayer.isRenderViewLayer();
+        // depth() is 1-based and counts through cross-process ancestor frames, so subtract 1 to keep the
+        // mainframe's indicator unstaggered while nested frames offset further with each level of nesting.
+        unsigned frameNestingDepth = showFrameProcessBorders ? renderer().frame().tree().depth() - 1 : 0;
+        m_childContainmentLayer->setShowFrameProcessBorders(showFrameProcessBorders, frameNestingDepth);
     }
 
     if (m_backgroundLayer) {
@@ -942,20 +951,26 @@ void RenderLayerBacking::updateVideoGravity(const Style::ComputedStyle& style)
         return;
 
     MediaPlayerVideoGravity videoGravity;
-    switch (style.objectFit()) {
-    case ObjectFit::None:
-    case ObjectFit::ScaleDown:
-        // FIXME: Add support for "None" and "ScaleDown" with video gravity modes
-        [[fallthrough]];
-    case ObjectFit::Fill:
+    if (!style.objectViewBox().isNone()) {
+        // The cropped-frame geometry computed for object-view-box already bakes in
+        // object-fit/object-position, so let it fill its (precomputed) contents rect as-is.
         videoGravity = MediaPlayerVideoGravity::Resize;
-        break;
-    case ObjectFit::Contain:
-        videoGravity = MediaPlayerVideoGravity::ResizeAspect;
-        break;
-    case ObjectFit::Cover:
-        videoGravity = MediaPlayerVideoGravity::ResizeAspectFill;
-        break;
+    } else {
+        switch (style.objectFit()) {
+        case ObjectFit::None:
+        case ObjectFit::ScaleDown:
+            // FIXME: Add support for "None" and "ScaleDown" with video gravity modes
+            [[fallthrough]];
+        case ObjectFit::Fill:
+            videoGravity = MediaPlayerVideoGravity::Resize;
+            break;
+        case ObjectFit::Contain:
+            videoGravity = MediaPlayerVideoGravity::ResizeAspect;
+            break;
+        case ObjectFit::Cover:
+            videoGravity = MediaPlayerVideoGravity::ResizeAspectFill;
+            break;
+        }
     }
     m_graphicsLayer->setVideoGravity(videoGravity);
 }
@@ -1366,6 +1381,18 @@ bool RenderLayerBacking::updateConfiguration(const RenderLayer* compositingAnces
         layerConfigChanged = true;
     }
 #endif // ENABLE(MODEL_ELEMENT)
+
+#if ENABLE(SPATIAL_PORTAL)
+    if (RefPtr element = renderer().element()) {
+        if (CheckedPtr controller = element->spatialPortalController()) {
+            updateContentsRects();
+            auto portalBackgroundColor = blendSourceOver(renderer().theme().systemColor(CSSValueCanvas, renderer().styleColorOptions()), rendererBackgroundColor());
+            controller->configureGraphicsLayer(*m_graphicsLayer, portalBackgroundColor);
+            controller->sizeMayHaveChanged();
+            layerConfigChanged = true;
+        }
+    }
+#endif // ENABLE(SPATIAL_PORTAL)
 
     // FIXME: Why do we do this twice?
     if (CheckedPtr widget = dynamicDowncast<RenderWidget>(renderer())) {
@@ -1842,6 +1869,13 @@ void RenderLayerBacking::updateGeometry(const RenderLayer* compositedAncestor)
     if (is<RenderModel>(renderer()))
         downcast<HTMLModelElement>(renderer().element())->sizeMayHaveChanged();
 #endif
+
+#if ENABLE(SPATIAL_PORTAL)
+    if (RefPtr element = renderer().element()) {
+        if (CheckedPtr controller = element->spatialPortalController())
+            controller->sizeMayHaveChanged();
+    }
+#endif
 }
 
 void RenderLayerBacking::adjustOverflowControlsPositionRelativeToAncestor(const RenderLayer& ancestorLayer)
@@ -1945,7 +1979,7 @@ void RenderLayerBacking::updateMaskingLayerGeometry()
             LayoutRect boundingBox = m_owningLayer.boundingBox(&m_owningLayer);
             LayoutRect referenceBoxForClippedInline = LayoutRect(snapRectToDevicePixelsIfNeeded(boundingBox, renderer()));
             LayoutSize offset = LayoutSize(snapSizeToDevicePixel(-m_subpixelOffsetFromRenderer, LayoutPoint(), deviceScaleFactor()));
-            auto [clipPath, windRule] = m_owningLayer.computeClipPath(offset, referenceBoxForClippedInline);
+            auto [clipPath, windRule] = ClipPathPaintScope::computeClipPath(renderer(), offset, referenceBoxForClippedInline);
 
             FloatSize pathOffset = m_maskLayer->offsetFromRenderer();
             if (!pathOffset.isZero())
@@ -2079,10 +2113,55 @@ void RenderLayerBacking::updateInternalHierarchy()
 
 void RenderLayerBacking::updateContentsRects()
 {
-    m_graphicsLayer->setContentsRect(snapRectToDevicePixelsIfNeeded(contentsBox(), renderer()));
+#if ENABLE(VIDEO)
+    if (auto* renderVideo = dynamicDowncast<RenderVideo>(renderer()); renderVideo && !renderVideo->style().objectViewBox().isNone()) {
+        auto croppedContentsRect = renderVideo->croppedVideoBoxForCompositing();
+        croppedContentsRect.move(contentOffsetInCompositingLayer());
+        m_graphicsLayer->setContentsRect(snapRectToDevicePixelsIfNeeded(croppedContentsRect, renderer()));
 
 #if HAVE(CORE_ANIMATION_SEPARATED_LAYERS)
-    if (RenderLayerCompositor::isSeparated(renderer())) {
+        if (RenderLayerCompositor::isSeparated(renderer())) {
+            auto borderShape = BorderShape::shapeForBorderRect(renderVideo->style(), renderVideo->borderBoxRect());
+            auto contentsClippingRect = borderShape.deprecatedPixelSnappedInnerRoundedRect(deviceScaleFactor());
+            contentsClippingRect.move(contentOffsetInCompositingLayer());
+            m_graphicsLayer->setContentsClippingRect(contentsClippingRect);
+            return;
+        }
+#endif
+
+        FloatRoundedRect contentsClippingRect;
+        if (renderVideo->isBypassingObjectViewBoxForPictureInPicture()) {
+            // Nothing to crop to: the contents rect above is already the full, uncropped
+            // natural-size rect. Clamping to the (small, pre-transition) border box below,
+            // as the cropping case does, would clip this PiP-sized layer down to the inline
+            // box size, showing only its top-left corner.
+            contentsClippingRect = FloatRoundedRect(m_graphicsLayer->contentsRect());
+        } else {
+            auto borderShape = renderVideo->borderShapeForContentClipping(renderVideo->borderBoxRect());
+            contentsClippingRect = borderShape.deprecatedPixelSnappedInnerRoundedRect(deviceScaleFactor());
+            // Intersect with the (small) destination rect so the oversized contents layer is clipped to what's actually visible.
+            contentsClippingRect = FloatRoundedRect(intersection(contentsClippingRect.rect(), FloatRect(renderVideo->videoBox())), contentsClippingRect.radii());
+            contentsClippingRect.move(contentOffsetInCompositingLayer());
+        }
+        m_graphicsLayer->setContentsClippingRect(contentsClippingRect);
+        return;
+    }
+#endif
+
+    m_graphicsLayer->setContentsRect(snapRectToDevicePixelsIfNeeded(contentsBox(), renderer()));
+
+#if HAVE(CORE_ANIMATION_SEPARATED_LAYERS) || ENABLE(SPATIAL_PORTAL)
+    bool needsContentsClippingRectUpdate = false;
+#if HAVE(CORE_ANIMATION_SEPARATED_LAYERS)
+    if (RenderLayerCompositor::isSeparated(renderer()))
+        needsContentsClippingRectUpdate = true;
+#endif
+#if ENABLE(SPATIAL_PORTAL)
+    if (RenderLayerCompositor::isSpatialPortal(renderer()))
+        needsContentsClippingRectUpdate = true;
+#endif
+
+    if (needsContentsClippingRectUpdate) {
         if (CheckedPtr renderBox = dynamicDowncast<RenderBox>(renderer())) {
             auto borderShape = BorderShape::shapeForBorderRect(renderBox->style(), renderBox->borderBoxRect());
             auto contentsClippingRect = borderShape.deprecatedPixelSnappedInnerRoundedRect(deviceScaleFactor());
@@ -2416,7 +2495,7 @@ bool RenderLayerBacking::updateAncestorClippingStack(Vector<CompositedClipData>&
         return false;
     }
     
-    m_ancestorClippingStack->updateWithClipData(scrollingCoordinator, WTF::move(clippingData));
+    m_ancestorClippingStack->updateWithClipData(scrollingCoordinator, Vector { clippingData });
     LOG_WITH_STREAM(Compositing, stream << "layer " << &m_owningLayer << " ancestorClippingStack " << *m_ancestorClippingStack);
     if (m_overflowControlsHostLayerAncestorClippingStack)
         m_overflowControlsHostLayerAncestorClippingStack->updateWithClipData(scrollingCoordinator, WTF::move(clippingData));
@@ -3899,6 +3978,13 @@ LayoutRect RenderLayerBacking::contentsBox() const
     else
 #endif
 
+#if ENABLE(SPATIAL_PORTAL)
+    // The portal StereoLayer should cover the whole padding box.
+    if (RenderLayerCompositor::isSpatialPortal(renderer()))
+        contentsRect = renderBox->paddingBoxRect();
+    else
+#endif
+
     if (CheckedPtr renderViewTransitionCapture = dynamicDowncast<RenderViewTransitionCapture>(*renderBox))
         contentsRect = renderViewTransitionCapture->captureLocalOverflowRect();
     else if (CheckedPtr renderReplaced = dynamicDowncast<RenderReplaced>(*renderBox); renderReplaced && !is<RenderWidget>(*renderReplaced))
@@ -3908,6 +3994,18 @@ LayoutRect RenderLayerBacking::contentsBox() const
 
     contentsRect.move(contentOffsetInCompositingLayer());
     return contentsRect;
+}
+
+LayoutRect RenderLayerBacking::inlineVideoContentsBox() const
+{
+#if ENABLE(VIDEO)
+    if (auto* renderVideo = dynamicDowncast<RenderVideo>(renderer())) {
+        auto contentsRect = renderVideo->inlineVideoBox();
+        contentsRect.move(contentOffsetInCompositingLayer());
+        return contentsRect;
+    }
+#endif
+    return contentsBox();
 }
 
 static LayoutRect backgroundRectForBox(const RenderBox& box)

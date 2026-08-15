@@ -48,6 +48,7 @@
 #include "InlineIteratorLineBox.h"
 #include "InlineIteratorTextBox.h"
 #include "InlineWalker.h"
+#include "InspectorInstrumentation.h"
 #include "LayoutElementBox.h"
 #include "LayoutIntegrationLineLayout.h"
 #include "LocalFrame.h"
@@ -138,18 +139,22 @@ float opacity(const RenderElement& renderer)
     return renderer.opacity();
 }
 
-bool RenderElement::createsGroupForStyle(const Style::ComputedStyle& style)
+bool RenderElement::createsGroupForStyleExcludingClipPath(const Style::ComputedStyle& style)
 {
     return !style.opacity().isOpaque()
         || Style::hasImageInAnyLayer(style.maskLayers())
         || !style.maskBorderSource().isNone()
-        || !style.clipPath().isNone()
         || !style.filter().isNone()
         || !style.backdropFilter().isNone()
 #if HAVE(CORE_MATERIAL)
         || style.appleVisualEffect() != AppleVisualEffect::None
 #endif
         || style.blendMode() != BlendMode::Normal;
+}
+
+bool RenderElement::createsGroupForStyle(const Style::ComputedStyle& style)
+{
+    return createsGroupForStyleExcludingClipPath(style) || !style.clipPath().isNone();
 }
 
 static_assert(sizeof(RenderElement) == sizeof(SameSizeAsRenderElement), "RenderElement should stay small");
@@ -1347,6 +1352,7 @@ void RenderElement::setNeedsOutOfFlowMovementLayout(const Style::ComputedStyle* 
     ASSERT(!isSetNeedsLayoutForbidden());
     if (needsOutOfFlowMovementLayout())
         return;
+    InspectorInstrumentation::willInvalidateLayout(*this);
     setNeedsOutOfFlowMovementLayoutBit(true);
     scheduleLayout(markContainingBlocksForLayout());
     if (hasLayer()) {
@@ -1391,6 +1397,7 @@ void RenderElement::setNeedsLayoutForOverflowChange()
     }
     if (needsSimplifiedNormalFlowLayout())
         return;
+    InspectorInstrumentation::willInvalidateLayout(*this);
     setNeedsSimplifiedNormalFlowLayoutBit(true);
     scheduleLayout(markContainingBlocksForLayout());
     if (hasLayer())
@@ -1404,6 +1411,7 @@ void RenderElement::setOutOfFlowChildNeedsStaticPositionLayout()
     // It's also assumed that regular, positioned child related bits are already set.
     ASSERT(!isSetNeedsLayoutForbidden());
     ASSERT(outOfFlowChildNeedsLayout() || selfNeedsLayout() || needsSimplifiedNormalFlowLayout() || !parent());
+    InspectorInstrumentation::willInvalidateLayout(*this);
     setOutOfFlowChildNeedsStaticPositionLayoutBit(true);
 }
 
@@ -2133,8 +2141,11 @@ bool RenderElement::getLeadingCorner(FloatPoint& point, bool& insideFixed) const
         } else if (is<RenderText>(*o) || o->isBlockLevelReplacedOrAtomicInline()) {
             point = FloatPoint();
             if (CheckedPtr textRenderer = dynamicDowncast<RenderText>(*o)) {
-                if (auto run = InlineIterator::lineLeftmostTextBoxFor(*textRenderer))
-                    point.move(textRenderer->linesBoundingBox().x(), run->lineBox()->contentLogicalTop());
+                // Use the text's own bounding box rather than the line box top, so that an inline
+                // element sharing a tall line (e.g. with a large image) scrolls to its actual
+                // position. This mirrors getTrailingCorner()'s use of linesBoundingBox().
+                if (InlineIterator::lineLeftmostTextBoxFor(*textRenderer))
+                    point.moveBy(textRenderer->linesBoundingBox().location());
             } else if (auto* box = dynamicDowncast<RenderBox>(*o))
                 point.moveBy(box->location());
             point = o->container()->localToAbsolute(point, MapCoordinatesMode::UseTransforms, &insideFixed);

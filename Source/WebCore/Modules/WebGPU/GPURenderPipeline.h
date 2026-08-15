@@ -27,19 +27,33 @@
 
 #include "GPUBindGroupLayout.h"
 #include "WebGPURenderPipeline.h"
+#include "WebGPURenderPipelineDescriptor.h"
+#include "WebGPUShaderModuleDescriptor.h"
 #include <cstdint>
+#include <optional>
+#include <wtf/CompletionHandler.h>
+#include <wtf/HashMap.h>
+#include <wtf/Lock.h>
 #include <wtf/Ref.h>
-#include <wtf/RefCounted.h>
+#include <wtf/RefCountedAndCanMakeWeakPtr.h>
+#include <wtf/RefPtr.h>
+#include <wtf/WeakPtr.h>
 #include <wtf/text/WTFString.h>
 
 namespace WebCore {
 
-class GPURenderPipeline : public RefCounted<GPURenderPipeline> {
+class GPUDevice;
+class WeakPtrImplWithEventTargetData;
+
+class GPURenderPipeline : public RefCountedAndCanMakeWeakPtr<GPURenderPipeline> {
 public:
-    static Ref<GPURenderPipeline> create(Ref<WebGPU::RenderPipeline>&& backing, uint64_t uniqueId)
-    {
-        return adoptRef(*new GPURenderPipeline(WTF::move(backing), uniqueId));
-    }
+    static Ref<GPURenderPipeline> create(Ref<WebGPU::RenderPipeline>&&, uint64_t uniqueId, GPUDevice*, WebGPU::RenderPipelineDescriptor&&, const WebGPU::ShaderModuleDescriptor&, std::optional<WebGPU::ShaderModuleDescriptor>&&, bool sharesVertexFragmentShader);
+
+    ~GPURenderPipeline();
+
+    static HashMap<GPURenderPipeline*, GPUDevice*>& NODELETE instances() WTF_REQUIRES_LOCK(instancesLock());
+    static Lock& NODELETE instancesLock() WTF_RETURNS_LOCK(s_instancesLock);
+    static void willDestroyDevice(GPUDevice&);
 
     String NODELETE label() const;
     void setLabel(String&&);
@@ -49,15 +63,31 @@ public:
     WebGPU::RenderPipeline& backing() { return m_backing; }
     const WebGPU::RenderPipeline& backing() const { return m_backing; }
 
-private:
-    GPURenderPipeline(Ref<WebGPU::RenderPipeline>&& backing, uint64_t uniqueId)
-        : m_backing(WTF::move(backing))
-        , m_uniqueId(uniqueId)
-    {
-    }
+    GPUDevice* device() const;
+    const String& vertexShaderSource() const { return m_vertexShaderModuleDescriptor.code; }
+    const String& fragmentShaderSource() const { return m_fragmentShaderModuleDescriptor ? m_fragmentShaderModuleDescriptor->code : nullString(); }
+    bool sharesVertexFragmentShader() const { return m_sharesVertexFragmentShader; }
+    void updateVertexShader(const String&, CompletionHandler<void(bool)>&&);
+    void updateFragmentShader(const String&, CompletionHandler<void(bool)>&&);
 
-    const Ref<WebGPU::RenderPipeline> m_backing;
+    void createPipelineForInspectorHighlight(unsigned canvasColorAttachmentMask, CompletionHandler<void(RefPtr<WebGPU::RenderPipeline>&&)>&&) const;
+
+    bool hasActiveInspectorCanvasCallTracer() const;
+
+private:
+    GPURenderPipeline(Ref<WebGPU::RenderPipeline>&&, uint64_t uniqueId, GPUDevice*, WebGPU::RenderPipelineDescriptor&&, const WebGPU::ShaderModuleDescriptor&, std::optional<WebGPU::ShaderModuleDescriptor>&&, bool sharesVertexFragmentShader);
+
+    void updateShader(const String&, bool updateVertexShader, CompletionHandler<void(bool)>&&);
+
+    static Lock s_instancesLock;
+
+    Ref<WebGPU::RenderPipeline> m_backing;
     const uint64_t m_uniqueId;
+    WeakPtr<GPUDevice, WeakPtrImplWithEventTargetData> m_device;
+    WebGPU::RenderPipelineDescriptor m_descriptor;
+    WebGPU::ShaderModuleDescriptor m_vertexShaderModuleDescriptor;
+    std::optional<WebGPU::ShaderModuleDescriptor> m_fragmentShaderModuleDescriptor;
+    const bool m_sharesVertexFragmentShader;
 };
 
 }

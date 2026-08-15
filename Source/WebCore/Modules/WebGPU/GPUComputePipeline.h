@@ -27,19 +27,31 @@
 
 #include "GPUBindGroupLayout.h"
 #include "WebGPUComputePipeline.h"
+#include "WebGPUComputePipelineDescriptor.h"
+#include "WebGPUShaderModuleDescriptor.h"
 #include <cstdint>
+#include <wtf/CompletionHandler.h>
+#include <wtf/HashMap.h>
+#include <wtf/Lock.h>
 #include <wtf/Ref.h>
-#include <wtf/RefCounted.h>
+#include <wtf/RefCountedAndCanMakeWeakPtr.h>
+#include <wtf/WeakPtr.h>
 #include <wtf/text/WTFString.h>
 
 namespace WebCore {
 
-class GPUComputePipeline : public RefCounted<GPUComputePipeline> {
+class GPUDevice;
+class WeakPtrImplWithEventTargetData;
+
+class GPUComputePipeline : public RefCountedAndCanMakeWeakPtr<GPUComputePipeline> {
 public:
-    static Ref<GPUComputePipeline> create(Ref<WebGPU::ComputePipeline>&& backing, uint64_t uniqueId)
-    {
-        return adoptRef(*new GPUComputePipeline(WTF::move(backing), uniqueId));
-    }
+    static Ref<GPUComputePipeline> create(Ref<WebGPU::ComputePipeline>&&, uint64_t uniqueId, GPUDevice*, WebGPU::ComputePipelineDescriptor&&, const WebGPU::ShaderModuleDescriptor&);
+
+    ~GPUComputePipeline();
+
+    static HashMap<GPUComputePipeline*, GPUDevice*>& NODELETE instances() WTF_REQUIRES_LOCK(instancesLock());
+    static Lock& NODELETE instancesLock() WTF_RETURNS_LOCK(s_instancesLock);
+    static void willDestroyDevice(GPUDevice&);
 
     String NODELETE label() const;
     void setLabel(String&&);
@@ -49,15 +61,22 @@ public:
     WebGPU::ComputePipeline& backing() { return m_backing; }
     const WebGPU::ComputePipeline& backing() const { return m_backing; }
 
-private:
-    GPUComputePipeline(Ref<WebGPU::ComputePipeline>&& backing, uint64_t uniqueId)
-        : m_backing(WTF::move(backing))
-        , m_uniqueId(uniqueId)
-    {
-    }
+    GPUDevice* device() const;
+    const String& shaderSource() const { return m_shaderModuleDescriptor.code; }
+    void updateShader(const String&, CompletionHandler<void(bool)>&&);
 
-    const Ref<WebGPU::ComputePipeline> m_backing;
+    bool hasActiveInspectorCanvasCallTracer() const;
+
+private:
+    GPUComputePipeline(Ref<WebGPU::ComputePipeline>&&, uint64_t uniqueId, GPUDevice*, WebGPU::ComputePipelineDescriptor&&, const WebGPU::ShaderModuleDescriptor&);
+
+    static Lock s_instancesLock;
+
+    Ref<WebGPU::ComputePipeline> m_backing;
     const uint64_t m_uniqueId;
+    WeakPtr<GPUDevice, WeakPtrImplWithEventTargetData> m_device;
+    WebGPU::ComputePipelineDescriptor m_descriptor;
+    WebGPU::ShaderModuleDescriptor m_shaderModuleDescriptor;
 };
 
 }

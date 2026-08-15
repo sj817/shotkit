@@ -13,9 +13,10 @@
 #include "include/core/SkString.h"
 #include "include/core/SkTypes.h"
 #include "include/gpu/graphite/GraphiteTypes.h"
-#include "src/base/SkEnumBitMask.h"
-#include "src/base/SkVx.h"
+#include "include/private/SkEnumBitMask.h"
+#include "src/core/SkVx.h"
 #include "src/gpu/graphite/Attribute.h"
+#include "src/gpu/graphite/DescriptorData.h"
 #include "src/gpu/graphite/DrawTypes.h"
 #include "src/gpu/graphite/ResourceTypes.h"
 #include "src/gpu/graphite/Uniform.h"
@@ -179,7 +180,10 @@ public:
     bool outsetBoundsForAA()   const { return SkToBool(fFlags & Flags::kOutsetBoundsForAA);   }
     bool useNonAAInnerFill()   const { return SkToBool(fFlags & Flags::kUseNonAAInnerFill);   }
     bool appendsVertices()     const { return SkToBool(fFlags & Flags::kAppendVertices);      }
-    SkEnumBitMask<RenderStateFlags> getRenderStateFlags() const {
+    bool vsUsesStorage()       const { return SkToBool(fFlags & Flags::kVsUsesStorage);       }
+    bool fsUsesStorage()       const { return SkToBool(fFlags & Flags::kFsUsesStorage);       }
+    SkEnumBitMask<PipelineStageFlags> storageBufferStages() const { return fStorageBufferStages; }
+    SkEnumBitMask<RenderStateFlags>   getRenderStateFlags() const {
         SkEnumBitMask<RenderStateFlags> rs = RenderStateFlags::kNone;
         if (fFlags & Flags::kFixed)             { rs |= RenderStateFlags::kFixed;           }
         if (fFlags & Flags::kAppendVertices)    { rs |= RenderStateFlags::kAppendVertices;  }
@@ -265,6 +269,8 @@ enum class Flags : unsigned {
     kUseNonAAInnerFill      = 0x0800, // Opt into Device recording extra inner fill draws
     kIgnoreInverseFill      = 0x1000, // Rasterization treats all shapes as non-inverted for scissor
     kInverseFillsScissor    = 0x2000, // Rasterization of inverse fills scissor geometrically
+    kVsUsesStorage          = 0x4000, // Does the vertex shader require storage buffer access?
+    kFsUsesStorage          = 0x8000, // Does the fragment shader require storage buffer access?
 };
 SK_DECL_BITMASK_OPS_FRIENDS(Flags)
 
@@ -290,11 +296,11 @@ private:
 
     static Coverage GetCoverage(SkEnumBitMask<Flags>);
 
-    RenderStepID fRenderStepID;
-    SkEnumBitMask<Flags> fFlags;
-    PrimitiveType        fPrimitiveType;
-
-    DepthStencilSettings fDepthStencilSettings;
+    RenderStepID                      fRenderStepID;
+    SkEnumBitMask<Flags>              fFlags;
+    SkEnumBitMask<PipelineStageFlags> fStorageBufferStages;
+    PrimitiveType                     fPrimitiveType;
+    DepthStencilSettings              fDepthStencilSettings;
 
     // TODO: When we always use C++17 for builds, we should be able to just let subclasses declare
     // constexpr arrays and point to those, but we need explicit storage for C++14.

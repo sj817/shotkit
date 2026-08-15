@@ -63,6 +63,7 @@
 #include "Quirks.h"
 #include "RealtimeMediaSourceCenter.h"
 #include "ScriptExecutionContext.h"
+#include "ScriptExecutionContextInlines.h"
 #include "Settings.h"
 #include "WebAudioSourceProvider.h"
 #include <JavaScriptCore/ConsoleTypes.h>
@@ -547,7 +548,14 @@ void MediaStreamTrack::trackMutedChanged(MediaStreamTrackPrivate&)
     if (scriptExecutionContext()->activeDOMObjectsAreStopped() || m_ended)
         return;
 
-    Function<void()> updateMuted = [this, protectedThis = Ref { *this }, muted = m_private->muted()] {
+    bool muted = m_private->muted();
+    Ref categoryApplied = GenericPromise::createAndResolve();
+    if (isAudio() && isCaptureTrack()) {
+        if (RefPtr manager = mediaSessionManager())
+            categoryApplied = manager->audioCaptureSourceStateChanged(muted ? MediaSessionManagerInterface::IsCaptureStarting::No : MediaSessionManagerInterface::IsCaptureStarting::Yes);
+    }
+
+    Function<void()> updateMuted = [this, protectedThis = Ref { *this }, muted] {
         RefPtr context = scriptExecutionContext();
         if (!context || context->activeDOMObjectsAreStopped())
             return;
@@ -556,10 +564,6 @@ void MediaStreamTrack::trackMutedChanged(MediaStreamTrackPrivate&)
             return;
 
         m_muted = muted;
-
-        if (isAudio() && isCaptureTrack())
-            if (RefPtr manager = mediaSessionManager())
-                manager->audioCaptureSourceStateChanged(muted ? MediaSessionManagerInterface::IsCaptureStarting::No : MediaSessionManagerInterface::IsCaptureStarting::Yes);
 
         dispatchEvent(Event::create(muted ? eventNames().muteEvent : eventNames().unmuteEvent, Event::CanBubble::No, Event::IsCancelable::No));
 
@@ -572,7 +576,11 @@ void MediaStreamTrack::trackMutedChanged(MediaStreamTrackPrivate&)
     if (m_shouldFireMuteEventImmediately)
         updateMuted();
     else {
-        queueTaskKeepingObjectAlive(*this, TaskSource::Networking, [updateMuted = WTF::move(updateMuted)](auto&) {
+        // Under site isolation the audio session category is applied to this process asynchronously
+        // (via IPC reply). Delay the mute/unmute event until it has been applied so listeners observe
+        // the up-to-date category. In the non-isolated case categoryApplied is already resolved, so
+        // this is equivalent to queueing the event on the event loop as before.
+        context->enqueueTaskWhenSettled(WTF::move(categoryApplied), TaskSource::Networking, [updateMuted = WTF::move(updateMuted)](auto&&) mutable {
             updateMuted();
         });
     }
@@ -651,13 +659,13 @@ RefPtr<WebAudioSourceProvider> MediaStreamTrack::createAudioSourceProvider()
 bool MediaStreamTrack::isCapturingAudio() const
 {
     ASSERT(isCaptureTrack() && m_private->isAudio());
-    return !ended() && !muted();
+    return !ended() && !m_private->muted();
 }
 
 bool MediaStreamTrack::wantsToCaptureAudio() const
 {
     ASSERT(isCaptureTrack() && m_private->isAudio());
-    return !ended() && (!muted() || m_private->interrupted());
+    return !ended() && (!m_private->muted() || m_private->interrupted());
 }
 
 UniqueRef<MediaStreamTrackDataHolder> MediaStreamTrack::detach()

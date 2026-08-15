@@ -7,7 +7,7 @@
 
 #include "include/core/SkPathTypes.h"
 #include "include/private/SkPathRef.h"
-#include "include/private/base/SkTDArray.h"
+#include "include/private/SkTDArray.h"
 #include "src/core/SkCubicClipper.h"
 #include "src/core/SkGeometry.h"
 #include "src/core/SkPathPriv.h"
@@ -1548,6 +1548,9 @@ int SkPathPriv::FindLastMoveToIndex(SkSpan<const SkPathVerb> verbs, const size_t
 std::pair<SkPathDirection, unsigned>
 SkPathPriv::TransformDirAndStart(const SkMatrix& matrix, bool isRRect, SkPathDirection dir,
                                  unsigned start) {
+    if (matrix.isIdentity()) {
+        return {dir, start};
+    }
     unsigned inStart = start;
     bool isCCW = (dir == SkPathDirection::kCCW);
 

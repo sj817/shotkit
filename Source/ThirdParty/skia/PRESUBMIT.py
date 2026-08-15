@@ -500,12 +500,12 @@ def _CheckBannedAPIs(input_api, output_api):
     (r'std::stold\(', 'std::strtold(), which does not throw'),
     # go/cstyle#Disallowed_Stdlib
     (r'std::barrier', ''),
-    (r'std::condition_variable', ''),
+    (r'std::condition_variable', '', 'PipelineManager'),
     (r'std::counting_semaphore', ''),
     (r'std::future', ''),
     (r'std::jthread', ''),
     (r'std::latch', ''),
-    (r'std::mutex', 'SkMutex'),
+    (r'std::mutex', 'SkMutex', ['^example/', 'PipelineManager']),
     (r'std::shared_mutex', 'SkSharedMutex'),
     (r'std::stop_token', ''),
     (r'std::thread', '', ['^tests/', 'SkExecutor']),
@@ -637,8 +637,7 @@ def _CommonChecks(input_api, output_api):
         input_api, output_api, source_file_filter=sources))
   results.extend(_JsonChecks(input_api, output_api))
   results.extend(_IfDefChecks(input_api, output_api))
-  results.extend(_CopyrightChecks(input_api, output_api,
-                                  source_file_filter=sources))
+  results.extend(_CopyrightChecks(input_api, output_api, source_file_filter=sources))
   results.extend(_CheckIncludesFormatted(input_api, output_api))
   results.extend(_CheckGNFormatted(input_api, output_api))
   results.extend(_CheckGitConflictMarkers(input_api, output_api))

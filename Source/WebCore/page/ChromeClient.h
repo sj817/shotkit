@@ -303,6 +303,8 @@ public:
     virtual void relayLiveRegionNotification(LiveRegionAnnouncementData&&) const = 0;
 #endif
 
+    virtual void translateAccessibilityAnnouncementStrings(const Vector<String>& strings, const String& targetLocaleIdentifier, CompletionHandler<void(Vector<String>&&)>&& completion) { UNUSED_PARAM(strings); UNUSED_PARAM(targetLocaleIdentifier); completion({ }); }
+
     virtual void mainFrameDidChange() { };
 
     virtual void didFinishLoadingImageForElement(HTMLImageElement&) = 0;
@@ -661,6 +663,9 @@ public:
 
     virtual void handleAutoFillButtonClick(HTMLInputElement&) { }
 
+    virtual void didCompleteAutofill(HTMLInputElement&) { }
+    virtual void didObserveFirstPartyUserGesture() { }
+
     virtual void inputElementDidResignStrongPasswordAppearance(HTMLInputElement&) { }
 
     virtual void performSwitchHapticFeedback() { }
@@ -777,6 +782,10 @@ public:
     virtual void saveSnapshotOfTextPlaceholderForAnimation(const SimpleRange&) { };
 
     virtual void clearAnimationsForActiveWritingToolsSession() { };
+
+    virtual void showWritingToolsAffordance() { }
+
+    virtual bool writingToolsAvailable() const { return false; }
 
 #if ENABLE(WRITING_TOOLS_TEXT_EFFECTS)
     virtual void addTextEffectForID(const WTF::UUID&, TextEffectData&&, RefPtr<TextIndicator>&&, RefPtr<TextIndicator>&&) { }

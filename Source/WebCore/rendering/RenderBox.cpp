@@ -36,6 +36,7 @@
 #include "Document.h"
 #include "EditingInlines.h"
 #include "EventHandler.h"
+#include "FlexFormattingUtils.h"
 #include "FloatQuad.h"
 #include "FloatRoundedRect.h"
 #include "FloatingObjects.h"
@@ -82,6 +83,7 @@
 #include "RenderLayerInlines.h"
 #include "RenderLayerScrollableArea.h"
 #include "RenderLayoutState.h"
+#include "RenderListItem.h"
 #include "RenderListMarker.h"
 #include "RenderMathMLBlock.h"
 #include "RenderMultiColumnFlow.h"
@@ -103,6 +105,7 @@
 #include "StyleComputedStyle+InitialInlines.h"
 #include "StylePrimitiveNumericTypes+Evaluation.h"
 #include "StylePrimitiveNumericTypes+EvaluationMinimum.h"
+#include "StyleSelfAlignmentData.h"
 #include "StyleTransformResolver.h"
 #include "TransformOperationData.h"
 #include "TransformState.h"
@@ -112,6 +115,14 @@
 #include <wtf/RuntimeApplicationChecks.h>
 #include <wtf/StackStats.h>
 #include <wtf/TZoneMallocInlines.h>
+
+#if ENABLE(SPATIAL_PORTAL)
+#include "ElementAncestorIteratorInlines.h"
+#include "HTMLModelElement.h"
+#include "SpatialPortalController.h"
+#include "StylePortalTransform.h"
+#include "TypedElementDescendantIteratorInlines.h"
+#endif
 
 namespace WebCore {
 
@@ -195,6 +206,13 @@ void RenderBox::willBeDestroyed()
         if (hasPotentiallyScrollableOverflow()) // Keep this in sync with AnchorScrollAdjuster::addSnapshot() calls.
             layoutContext().removeScrollerFromAnchorScrollAdjusters(*this);
     }
+
+#if ENABLE(SPATIAL_PORTAL)
+    if (hasInitializedStyle() && style().spatial() == SpatialType::Portal && !renderTreeBeingDestroyed()) {
+        if (RefPtr element = this->element())
+            element->clearSpatialPortalController();
+    }
+#endif
 
     RenderBoxModelObject::willBeDestroyed();
 }
@@ -341,6 +359,85 @@ void RenderBox::invalidateAncestorBackgroundObscurationStatus()
     }
 }
 
+#if ENABLE(SPATIAL_PORTAL)
+static bool isNestedInsideSpatialPortal(const Element& element)
+{
+    for (Ref ancestor : ancestorsOfType<Element>(element)) {
+        if (ancestor->establishesSpatialPortal())
+            return true;
+    }
+    return false;
+}
+
+// TODO: rdar://182292652
+static PortalTransformKind portalTransformKind(const Style::PortalTransform& portalTransform)
+{
+    return portalTransform.switchOn(
+        [](CSS::Keyword::None) { return PortalTransformKind::None; },
+        [](CSS::Keyword::Auto) { return PortalTransformKind::Auto; }
+    );
+}
+
+static PortalActionKind portalActionKind(PortalActionType portalAction)
+{
+    switch (portalAction) {
+    case PortalActionType::None:
+        return PortalActionKind::None;
+    case PortalActionType::Orbit:
+        return PortalActionKind::Orbit;
+    }
+    RELEASE_ASSERT_NOT_REACHED();
+}
+
+// `portal-action: orbit` requires `auto` to be part of the `portal-transform`.
+static PortalActionKind usedPortalActionKind(PortalActionKind portalAction, PortalTransformKind portalTransform)
+{
+    if (portalTransform != PortalTransformKind::Auto)
+        return PortalActionKind::None;
+    return portalAction;
+}
+
+static void pushSpatialPortalProperties(Element& element, const Style::ComputedStyle& style)
+{
+    if (CheckedPtr controller = element.spatialPortalController()) {
+        auto portalTransform = portalTransformKind(style.portalTransform());
+        controller->setPortalTransform(portalTransform);
+        controller->setPortalAction(usedPortalActionKind(portalActionKind(style.portalAction()), portalTransform));
+    }
+}
+
+static void updateSpatialPortalController(Element& element)
+{
+    bool hadController = element.establishesSpatialPortal();
+
+    CheckedPtr box = dynamicDowncast<RenderBox>(element.renderer());
+    if (box && box->style().spatial() == SpatialType::Portal && !isNestedInsideSpatialPortal(element))
+        element.ensureSpatialPortalController();
+    else
+        element.clearSpatialPortalController();
+
+    if (box && hadController != element.establishesSpatialPortal()) {
+        pushSpatialPortalProperties(element, box->style());
+
+        if (CheckedPtr layer = box->layer())
+            layer->setNeedsCompositingConfigurationUpdate();
+    }
+}
+
+static void spatialPortalStyleDidChange(Element& element)
+{
+    updateSpatialPortalController(element);
+
+    for (Ref descendant : descendantsOfType<Element>(element)) {
+        if (CheckedPtr box = dynamicDowncast<RenderBox>(descendant->renderer()); box && box->style().spatial() == SpatialType::Portal)
+            updateSpatialPortalController(descendant);
+    }
+
+    for (Ref model : descendantsOfType<HTMLModelElement>(element))
+        model->spatialPortalContextDidChange();
+}
+#endif
+
 void RenderBox::styleDidChange(Style::Difference diff, const Style::ComputedStyle* oldStyle)
 {
     // Horizontal writing mode definition is updated in RenderBoxModelObject::updateFromStyle,
@@ -423,7 +520,7 @@ void RenderBox::styleDidChange(Style::Difference diff, const Style::ComputedStyl
 
     if (isDocElementRenderer || isBodyRenderer) {
         protect(view())->frameView().recalculateScrollbarOverlayStyle();
-        
+
         if (diff != Style::DifferenceResult::Equal)
             view().compositor().rootOrBodyStyleChanged(*this, oldStyle);
     }
@@ -455,6 +552,17 @@ void RenderBox::styleDidChange(Style::Difference diff, const Style::ComputedStyl
     if ((layer() && diff == Style::DifferenceResult::Layout && hasNonVisibleOverflow())
         || (oldStyle && oldStyle->isOverflowVisible() != style().isOverflowVisible()))
         layoutContext().invalidateAnchorDependenciesForScroller(*this);
+
+#if ENABLE(SPATIAL_PORTAL)
+    if (RefPtr element = this->element()) {
+        auto oldSpatial = oldStyle ? oldStyle->spatial() : SpatialType::None;
+        if (oldSpatial != newStyle.spatial())
+            spatialPortalStyleDidChange(*element);
+
+        if (newStyle.spatial() == SpatialType::Portal)
+            pushSpatialPortalProperties(*element, newStyle);
+    }
+#endif
 }
 
 static bool NODELETE hasEquivalentGridPositioningStyle(const Style::ComputedStyle& style, const Style::ComputedStyle& oldStyle)
@@ -638,8 +746,11 @@ int RenderBox::scrollTop() const
 
 bool RenderBox::shouldResetLogicalHeightBeforeLayout() const
 {
+    // A flex item resets its logical height while its container is stretching items along the cross axis, so the
+    // stretch relayout starts from a clean height. This runs inside the item's own layout, after its LayoutRepainter
+    // has captured the pre-stretch bounds, so repaint stays minimal (see webkit.org/b/204380).
     auto* flexBoxParent = dynamicDowncast<RenderFlexibleBox>(parent());
-    return flexBoxParent && flexBoxParent->shouldResetFlexItemLogicalHeightBeforeLayout();
+    return flexBoxParent && flexBoxParent->isInCrossAxisStretchLayout();
 }
 
 void RenderBox::resetLogicalHeightBeforeLayoutIfNeeded()
@@ -1351,7 +1462,7 @@ LayoutSize RenderBox::cachedSizeForOverflowClip() const
     return layer()->size();
 }
 
-bool RenderBox::applyCachedClipAndScrollPosition(RepaintRects& rects, const RenderLayerModelObject* container, VisibleRectContext context) const
+bool RenderBox::applyCachedClipAndScrollPosition(RepaintRects& rects, const RenderLayerModelObject* container, const VisibleRectContext& context) const
 {
     flipForWritingMode(rects);
 
@@ -1574,22 +1685,16 @@ void RenderBox::markMarginAsTrimmed(Style::MarginTrimSide newTrimmedMargin)
     rareData.trimmedMargins = rareData.trimmedMargins | newTrimmedMargin;
 }
 
-void RenderBox::clearTrimmedMarginsMarkings()
-{
-    ASSERT(hasRareData());
-    ensureRareData().trimmedMargins = { };
-}
-
-bool RenderBox::hasTrimmedMargin(std::optional<Style::MarginTrimSide> marginTrimType) const
+bool RenderBox::hasTrimmedMargin(Style::MarginTrimSide marginTrimSide) const
 {
     if (!isInFlow())
         return false;
     if (!hasRareData())
         return false;
-    return marginTrimType ? rareData().trimmedMargins.contains(*marginTrimType) : !rareData().trimmedMargins.isEmpty();
+    return rareData().trimmedMargins.contains(marginTrimSide);
 }
 
-LayoutUnit RenderBox::adjustBorderBoxLogicalWidthForBoxSizing(const Style::Length<CSS::NonnegativeLayoutUnitClampedUnzoomed, float>& logicalWidth) const
+LayoutUnit RenderBox::adjustBorderBoxLogicalWidthForBoxSizing(const Style::Length<CSS::NonnegativeLayoutUnitClamped, float>& logicalWidth) const
 {
     auto width = LayoutUnit { logicalWidth.resolveZoom(style().usedZoomForLength()) };
     auto bordersPlusPadding = borderAndPaddingLogicalWidth();
@@ -1614,7 +1719,7 @@ LayoutUnit RenderBox::adjustBorderBoxLogicalHeightForBoxSizing(LayoutUnit height
     return std::max(height, bordersPlusPadding);
 }
 
-LayoutUnit RenderBox::adjustContentBoxLogicalWidthForBoxSizing(const Style::Length<CSS::NonnegativeLayoutUnitClampedUnzoomed, float>& logicalWidth) const
+LayoutUnit RenderBox::adjustContentBoxLogicalWidthForBoxSizing(const Style::Length<CSS::NonnegativeLayoutUnitClamped, float>& logicalWidth) const
 {
     auto width = LayoutUnit { logicalWidth.resolveZoom(style().usedZoomForLength()) };
     if (style().boxSizing() == BoxSizing::ContentBox)
@@ -1698,8 +1803,7 @@ bool RenderBox::hitTestBorderRadius(const HitTestLocation& hitTestLocation, cons
     borderRect.moveBy(adjustedLocation);
 
     auto borderShape = BorderShape::shapeForBorderRect(style(), borderRect);
-    // To handle non-round corners, BorderShape should do the hit-testing.
-    return hitTestLocation.intersects(borderShape.deprecatedRoundedRect());
+    return borderShape.shapeIntersectsHitTestLocation(hitTestLocation, style().deviceScaleFactor());
 }
 
 bool RenderBox::nodeAtPoint(const HitTestRequest& request, HitTestResult& result, const HitTestLocation& locationInContainer, const LayoutPoint& accumulatedOffset, HitTestAction action)
@@ -1958,6 +2062,8 @@ static bool isCandidateForOpaquenessTest(const RenderBox& childBox)
     if (childStyle.usedVisibility() != Visibility::Visible)
         return false;
     if (!childStyle.shapeOutside().isNone())
+        return false;
+    if (childBox.hasClip())
         return false;
     if (!childBox.borderBoxWidth() || !childBox.borderBoxHeight())
         return false;
@@ -2613,10 +2719,8 @@ LayoutSize RenderBox::offsetFromContainer(const RenderElement& container, const 
     if (auto* boxContainer = dynamicDowncast<RenderBox>(container))
         offset -= toLayoutSize(boxContainer->scrollPosition());
 
-    if (isAbsolutelyPositioned() && container.isInFlowPositioned()) {
-        if (auto* inlineContainer = dynamicDowncast<RenderInline>(container))
-            offset += inlineContainer->offsetForInFlowPositionedInline(this);
-    }
+    if (auto* inlineContainer = dynamicDowncast<RenderInline>(container); isAbsolutelyPositioned() && inlineContainer && inlineContainer->canContainAbsolutelyPositionedObjects())
+        offset += inlineContainer->offsetForInFlowPositionedInline(this);
 
     if (offsetDependsOnPoint)
         *offsetDependsOnPoint |= is<RenderFragmentedFlow>(container);
@@ -2660,7 +2764,7 @@ auto RenderBox::computeVisibleRectsUsingPaintOffset(const RepaintRects& rects) c
     return adjustedRects;
 }
 
-auto RenderBox::computeVisibleRectsInContainer(const RepaintRects& rects, const RenderLayerModelObject* container, VisibleRectContext context) const -> std::optional<RepaintRects>
+auto RenderBox::computeVisibleRectsInContainer(const RepaintRects& rects, const RenderLayerModelObject* container, const VisibleRectContext& context, VisibleRectState state) const -> std::optional<RepaintRects>
 {
     // The rect we compute at each step is shifted by our x/y offset in the parent container's coordinate space.
     // Only when we cross a writing mode boundary will we have to possibly flipForWritingMode (to convert into a more appropriate
@@ -2684,7 +2788,7 @@ auto RenderBox::computeVisibleRectsInContainer(const RepaintRects& rects, const 
     if (container == this) {
         if (container->writingMode().isBlockFlipped())
             flipForWritingMode(adjustedRects);
-        if (context.descendantNeedsEnclosingIntRect)
+        if (state.descendantNeedsEnclosingIntRect)
             adjustedRects.encloseToIntRects();
         return adjustedRects;
     }
@@ -2695,9 +2799,9 @@ auto RenderBox::computeVisibleRectsInContainer(const RepaintRects& rects, const 
         return adjustedRects;
 
     if (isWritingModeRoot()) {
-        if (!isOutOfFlowPositioned() || !context.dirtyRectIsFlipped) {
+        if (!isOutOfFlowPositioned() || !state.dirtyRectIsFlipped) {
             flipForWritingMode(adjustedRects);
-            context.dirtyRectIsFlipped = true;
+            state.dirtyRectIsFlipped = true;
         }
     }
 
@@ -2709,7 +2813,7 @@ auto RenderBox::computeVisibleRectsInContainer(const RepaintRects& rects, const 
         LayoutSize flooredLocationOffset = flooredIntSize(locationOffset);
         adjustedRects.expand(locationOffset - flooredLocationOffset);
         locationOffset = flooredLocationOffset;
-        context.descendantNeedsEnclosingIntRect = true;
+        state.descendantNeedsEnclosingIntRect = true;
     } else if (auto* columnFlow = dynamicDowncast<RenderMultiColumnFlow>(*this)) {
         // We won't normally run this code. Only when the container is null (i.e., we're trying
         // to get the rect in view coordinates) will we come in here, since normally container
@@ -2719,7 +2823,7 @@ auto RenderBox::computeVisibleRectsInContainer(const RepaintRects& rects, const 
         LayoutPoint physicalPoint(flipForWritingMode(adjustedRects.clippedOverflowRect.location()));
         if (auto* fragment = columnFlow->physicalTranslationFromFlowToFragment((physicalPoint))) {
             adjustedRects.clippedOverflowRect.setLocation(fragment->flipForWritingMode(physicalPoint));
-            return fragment->computeVisibleRectsInContainer(adjustedRects, container, context);
+            return fragment->computeVisibleRectsInContainer(adjustedRects, container, context, state);
         }
     }
 
@@ -2727,15 +2831,15 @@ auto RenderBox::computeVisibleRectsInContainer(const RepaintRects& rects, const 
     // in the parent's coordinate space that encloses us.
     auto position = styleToUse.position();
     if (hasLayer() && layer()->isTransformed()) {
-        context.hasPositionFixedDescendant = position == PositionType::Fixed;
+        state.hasPositionFixedDescendant = position == PositionType::Fixed;
         adjustedRects.transform(layer()->currentTransform(), protect(document())->deviceScaleFactor());
     } else if (position == PositionType::Fixed)
-        context.hasPositionFixedDescendant = true;
+        state.hasPositionFixedDescendant = true;
 
     adjustedRects.move(locationOffset);
 
-    if (position == PositionType::Absolute && localContainer->isInFlowPositioned() && is<RenderInline>(*localContainer)) {
-        auto offsetForInFlowPosition = downcast<RenderInline>(*localContainer).offsetForInFlowPositionedInline(this);
+    if (auto* inlineContainer = dynamicDowncast<RenderInline>(*localContainer); position == PositionType::Absolute && inlineContainer && inlineContainer->canContainAbsolutelyPositionedObjects()) {
+        auto offsetForInFlowPosition = inlineContainer->offsetForInFlowPositionedInline(this);
         adjustedRects.move(offsetForInFlowPosition);
     } else if (styleToUse.hasInFlowPosition() && layer()) {
         // Apply the relative position offset when invalidating a rectangle.  The layer
@@ -2761,7 +2865,7 @@ auto RenderBox::computeVisibleRectsInContainer(const RepaintRects& rects, const 
         adjustedRects.move(-containerOffset);
         return adjustedRects;
     }
-    return localContainer->computeVisibleRectsInContainer(adjustedRects, container, context);
+    return localContainer->computeVisibleRectsInContainer(adjustedRects, container, context, state);
 }
 
 void RenderBox::repaintDuringLayoutIfMoved(const LayoutRect& oldRect)
@@ -2927,6 +3031,14 @@ void RenderBox::computeLogicalWidth(LogicalExtentComputedValues& computedValues)
 
         if (shouldMarginInlineEndContributeToScrollableOverflow(*this))
             return true;
+
+        // A block-level box with an explicit justify-self is aligned within its containing block, so the over-constraint is resolved by alignment
+        // rather than by adjusting a margin, leaving the used margins at their specified values.
+        // https://drafts.csswg.org/css-align-3/#justify-block
+        if (is<RenderBlockFlow>(containingBlock) && !isAnonymous()) {
+            if (!style().justifySelf().resolve(&containingBlock.style()).isNormalStretchOrLegacy())
+                return true;
+        }
 
         return !containerLogicalWidth || containerLogicalWidth == (computedValues.extent + computedValues.margins.start + computedValues.margins.end);
     };
@@ -3224,6 +3336,15 @@ bool RenderBox::sizesLogicalWidthToFitContent() const
     if (isOutOfFlowPositioned() && logicalWidth.isAuto() && !shouldComputeLogicalWidthFromAspectRatio())
         return style.logicalLeft().isAuto() || style.logicalRight().isAuto();
 
+    // A block-level box whose justify-self is an explicit alignment (i.e. neither normal nor stretch) is sized to fit-content,
+    // so there is free space to align it within its containing block along the inline axis.
+    // https://drafts.csswg.org/css-align-3/#justify-block
+    auto isBlockLevelInFlowBox = !isInline() && !isFloatingOrOutOfFlowPositioned() && !isAnonymous();
+    if (CheckedPtr blockContainer = dynamicDowncast<RenderBlockFlow>(containingBlock()); blockContainer && isBlockLevelInFlowBox) {
+        if (!style.justifySelf().resolve(&blockContainer->style()).isNormalStretchOrLegacy())
+            return true;
+    }
+
     return false;
 }
 
@@ -3231,13 +3352,8 @@ template<typename Function>
 LayoutUnit RenderBox::computeOrTrimInlineMargin(const RenderBlock& containingBlock, Style::MarginTrimSide marginSide, NOESCAPE const Function& computeInlineMargin) const
 {
     if (containingBlock.shouldTrimChildMargin(marginSide, *this)) {
-        // FIXME(255434): This should be set when the margin is being trimmed
-        // within the context of its layout system (block, flex, grid) and should not 
-        // be done at this level within RenderBox. We should be able to leave the 
-        // trimming responsibility to each of those contexts and not need to
-        // do any of it here (trimming the margin and setting the rare data bit)
-        if (isGridItem() && (marginSide == Style::MarginTrimSide::InlineStart || marginSide == Style::MarginTrimSide::InlineEnd))
-            const_cast<RenderBox&>(*this).markMarginAsTrimmed(marginSide);
+        // FIXME(255434): The margin should be trimmed within the context of its layout
+        // system (block) and should not be done at this level within RenderBox.
         return 0_lu;
     }
     return computeInlineMargin();
@@ -3287,9 +3403,14 @@ void RenderBox::computeInlineDirectionMargins(const RenderBlock& containingBlock
 
     auto handleMarginAuto = [&] {
         auto containerWidthForMarginAuto = availableSpaceAdjustedWithFloats.value_or(containerWidth);
+        // When justify-self provides a modern alignment, it is applied at positioning time with
+        // unadjusted margins and supersedes the legacy -webkit-* text-align folding here. A legacy
+        // (or normal/stretch) value yields to that folding instead.
+        // https://drafts.csswg.org/css-align-3/#justify-block
+        auto justifySelfYieldsToTextAlign = !is<RenderBlockFlow>(containingBlock) || isAnonymous() || style().justifySelf().resolve(&containingBlockStyle).isNormalStretchOrLegacy();
         // Case One: The object is being centered in the containing block's available logical width.
         auto marginAutoCenter = marginStartLength.isAuto() && marginEndLength.isAuto() && childWidth < containerWidthForMarginAuto;
-        auto alignModeCenter = containingBlock.style().textAlign() == Style::TextAlign::WebKitCenter && !marginStartLength.isAuto() && !marginEndLength.isAuto();
+        auto alignModeCenter = justifySelfYieldsToTextAlign && containingBlock.style().textAlign() == Style::TextAlign::WebKitCenter && !marginStartLength.isAuto() && !marginEndLength.isAuto();
         if (marginAutoCenter || alignModeCenter) {
             // Other browsers center the margin box for align=center elements so we match them here.
             marginStart = computeOrTrimInlineMargin(containingBlock, Style::MarginTrimSide::InlineStart, [&] {
@@ -3313,7 +3434,7 @@ void RenderBox::computeInlineDirectionMargins(const RenderBlock& containingBlock
         }
 
         // Case Three: The object is being pushed to the end of the containing block's available logical width.
-        auto pushToEndFromTextAlign = !marginEndLength.isAuto() && ((!containingBlockStyle.writingMode().isBidiLTR() && containingBlockStyle.textAlign() == Style::TextAlign::WebKitLeft)
+        auto pushToEndFromTextAlign = justifySelfYieldsToTextAlign && !marginEndLength.isAuto() && ((!containingBlockStyle.writingMode().isBidiLTR() && containingBlockStyle.textAlign() == Style::TextAlign::WebKitLeft)
             || (containingBlockStyle.writingMode().isBidiLTR() && containingBlockStyle.textAlign() == Style::TextAlign::WebKitRight));
         if ((marginStartLength.isAuto() || pushToEndFromTextAlign) && childWidth < containerWidthForMarginAuto) {
             marginEnd = computeOrTrimInlineMargin(containingBlock, Style::MarginTrimSide::InlineEnd, [&] {
@@ -3405,7 +3526,7 @@ void RenderBox::updateLogicalHeight()
         overrideLogicalHeightForSizeContainment();
 
     if (CheckedPtr flexContainer = dynamicDowncast<RenderFlexibleBox>(parent()))
-        flexContainer->setFlexItemContentLogicalHeightIfNeeded(*this, contentBoxLogicalHeight());
+        flexContainer->setFlexItemContentLogicalHeightFromLayout(*this, contentBoxLogicalHeight());
     auto computedValues = computeLogicalHeight(logicalHeight(), logicalTop());
     setLogicalHeight(computedValues.extent);
     setLogicalTop(computedValues.position);
@@ -3513,6 +3634,11 @@ RenderBox::LogicalExtentComputedValues RenderBox::computeLogicalHeight(LayoutUni
     }();
 
     auto usedLogicalHeight = [&] {
+        // When this box is being laid out only to measure its intrinsic size
+        // contribution (e.g. an orthogonal child probed by its block container),
+        // its own min/max block-size must resolve per the intrinsic-size rules of
+        // CSS Sizing 3 section 5.1 rather than against the not-yet-known container.
+        auto isComputingIntrinsicSize = view().frameView().layoutContext().isComputingIntrinsicLogicalHeightFor(*this) ? IsComputingIntrinsicSize::Yes : IsComputingIntrinsicSize::No;
         if (auto heightFromFormattingContext = usedLogicalHeightFromContext())
             return *heightFromFormattingContext;
 
@@ -3523,13 +3649,13 @@ RenderBox::LogicalExtentComputedValues RenderBox::computeLogicalHeight(LayoutUni
             if (intrinsicHeight && style().boxSizing() == BoxSizing::ContentBox)
                 *intrinsicHeight -= RenderBox::borderBefore() + RenderBox::paddingBefore() + RenderBox::borderAfter() + RenderBox::paddingAfter();
             auto heightFromAspectRatio = blockSizeFromAspectRatio(horizontalBorderAndPaddingExtent(), verticalBorderAndPaddingExtent(), style().logicalAspectRatio(), style().boxSizingForAspectRatio(), logicalWidth(), style().aspectRatio(), is<RenderReplaced>(*this));
-            return constrainLogicalHeightByMinMax(heightFromAspectRatio, intrinsicHeight);
+            return constrainLogicalHeightByMinMax(heightFromAspectRatio, intrinsicHeight, isComputingIntrinsicSize);
         }
 
         if (intrinsicHeight)
             *intrinsicHeight -= borderAndPaddingLogicalHeight();
         auto mainOrPreferredHeight = computeLogicalHeightUsing(computedLogicalHeight, intrinsicHeight).value_or(computedValues.extent);
-        return constrainLogicalHeightByMinMax(mainOrPreferredHeight, intrinsicHeight);
+        return constrainLogicalHeightByMinMax(mainOrPreferredHeight, intrinsicHeight, isComputingIntrinsicSize);
     };
     computedValues.extent = usedLogicalHeight();
 
@@ -3585,6 +3711,36 @@ LayoutUnit RenderBox::computeLogicalHeightForIntrinsicWidthContribution() const
     auto intrinsicHeight = std::make_optional(estimatedHeight - borderAndPaddingLogicalHeight());
     auto logicalHeight = computeLogicalHeightUsing(style().logicalHeight(), intrinsicHeight).value_or(estimatedHeight);
     return constrainLogicalHeightByMinMax(logicalHeight, intrinsicHeight, IsComputingIntrinsicSize::Yes);
+}
+
+LayoutUnit RenderBox::computeIntrinsicLogicalHeight()
+{
+    // Mark the box as being measured for its intrinsic size so its own cyclic-percentage min/max block-size
+    // resolves per CSS Sizing 3 section 5.1 (as none/zero) instead of against the not-yet-known container.
+    auto intrinsicSizeScope = IntrinsicLogicalHeightComputationScope { view().frameView().layoutContext(), *this };
+
+    // The block-axis size of an already-laid-out box is simply its logical height.
+    if (!needsLayout())
+        return logicalHeight();
+
+    auto& styleToUse = style();
+    if (auto fixedLogicalWidth = styleToUse.logicalWidth().tryFixed(); fixedLogicalWidth && shouldComputeLogicalHeightFromAspectRatio()) {
+        return blockSizeFromAspectRatio(horizontalBorderAndPaddingExtent(), verticalBorderAndPaddingExtent(), styleToUse.logicalAspectRatio()
+            , styleToUse.boxSizingForAspectRatio(), LayoutUnit { fixedLogicalWidth->resolveZoom(styleToUse.usedZoomForLength()) }
+            , styleToUse.aspectRatio(), isRenderReplaced());
+    }
+
+    // Lay the box out to compute its content-based logical height, then setNeedsLayout() so it lays
+    // out again during the normal layout pass. Marking only this box (MarkOnlyThis), and not its
+    // descendants, is enough: a descendant whose logical height resolves against this box (a
+    // percentage/calc logical height, or stretch/fill-available) is added to this box's
+    // percentHeightDescendants while laying out here, so dirtyForLayoutFromPercentageHeightDescendants()
+    // marks it for layout when this box lays out again and it resolves against the final logical
+    // height. A descendant that does not resolve against this box's logical height is unaffected and need not lay out again.
+    layoutIfNeeded();
+    auto blockSize = logicalHeight();
+    setNeedsLayout(MarkingBehavior::MarkOnlyThis);
+    return blockSize;
 }
 
 template<typename SizeType> std::optional<LayoutUnit> RenderBox::computeLogicalHeightUsingGeneric(const SizeType& logicalHeight, std::optional<LayoutUnit> intrinsicContentHeight) const
@@ -3696,7 +3852,7 @@ template<typename SizeType> std::optional<LayoutUnit> RenderBox::computeSizingKe
                 // When the width comes from a flex cross-axis override (e.g. stretch in a
                 // column flex container), use it to compute the min-content height through
                 // the aspect ratio.
-                if (!isFlexItem() || downcast<RenderFlexibleBox>(parent())->flexLayoutUtils().isHorizontalFlow())
+                if (!isFlexItem() || FlexFormattingUtils::isHorizontalFlow(*downcast<RenderFlexibleBox>(parent())))
                     return { };
                 if (auto overridingWidth = overridingBorderBoxLogicalWidth(); overridingWidth && !preferredRatio.isEmpty())
                     return resolveHeightForRatio(borderAndPaddingLogicalWidth(), borderAndPaddingLogicalHeight(), contentBoxLogicalWidth(*overridingWidth), preferredRatio.transposedSize().aspectRatio(), BoxSizing::ContentBox);
@@ -3835,7 +3991,7 @@ template<typename SizeType> std::optional<LayoutUnit> RenderBox::computeContentA
         },
         [&](const CSS::Keyword::Auto&) -> std::optional<LayoutUnit> {
             if constexpr (std::same_as<SizeType, Style::MinimumSize>) {
-                if (intrinsicContentHeight && isFlexItem() && downcast<RenderFlexibleBox>(parent())->flexLayoutUtils().useContentBasedMinimumBlockSize(*this))
+                if (intrinsicContentHeight && isFlexItem() && FlexFormattingUtils::useContentBasedMinimumBlockSize(*this))
                     return adjustIntrinsicLogicalHeightForBoxSizing(*intrinsicContentHeight);
                 return LayoutUnit { 0 };
             } else
@@ -4029,12 +4185,12 @@ std::optional<LayoutUnit> RenderBox::computePercentageLogicalHeight(const Style:
     return computePercentageLogicalHeightGeneric(logicalHeight, updateDescendants);
 }
 
-std::optional<LayoutUnit> RenderBox::computePercentageLogicalHeight(const Style::Percentage<CSS::NonnegativeLayoutUnitClampedUnzoomed, float>& logicalHeight, UpdatePercentageHeightDescendants updateDescendants) const
+std::optional<LayoutUnit> RenderBox::computePercentageLogicalHeight(const Style::Percentage<CSS::NonnegativeLayoutUnitClamped, float>& logicalHeight, UpdatePercentageHeightDescendants updateDescendants) const
 {
     return computePercentageLogicalHeightGeneric(logicalHeight, updateDescendants);
 }
 
-std::optional<LayoutUnit> RenderBox::computePercentageLogicalHeight(const Style::UnevaluatedCalculation<CSS::LengthPercentage<CSS::NonnegativeLayoutUnitClampedUnzoomed, float>>& logicalHeight, UpdatePercentageHeightDescendants updateDescendants) const
+std::optional<LayoutUnit> RenderBox::computePercentageLogicalHeight(const Style::UnevaluatedCalculation<CSS::LengthPercentage<CSS::NonnegativeLayoutUnitClamped, float>>& logicalHeight, UpdatePercentageHeightDescendants updateDescendants) const
 {
     return computePercentageLogicalHeightGeneric(logicalHeight, updateDescendants);
 }
@@ -4088,14 +4244,21 @@ void RenderBox::constrainIntrinsicLogicalWidthsByMinMax(LayoutUnit& minIntrinsic
         return { };
     }();
 
+    // The aspect-ratio transfer derives a main-axis min/max from the cross axis; it is not the
+    // item's own min/max-width, so it applies even when measuring a flex base size.
     if (!style().logicalWidth().isFixed() && shouldComputeLogicalHeightFromAspectRatio())
         applyTransferredMinMaxSizesFromAspectRatio(minIntrinsicLogicalWidth, maxIntrinsicLogicalWidth);
 
-    maxIntrinsicLogicalWidth = std::min(maxIntrinsicLogicalWidth, usedMaxLogicalWidth);
-    minIntrinsicLogicalWidth = std::min(minIntrinsicLogicalWidth, usedMaxLogicalWidth);
+    // A flex item being measured for its flex base size ignores its own min/max-width: the flex
+    // algorithm re-applies them later, when deriving the hypothetical main size (see
+    // shouldIgnoreLogicalMinMaxWidthSizes()). Border and padding still apply.
+    if (!shouldIgnoreLogicalMinMaxWidthSizes()) {
+        maxIntrinsicLogicalWidth = std::min(maxIntrinsicLogicalWidth, usedMaxLogicalWidth);
+        minIntrinsicLogicalWidth = std::min(minIntrinsicLogicalWidth, usedMaxLogicalWidth);
 
-    maxIntrinsicLogicalWidth = std::max(maxIntrinsicLogicalWidth, usedMinLogicalWidth);
-    minIntrinsicLogicalWidth = std::max(minIntrinsicLogicalWidth, usedMinLogicalWidth);
+        maxIntrinsicLogicalWidth = std::max(maxIntrinsicLogicalWidth, usedMinLogicalWidth);
+        minIntrinsicLogicalWidth = std::max(minIntrinsicLogicalWidth, usedMinLogicalWidth);
+    }
 
     auto borderAndPadding = borderAndPaddingLogicalWidth();
     minIntrinsicLogicalWidth += borderAndPadding;
@@ -4164,13 +4327,8 @@ void RenderBox::computeBlockDirectionMargins(const RenderBlock& containingBlock,
     auto constrainBlockMarginInAvailableSpaceOrTrim = [&](auto marginSideInBlockDirection) {
         ASSERT(marginSideInBlockDirection == Style::MarginTrimSide::BlockStart || marginSideInBlockDirection == Style::MarginTrimSide::BlockEnd);
         if (containingBlock.shouldTrimChildMargin(marginSideInBlockDirection, *this)) {
-            // FIXME(255434): This should be set when the margin is being trimmed
-            // within the context of its layout system (block, flex, grid) and should not
-            // be done at this level within RenderBox. We should be able to leave the
-            // trimming responsibility to each of those contexts and not need to
-            // do any of it here (trimming the margin and setting the rare data bit)
-            if (isGridItem())
-                const_cast<RenderBox&>(*this).markMarginAsTrimmed(marginSideInBlockDirection);
+            // FIXME(255434): The margin should be trimmed within the context of its layout
+            // system (block) and should not be done at this level within RenderBox.
             return 0_lu;
         }
 
@@ -4752,6 +4910,8 @@ LayoutRect RenderBox::applyVisualEffectOverflow(const LayoutRect& borderBox, Enu
 void RenderBox::addOverflowFromInFlowChildren(OptionSet<ComputeOverflowOptions> options)
 {
     for (auto& child : childrenOfType<RenderBox>(*this)) {
+        if (child.isExcludedMarker())
+            continue;
         if (!child.isFloatingOrOutOfFlowPositioned())
             addOverflowFromContainedBox(child, options);
     }
@@ -5298,10 +5458,8 @@ bool RenderBox::isBlockSizeResolvableForStretch() const
     // This only applies when the flex item's block axis is the cross axis (row flex).
     // For column flex, the block axis is the main axis and hasDefiniteLogicalHeight()
     // already gives the correct answer during that phase.
-    if (containingBlock->isFlexItem()) {
-        if (auto* flexContainer = dynamicDowncast<RenderFlexibleBox>(containingBlock->parent()))
-            return flexContainer->flexLayoutUtils().mainAxisIsFlexItemInlineAxis(*containingBlock) && flexContainer->flexLayoutUtils().hasDefiniteCrossSizeForFlexItem(*containingBlock);
-    }
+    if (containingBlock->isFlexItem())
+        return FlexFormattingUtils::mainAxisIsFlexItemInlineAxis(*containingBlock) && FlexFormattingUtils::hasDefiniteCrossSizeForFlexItem(*containingBlock);
 
     return false;
 }
@@ -5508,7 +5666,7 @@ bool RenderBox::shouldIgnoreLogicalMinMaxWidthSizes() const
     if (!isFlexItem())
         return false;
     if (auto* flexBox = dynamicDowncast<RenderFlexibleBox>(parent()))
-        return flexBox->isComputingFlexBaseSizes() && writingMode().isHorizontal() == flexBox->flexLayoutUtils().isHorizontalFlow();
+        return flexBox->isComputingFlexBaseSizes() && writingMode().isHorizontal() == FlexFormattingUtils::isHorizontalFlow(*flexBox);
     ASSERT_NOT_REACHED();
     return false;
 }
@@ -5518,7 +5676,7 @@ bool RenderBox::shouldIgnoreLogicalMinMaxHeightSizes() const
     if (!isFlexItem())
         return false;
     if (auto* flexBox = dynamicDowncast<RenderFlexibleBox>(parent()))
-        return flexBox->isComputingFlexBaseSizes() && writingMode().isHorizontal() != flexBox->flexLayoutUtils().isHorizontalFlow();
+        return flexBox->isComputingFlexBaseSizes() && writingMode().isHorizontal() != FlexFormattingUtils::isHorizontalFlow(*flexBox);
     ASSERT_NOT_REACHED();
     return false;
 }
@@ -5580,6 +5738,9 @@ bool RenderBox::requiresLayer() const
         || style().specifiesColumns()
         || style().usedContain().contains(Style::ContainValue::Layout)
         || !style().usedZIndex().isAuto()
+#if ENABLE(SPATIAL_PORTAL)
+        || style().spatial() == SpatialType::Portal
+#endif
         || hasRunningAcceleratedAnimations();
 }
 

@@ -41,11 +41,13 @@
 #include "JSDOMConvertDictionary.h"
 #include "JSDOMConvertJSON.h"
 #include "JSDOMPromiseDeferred.h"
+#include "JSOpenID4VPMultisignedRequest.h"
+#include "JSOpenID4VPSignedRequest.h"
 #include "LocalDOMWindow.h"
 #include "LocalFrame.h"
 #include "MediationRequirement.h"
 #include "PermissionsPolicy.h"
-#include "VisibilityState.h"
+#include "Settings.h"
 #include <JavaScriptCore/ConsoleTypes.h>
 #include <JavaScriptCore/JSONObject.h>
 #include <Logging.h>
@@ -70,15 +72,50 @@ DigitalCredential::DigitalCredential(JSC::Strong<JSC::JSObject>&& data, DigitalC
 {
 }
 
-static std::optional<DigitalCredentialPresentationProtocol> convertProtocolString(const String& protocolString)
+bool DigitalCredential::userAgentAllowsProtocol(const Document& document, const String& protocol)
 {
-    if (protocolString == "org-iso-mdoc"_s)
-        return DigitalCredentialPresentationProtocol::OrgIsoMdoc;
+    auto parsed = digitalCredentialPresentationProtocolFromString(protocol);
+    if (!parsed)
+        return false;
+
+    using enum DigitalCredentialPresentationProtocol;
+    switch (*parsed) {
+    case OrgIsoMdoc:
+        return true;
+    case Openid4vpV1Unsigned:
+    case Openid4vpV1Signed:
+    case Openid4vpV1Multisigned:
+        return document.settings().digitalCredentialsOpenID4VPEnabled();
+    }
+    return false;
+}
+
+static std::optional<DigitalCredentialPresentationProtocol> convertProtocolString(const Document& document, const String& protocolString)
+{
+    auto protocol = digitalCredentialPresentationProtocolFromString(protocolString);
+    if (!protocol)
+        return std::nullopt;
+
+    using enum DigitalCredentialPresentationProtocol;
+    switch (*protocol) {
+    case OrgIsoMdoc:
+        return protocol;
+    case Openid4vpV1Signed:
+    case Openid4vpV1Multisigned:
+        return document.settings().digitalCredentialsOpenID4VPEnabled() ? protocol : std::nullopt;
+    case Openid4vpV1Unsigned:
+        // FIXME (webkit.org/b/320207): support once DCQL parsing lands.
+        return std::nullopt;
+    }
     return std::nullopt;
 }
 
 static ExceptionOr<std::optional<UnvalidatedDigitalCredentialRequest>> jsToCredentialRequest(const Document& document, const DigitalCredentialGetRequest& request)
 {
+    auto protocol = convertProtocolString(document, request.protocol);
+    if (!protocol)
+        return std::optional<UnvalidatedDigitalCredentialRequest> { std::nullopt }; // Skip requests with an unsupported protocol.
+
     auto scope = DECLARE_THROW_SCOPE(document.globalObject()->vm());
     auto* globalObject = document.globalObject();
 
@@ -87,20 +124,29 @@ static ExceptionOr<std::optional<UnvalidatedDigitalCredentialRequest>> jsToCrede
     if (scope.exception()) [[unlikely]]
         return Exception { ExceptionCode::ExistingExceptionError };
 
-    auto protocol = convertProtocolString(request.protocol);
-    if (!protocol)
-        return std::optional<UnvalidatedDigitalCredentialRequest> { std::nullopt }; // Return empty optional for unknown protocols
-
+    using enum DigitalCredentialPresentationProtocol;
     switch (*protocol) {
-    case DigitalCredentialPresentationProtocol::OrgIsoMdoc: {
+    case OrgIsoMdoc: {
         auto result = convertDictionary<MobileDocumentRequest>(*globalObject, request.data.get());
         if (result.hasException(scope)) [[unlikely]]
             return Exception { ExceptionCode::ExistingExceptionError };
         return std::make_optional<UnvalidatedDigitalCredentialRequest>(result.releaseReturnValue());
     }
-    default:
-        ASSERT_NOT_REACHED();
-        return Exception { ExceptionCode::TypeError, "Unsupported protocol."_s };
+    case Openid4vpV1Signed: {
+        auto result = convertDictionary<OpenID4VPSignedRequest>(*globalObject, request.data.get());
+        if (result.hasException(scope)) [[unlikely]]
+            return Exception { ExceptionCode::ExistingExceptionError };
+        return std::make_optional<UnvalidatedDigitalCredentialRequest>(result.releaseReturnValue());
+    }
+    case Openid4vpV1Multisigned: {
+        auto result = convertDictionary<OpenID4VPMultisignedRequest>(*globalObject, request.data.get());
+        if (result.hasException(scope)) [[unlikely]]
+            return Exception { ExceptionCode::ExistingExceptionError };
+        return std::make_optional<UnvalidatedDigitalCredentialRequest>(result.releaseReturnValue());
+    }
+    case Openid4vpV1Unsigned:
+        // FIXME (webkit.org/b/320207): support once DCQL parsing lands.
+        return std::optional<UnvalidatedDigitalCredentialRequest> { std::nullopt };
     }
 }
 
@@ -133,6 +179,11 @@ void DigitalCredential::discoverFromExternalSource(const Document& document, Cre
 {
     ASSERT(options.digital);
 
+    if (document.securityOrigin().isOpaque()) {
+        promise.reject(Exception { ExceptionCode::SecurityError, "The credential operation is not allowed in an opaque origin."_s });
+        return;
+    }
+
     if (!PermissionsPolicy::isFeatureEnabled(PermissionsPolicy::Feature::DigitalCredentialsGetRule, document, PermissionsPolicy::ShouldReportViolation::No)) {
         promise.reject(Exception { ExceptionCode::NotAllowedError, "Third-party iframes are not allowed to call .get() unless explicitly allowed via Permissions Policy (digital-credentials-get)"_s });
         return;
@@ -153,13 +204,8 @@ void DigitalCredential::discoverFromExternalSource(const Document& document, Cre
         return;
     }
 
-    if (!document.hasFocus()) {
-        promise.reject(Exception { ExceptionCode::NotAllowedError, "The document is not focused."_s });
-        return;
-    }
-
-    if (document.visibilityState() != VisibilityState::Visible) {
-        promise.reject(Exception { ExceptionCode::NotAllowedError, "The document is not visible."_s });
+    if (!document.isFullyActiveAndHasUserAttention()) {
+        promise.reject(Exception { ExceptionCode::NotAllowedError, "The document must be focused and visible."_s });
         return;
     }
 
@@ -168,14 +214,29 @@ void DigitalCredential::discoverFromExternalSource(const Document& document, Cre
         return;
     }
 
-    auto presentationRequestsOrException = convertObjectsToDigitalPresentationRequests(document, options.digital->requests);
-    if (presentationRequestsOrException.hasException()) {
-        promise.reject(presentationRequestsOrException.releaseException());
+    options.digital->requests.removeAllMatching([&](auto& request) {
+        if (userAgentAllowsProtocol(document, request.protocol))
+            return false;
+        if (RefPtr context = document.scriptExecutionContext()) {
+            String warning = makeString("Ignoring DigitalCredentialGetRequest with unsupported protocol: \""_s, request.protocol, "\""_s);
+            context->addConsoleMessage(MessageSource::Other, MessageLevel::Warning, warning);
+        }
+        return true;
+    });
+
+    if (options.digital->requests.isEmpty()) {
+        promise.reject(Exception { ExceptionCode::TypeError, "At least one supported DigitalCredentialGetRequest must be present."_s });
         return;
     }
 
     if (!window->consumeTransientActivation()) {
         promise.reject(Exception { ExceptionCode::NotAllowedError, "Calling get() needs to be triggered by an activation triggering user event."_s });
+        return;
+    }
+
+    auto presentationRequestsOrException = convertObjectsToDigitalPresentationRequests(document, options.digital->requests);
+    if (presentationRequestsOrException.hasException()) {
+        promise.reject(presentationRequestsOrException.releaseException());
         return;
     }
 

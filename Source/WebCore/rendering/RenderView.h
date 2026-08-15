@@ -96,10 +96,16 @@ public:
     void setTextAutosizingState(TextAutosizingState state) { m_textAutosizingState = state; }
 #endif
 
-    std::optional<RepaintRects> computeVisibleRectsInContainer(const RepaintRects&, const RenderLayerModelObject* container, VisibleRectContext) const override;
+    std::optional<RepaintRects> computeVisibleRectsInContainer(const RepaintRects&, const RenderLayerModelObject* container, const VisibleRectContext&, VisibleRectState) const override;
     void repaintRootContents();
     void repaintViewRectangle(const LayoutRect&);
     void repaintViewAndCompositedLayers();
+
+#if ENABLE(AX_CUSTOM_COLOR_MODE)
+    // Some color-filter decisions depend on how boxes actually end up positioned relative to the content
+    // behind them, which is only known once layout has run.
+    void adjustAXCustomColorModeAfterLayout();
+#endif
 
     void paint(PaintInfo&, const LayoutPoint&) override;
     void paintBoxDecorations(PaintInfo&, const LayoutPoint&) override;

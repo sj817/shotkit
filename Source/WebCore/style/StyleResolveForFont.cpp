@@ -229,13 +229,13 @@ static ResolvedFontSize fontSizeFromUnresolvedFontSize(const CSSPropertyParserHe
 
             case CSSValueLarger:
                 return {
-                    .size = parentSize * 1.02f,
+                    .size = parentSize * 1.2f,
                     .keyword = CSSValueInvalid
                 };
 
             case CSSValueSmaller:
                 return {
-                    .size = parentSize / 1.02f,
+                    .size = parentSize / 1.2f,
                     .keyword = CSSValueInvalid
                 };
 
@@ -275,7 +275,7 @@ static ResolvedFontSize fontSizeFromUnresolvedFontSize(const CSSPropertyParserHe
 
                             RefPtr document = dynamicDowncast<Document>(context);
                             return {
-                                .size = static_cast<float>(Style::computeUnzoomedNonCalcLengthDouble(lengthPercentage.value, lengthUnit, CSSPropertyFontSize, &fontCascade, CSS::RangeZoomOptions::Default, document ? document->renderView() : nullptr)),
+                                .size = static_cast<float>(Style::resolveLength(lengthPercentage.value, lengthUnit, CSSPropertyFontSize, fontCascade, document ? document->renderView() : nullptr)),
                                 .keyword = CSSValueInvalid
                             };
                         }
@@ -287,7 +287,7 @@ static ResolvedFontSize fontSizeFromUnresolvedFontSize(const CSSPropertyParserHe
                         return { .size = 0.0f, .keyword = CSSValueInvalid };
 
                     return {
-                        .size = Style::evaluate<float>(Style::toStyleNoConversionDataRequired(calc), parentSize, Style::ZoomNeeded { }),
+                        .size = Style::evaluate<float>(Style::toStyleNoConversionDataRequired(calc), parentSize, Style::ZoomFactor::none()),
                         .keyword = CSSValueInvalid
                     };
                 }

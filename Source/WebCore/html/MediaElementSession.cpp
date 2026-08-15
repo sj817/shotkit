@@ -197,6 +197,10 @@ MediaElementSession::MediaElementSession(HTMLMediaElement& element)
     , m_mainContentCheckTimer(*this, &MediaElementSession::mainContentCheckTimerFired)
     , m_clientDataBufferingTimer(*this, &MediaElementSession::clientDataBufferingTimerFired)
 {
+#if ENABLE(WIRELESS_PLAYBACK_MEDIA_PLAYER)
+    if (RefPtr manager = sessionManager())
+        manager->ensureMediaDeviceRouteControllerMonitoring();
+#endif
 }
 
 MediaElementSession::~MediaElementSession()
@@ -430,6 +434,23 @@ void MediaElementSession::removeBehaviorRestriction(BehaviorRestrictions restric
     m_restrictions &= ~restriction;
 }
 
+#if !RELEASE_LOG_DISABLED
+
+static ASCIILiteral mediaGestureReasonString(Document::MediaGestureReason reason)
+{
+    switch (reason) {
+    case Document::MediaGestureReason::None: return "None"_s;
+    case Document::MediaGestureReason::ActiveToken: return "ActiveToken"_s;
+    case Document::MediaGestureReason::TransientActivation: return "TransientActivation"_s;
+    case Document::MediaGestureReason::MediaFinishedGrace: return "MediaFinishedGrace"_s;
+    case Document::MediaGestureReason::InheritsFromDocumentSetting: return "InheritsFromDocumentSetting"_s;
+    case Document::MediaGestureReason::InheritedUserGesturesQuirk: return "InheritedUserGesturesQuirk"_s;
+    }
+    return "Unknown"_s;
+}
+
+#endif
+
 Expected<void, MediaPlaybackDenialExplanation> MediaElementSession::playbackStateChangePermitted(MediaPlaybackState state) const
 {
     RefPtr element = m_element.get();
@@ -447,6 +468,19 @@ Expected<void, MediaPlaybackDenialExplanation> MediaElementSession::playbackStat
 
     if (document->isMediaDocument() && !document->ownerElement())
         return { };
+
+    RefPtr mainFrameDocument = document->mainFrameDocument();
+
+    // Deny an audible element from starting while another element in the document is already playing audio,
+    // unless a user gesture is being directly processed.
+    if (mainFrameDocument && mainFrameDocument->quirks().shouldBlockAudiblePlaybackWhileAudioIsPlaying()
+        && state == MediaPlaybackState::Playing
+        && !element->muted() && element->volume() && element->hasAudio() && !element->isPlaying()
+        && document->mediaState().contains(MediaProducerMediaState::IsPlayingAudio)
+        && document->mediaUserGestureReason() != Document::MediaGestureReason::ActiveToken) {
+        ALWAYS_LOG(LOGIDENTIFIER, "denying audible playback while another element is playing audio; gesture reason = ", mediaGestureReasonString(document->mediaUserGestureReason()));
+        return makeUnexpectedDenial(MediaPlaybackDenialReason::UserGestureRequired, "Another audible media element is already playing"_s);
+    }
 
     if (pageExplicitlyAllowsElementToAutoplayInline(*element))
         return { };
@@ -467,7 +501,6 @@ Expected<void, MediaPlaybackDenialExplanation> MediaElementSession::playbackStat
 #endif
 
     // FIXME: Why are we checking top-level document only for PerDocumentAutoplayBehavior?
-    RefPtr mainFrameDocument = document->mainFrameDocument();
     if (!mainFrameDocument) {
         LOG_ONCE(SiteIsolation, "Unable to properly calculate MediaElementSession::playbackStateChangePermitted() without access to the main frame document ");
     }
@@ -1513,9 +1546,10 @@ std::optional<NowPlayingInfo> MediaElementSession::computeNowPlayingInfo() const
 
     bool supportsSeeking = element->supportsSeeking();
     double rate = element->playbackRate();
-    double duration = supportsSeeking ? element->duration() : std::numeric_limits<double>::quiet_NaN();
+    // Report position independently of seekability.
+    double duration = element->duration();
     double currentTime = element->currentTime();
-    if (!std::isfinite(currentTime) || !supportsSeeking)
+    if (!std::isfinite(currentTime))
         currentTime = std::numeric_limits<double>::quiet_NaN();
     auto sourceApplicationIdentifier = element->sourceApplicationIdentifier();
 #if PLATFORM(COCOA)
@@ -1597,7 +1631,7 @@ void MediaElementSession::updateMediaUsageIfChanged()
     MediaUsageInfo usage = {
         element->currentSrc(),
         element->hasSource(),
-        state() == PlatformMediaSession::State::Playing,
+        isPlaying,
         canShowControlsManager(PlaybackControlsPurpose::ControlsManager),
         !page->isVisibleAndActive(),
         element->isSuspended(),

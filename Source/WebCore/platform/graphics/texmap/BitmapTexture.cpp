@@ -384,14 +384,13 @@ void BitmapTexture::updateContents(NativeImage* frameImage, const IntRect& targe
     if (!frameImage)
         return;
 
+    auto surface = frameImage->platformImage();
 #if USE(CAIRO)
-    cairo_surface_t* surface = frameImage->platformImage().get();
-    const uint8_t* imageData = cairo_image_surface_get_data(surface);
-    int bytesPerLine = cairo_image_surface_get_stride(surface);
+    const uint8_t* imageData = cairo_image_surface_get_data(surface.get());
+    int bytesPerLine = cairo_image_surface_get_stride(surface.get());
 
     updateContents(imageData, targetRect, offset, bytesPerLine, PixelFormat::BGRA8);
 #elif USE(SKIA)
-    sk_sp<SkImage> surface = frameImage->platformImage();
     SkPixmap pixmap;
     if (surface->peekPixels(&pixmap))
         updateContents(pixmap.addr(), targetRect, offset, pixmap.rowBytes(), PixelFormat::BGRA8);
@@ -580,11 +579,7 @@ OptionSet<TextureMapperFlags> BitmapTexture::colorConvertFlags() const
     // Our GL textures are stored in RGBA format. If we received an update in BGRA format, we write that BGRA data into
     // the RGBA GL texture without pixel format conversions, but instead use a shader program to transparently handle
     // the color conversion on-the-fly, when painting the texture.
-#if CPU(LITTLE_ENDIAN)
     return TextureMapperFlags::ShouldConvertTextureBGRAToRGBA;
-#else
-    return TextureMapperFlags::ShouldConvertTextureARGBToRGBA;
-#endif
 }
 
 #if USE(SKIA)

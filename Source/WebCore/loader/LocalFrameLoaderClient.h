@@ -236,7 +236,8 @@ public:
     virtual ShouldGoToHistoryItem shouldGoToHistoryItem(HistoryItem&, IsSameDocumentNavigation) const = 0;
     virtual bool supportsAsyncShouldGoToHistoryItem() const = 0;
     virtual void shouldGoToHistoryItemAsync(HistoryItem&, CompletionHandler<void(ShouldGoToHistoryItem)>&&) const = 0;
-    virtual void dispatchGoToBackForwardItemAtIndex(int steps, FrameLoadType) = 0;
+    virtual void dispatchGoToBackForwardItemAtIndex(int steps) = 0;
+    virtual void dispatchEnqueueHistoryTraversalDelta(int delta) = 0;
 
     virtual bool shouldFallBack(const ResourceError&) const = 0;
 
@@ -364,6 +365,10 @@ public:
     virtual Vector<RegistrableDomain> loadedSubresourceDomains() const { return { }; }
 
     virtual RefPtr<Frame> provisionalParentFrame() const;
+
+    // True while this frame is a provisional frame for a cross-process navigation that has not
+    // committed yet, and so is not in the frame tree even though it has a parent to be attached to.
+    virtual bool isProvisionalFrame() const;
 
     virtual AllowsContentJavaScript allowsContentJavaScriptFromMostRecentNavigation() const { return AllowsContentJavaScript::Yes; }
 

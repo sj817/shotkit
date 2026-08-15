@@ -418,7 +418,7 @@ void ApplyStyleCommand::applyRelativeFontStyleChange(EditingStyle* style)
             currentFontSize = computedFontSize(node.get());
         }
         if (currentFontSize != desiredFontSize) {
-            inlineStyle->setProperty(CSSPropertyFontSize, CSSPrimitiveValue::create(desiredFontSize, CSSUnitType::CSS_PX));
+            inlineStyle->setProperty(CSSPropertyFontSize, CSSPrimitiveValue::create(desiredFontSize, CSSUnitType::Px));
             setNodeAttribute(*element, styleAttr, inlineStyle->asTextAtom(CSS::defaultSerializationContext()));
         }
         if (inlineStyle->isEmpty()) {
@@ -1520,7 +1520,7 @@ float ApplyStyleCommand::computedFontSize(Node* node)
     RefPtr value = dynamicDowncast<CSSPrimitiveValue>(Style::Extractor(node).propertyValue(CSSPropertyFontSize));
     if (!value)
         return 0;
-    return Style::deprecatedToStyleFromCSSValue<Style::Length<CSS::Nonnegative, float>>(*value)->resolveZoom(Style::ZoomNeeded { });
+    return Style::deprecatedToStyleFromCSSValue<Style::Length<CSS::Nonnegative, float>>(*value)->resolveZoom(Style::ZoomFactor::none());
 }
 
 void ApplyStyleCommand::joinChildTextNodes(Node* node, const Position& start, const Position& end)

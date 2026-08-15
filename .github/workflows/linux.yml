@@ -60,11 +60,12 @@ jobs:
           sparse-checkout: |
             /.github/
             /Source/
+            /shot/
+            /scripts/
+            /tests/
             /Tools/
             /CMakeLists.txt
             /CMakePresets.json
-            /Makefile
-            /Makefile.shared
             /AGENTS.md
             /ReadMe.md
 
@@ -150,7 +151,7 @@ jobs:
 
       - name: Verify scripts are never fetched
         run: |
-          python3 Source/WebKitShot/tests/fixture_server.py 8988 > "$RUNNER_TEMP/fixture.log" 2>&1 &
+          python3 tests/fixture_server.py 8988 > "$RUNNER_TEMP/fixture.log" 2>&1 &
           server_pid=$!
           trap 'kill "$server_pid" 2>/dev/null || true' EXIT
           for attempt in $(seq 1 50); do
@@ -172,13 +173,16 @@ jobs:
 
       - name: Package release archive
         run: |
-          version="0.1.0-ci.${GITHUB_RUN_NUMBER}"
-          name="shotkit-${version}-linux-${{ matrix.arch }}"
+          # No version in the name: the archive unpacks to a stable
+          # shotkit-linux-<arch>/ directory. The release job stamps the tag onto
+          # the file name of the public download.
+          name="shotkit-linux-${{ matrix.arch }}"
           stage="WebKitBuild/releases/${name}"
+          rm -rf "$stage"
           mkdir -p "$stage/bin" "$stage/lib" "$stage/include"
           cp WebKitBuild/shot-linux/bin/shotcli "$stage/bin/"
           cp WebKitBuild/shot-linux/lib/libshot.so "$stage/lib/"
-          cp Source/WebKitShot/capi/shot.h "$stage/include/"
+          cp shot/capi/shot.h "$stage/include/"
           llvm-strip-18 --strip-unneeded "$stage/bin/shotcli" "$stage/lib/libshot.so"
           ldd "$stage/lib/libshot.so" > "$stage/DEPENDENCIES.txt"
           cp ReadMe.md "$stage/README.md"

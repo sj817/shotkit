@@ -48,6 +48,7 @@ class DisplayList;
 }
 
 class FloatRoundedRect;
+class FrameProcessIndicators;
 class GraphicsLayerAnimationValue;
 class GraphicsLayerKeyframeValueList;
 class HTMLVideoElement;
@@ -177,7 +178,7 @@ public:
 #if ENABLE(MODEL_CONTEXT) && !ENABLE(GPU_PROCESS_MODEL)
     WEBCORE_EXPORT void setContentsToModelContext(Ref<ModelContext>, ContentsLayerPurpose) override;
 #endif
-#if ENABLE(MODEL_ELEMENT_IMMERSIVE)
+#if ENABLE(MODEL_ELEMENT_IMMERSIVE) || ENABLE(SPATIAL_PORTAL)
     WEBCORE_EXPORT void removeModelContents() override;
 #endif
     WEBCORE_EXPORT void setContentsToVideoElement(HTMLVideoElement&, ContentsLayerPurpose) override;
@@ -199,7 +200,7 @@ public:
 
     WEBCORE_EXPORT void setDebugBackgroundColor(const Color&) override;
     WEBCORE_EXPORT void setDebugBorder(const Color&, float borderWidth) override;
-    WEBCORE_EXPORT void setShowFrameProcessBorders(bool) override;
+    WEBCORE_EXPORT void setShowFrameProcessBorders(bool, unsigned frameDepth = 0) override;
 
     WEBCORE_EXPORT void setCustomAppearance(CustomAppearance) override;
 
@@ -247,6 +248,8 @@ public:
     WEBCORE_EXPORT void setShadowPath(const Path&) override;
 
 private:
+    friend class FrameProcessIndicators;
+
     bool isGraphicsLayerCA() const override { return true; }
 
     // PlatformCALayerClient overrides
@@ -525,6 +528,7 @@ private:
     void updateContentsNeedsDisplay();
     void updateAcceleratesDrawing();
     void updateDebugIndicators();
+    void updateFrameProcessIndicators();
     void updateTiles();
     void updateRootRelativeScale();
     void updateContentsScale(float pageScaleFactor);
@@ -728,6 +732,7 @@ private:
 #ifdef VISIBLE_TILE_WASH
     RefPtr<PlatformCALayer> m_visibleTileWashLayer;
 #endif
+    std::unique_ptr<FrameProcessIndicators> m_frameProcessIndicators;
     FloatRect m_visibleRect;
     FloatRect m_previousCommittedVisibleRect;
     FloatRect m_coverageRect; // Area for which we should maintain backing store, in the coordinate space of this layer.

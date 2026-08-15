@@ -10,12 +10,12 @@
 
 #include "include/core/SkSpan.h"
 #include "include/effects/SkRuntimeEffect.h"
-#include "include/private/base/SkTo.h"
-#include "src/base/SkArenaAlloc.h"
-#include "src/base/SkEnumBitMask.h"
-#include "src/base/SkSpinlock.h"
+#include "include/private/SkEnumBitMask.h"
+#include "include/private/SkTo.h"
+#include "src/core/SkArenaAlloc.h"
 #include "src/core/SkKnownRuntimeEffects.h"
 #include "src/core/SkSLTypeShared.h"
+#include "src/core/SkSpinlock.h"
 #include "src/core/SkTHash.h"
 #include "src/gpu/graphite/Attribute.h"
 #include "src/gpu/graphite/BuiltInCodeSnippetID.h"
@@ -56,7 +56,7 @@ enum class SnippetRequirementFlags : uint32_t {
 
     // Special values and/or behaviors required for the snippet
     kPrimitiveColor         = 0x8,
-    kGradientBuffer         = 0x10,
+    kStorageBuffer          = 0x10,
     kStoresSamplerDescData  = 0x20,  // Indicates that the node stores numerical sampler data
     kPassthroughLocalCoords = 0x40,  // Indicates that the node will pass through local coords
                                      // unmodified to its children.

@@ -20,6 +20,7 @@
 #include "include/core/SkSize.h"
 #include "include/core/SkSurface.h"
 #include "src/capture/SkCaptureCanvas.h"
+#include "src/capture/SkCaptureManager.h"
 #include "src/image/SkRescaleAndReadPixels.h"
 
 #include <atomic>
@@ -30,11 +31,13 @@ class SkPaint;
 class SkSurfaceProps;
 namespace skgpu { namespace graphite { class Recorder; } }
 
-SkSurface_Base::SkSurface_Base(int width, int height, const SkSurfaceProps* props)
-        : SkSurface(width, height, props) {}
+SkSurface_Base::SkSurface_Base(int width, int height, const SkSurfaceProps* props,
+                               sk_sp<SkPixelStorage> storage)
+        : SkSurface(width, height, props), fPixelStorage(std::move(storage)) {}
 
-SkSurface_Base::SkSurface_Base(const SkImageInfo& info, const SkSurfaceProps* props)
-        : SkSurface(info, props) {}
+SkSurface_Base::SkSurface_Base(const SkImageInfo& info, const SkSurfaceProps* props,
+                               sk_sp<SkPixelStorage> storage)
+        : SkSurface(info, props), fPixelStorage(std::move(storage)) {}
 
 SkSurface_Base::~SkSurface_Base() {
     // in case the canvas outsurvives us, we null the callback
@@ -98,7 +101,7 @@ bool SkSurface_Base::outstandingImageSnapshot() const {
 bool SkSurface_Base::aboutToDraw(ContentChangeMode mode) {
     this->dirtyGenerationID();
 
-    SkASSERT(!fCachedCanvas || fCachedCanvas->getSurfaceBase() == this);
+    SkASSERT(!fOwnedBaseCanvas || fOwnedBaseCanvas->getSurface() == this);
 
     if (fCachedImage) {
         // the surface may need to fork its backend, if its sharing it with
@@ -128,7 +131,7 @@ bool SkSurface_Base::aboutToDraw(ContentChangeMode mode) {
 }
 
 uint32_t SkSurface_Base::newGenerationID() {
-    SkASSERT(!fCachedCanvas || fCachedCanvas->getSurfaceBase() == this);
+    SkASSERT(!fOwnedBaseCanvas || fOwnedBaseCanvas->getSurface() == this);
     static std::atomic<uint32_t> nextID{1};
     return nextID.fetch_add(1, std::memory_order_relaxed);
 }

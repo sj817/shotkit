@@ -301,8 +301,7 @@ CodeBlock::CodeBlock(VM& vm, Structure* structure, CopyParsedBlockTag, CodeBlock
     , m_isJettisoned(false)
     , m_numCalleeLocals(other.m_numCalleeLocals)
     , m_numVars(other.m_numVars)
-    , m_numberOfArgumentsToSkip(other.m_numberOfArgumentsToSkip)
-    , m_couldBeTainted(other.m_couldBeTainted)
+    , m_numberOfArgumentsToSkipAndCouldBeTainted(other.m_numberOfArgumentsToSkipAndCouldBeTainted)
     , m_hasDebuggerStatement(false)
     , m_steppingMode(SteppingModeDisabled)
     , m_numBreakpoints(0)
@@ -380,6 +379,7 @@ CodeBlock::CodeBlock(VM& vm, Structure* structure, ScriptExecutable* ownerExecut
     setNumParameters(unlinkedCodeBlock->numParameters(), allocateArgumentValueProfiles);
 
     m_couldBeTainted = source().provider()->couldBeTainted();
+    ASSERT(couldBeTainted() == !!(m_numberOfArgumentsToSkipAndCouldBeTainted & 0x80000000));
     vm.heap.codeBlockSet().add(this);
     checker().set(CrashChecker::This, checker().hash(this));
     checker().set(CrashChecker::Metadata, checker().hash(this, m_metadata.get()));
@@ -548,6 +548,8 @@ bool CodeBlock::finishCreation(VM& vm, ScriptExecutable* ownerExecutable, Unlink
         LINK(OpSuperConstruct, callLinkInfo)
         LINK(OpIteratorOpen, callLinkInfo)
         LINK(OpIteratorNext, callLinkInfo)
+        LINK(OpAsyncIteratorOpen, callLinkInfo)
+        LINK(OpAsyncIteratorNext, callLinkInfo)
         LINK(OpCallVarargs, callLinkInfo)
         LINK(OpTailCallVarargs, callLinkInfo)
         LINK(OpConstructVarargs, callLinkInfo)
@@ -1489,7 +1491,7 @@ void CodeBlock::determineLiveness(const ConcurrentJSLocker&, Visitor& visitor)
 template void CodeBlock::determineLiveness(const ConcurrentJSLocker&, AbstractSlotVisitor&);
 template void CodeBlock::determineLiveness(const ConcurrentJSLocker&, SlotVisitor&);
 
-void CodeBlock::finalizeLLIntInlineCaches()
+void CodeBlock::reconcileLLIntInlineCachesAtGCEnd()
 {
     VM& vm = *m_vm;
 
@@ -1509,6 +1511,10 @@ void CodeBlock::finalizeLLIntInlineCaches()
 
         m_metadata->forEach<OpIteratorOpen>([&] (auto& metadata) {
             clearIfNeeded(metadata.m_modeMetadata, "iterator open"_s);
+        });
+
+        m_metadata->forEach<OpAsyncIteratorOpen>([&] (auto& metadata) {
+            clearIfNeeded(metadata.m_modeMetadata, "async iterator open"_s);
         });
 
         m_metadata->forEach<OpIteratorNext>([&] (auto& metadata) {
@@ -1700,6 +1706,11 @@ void CodeBlock::finalizeLLIntInlineCaches()
                 LLIntPrototypeLoadAdaptiveStructureWatchpoint::clearLLIntGetByIdCache(instruction->as<OpIteratorOpen>().metadata(this).m_modeMetadata);
                 break;
             }
+            case op_async_iterator_open: {
+                dataLogLnIf(Options::verboseOSR(), "Clearing LLInt async iterator open property access.");
+                LLIntPrototypeLoadAdaptiveStructureWatchpoint::clearLLIntGetByIdCache(instruction->as<OpAsyncIteratorOpen>().metadata(this).m_modeMetadata);
+                break;
+            }
             case op_iterator_next: {
                 dataLogLnIf(Options::verboseOSR(), "Clearing LLInt iterator next property access.");
                 // FIXME: We don't really want to clear both caches here but it's kinda annoying to figure out which one this is referring to...
@@ -1735,59 +1746,59 @@ void CodeBlock::finalizeLLIntInlineCaches()
 }
 
 #if ENABLE(JIT)
-void CodeBlock::finalizeJITInlineCaches()
+void CodeBlock::reconcileJITInlineCachesAtGCEnd()
 {
 #if ENABLE(DFG_JIT)
     if (JSC::JITCode::isOptimizingJIT(jitType())) {
         for (auto* callLinkInfo : m_jitCode->dfgCommon()->m_callLinkInfos)
-            callLinkInfo->visitWeak(vm());
+            callLinkInfo->reconcileWeakReferencesAtGCEnd(vm());
         for (auto* callLinkInfo : m_jitCode->dfgCommon()->m_directCallLinkInfos)
-            callLinkInfo->visitWeak(vm());
+            callLinkInfo->reconcileWeakReferencesAtGCEnd(vm());
         if (auto* jitData = dfgJITData()) {
             for (auto& callLinkInfo : jitData->callLinkInfos())
-                callLinkInfo.visitWeak(vm());
+                callLinkInfo.reconcileWeakReferencesAtGCEnd(vm());
         }
     }
 #endif
 
     forEachPropertyInlineCache([&](PropertyInlineCache& propertyCache) {
         ConcurrentJSLockerBase locker(NoLockingNecessary);
-        propertyCache.visitWeak(locker, this);
+        propertyCache.reconcileWeakReferencesAtGCEnd(locker, this);
         return IterationStatus::Continue;
     });
 }
 #endif
 
-void CodeBlock::finalizeUnconditionally(VM& vm, CollectionScope)
+void CodeBlock::reconcileWeakReferencesAtGCEnd(VM& vm, CollectionScope)
 {
     UNUSED_PARAM(vm);
 
-    // CodeBlock::finalizeUnconditionally is called for all live CodeBlocks.
+    // Called for all live CodeBlocks.
     // We do not need to call updateAllPredictions for DFG / FTL since the same thing happens in LLInt / Baseline CodeBlock for them.
     if (JITCode::isBaselineCode(jitType()))
         updateAllPredictions();
 
     if (JITCode::couldBeInterpreted(jitType())) {
-        finalizeLLIntInlineCaches();
+        reconcileLLIntInlineCachesAtGCEnd();
         // If the CodeBlock is DFG or FTL, CallLinkInfo in metadata is not related.
         forEachLLIntOrBaselineCallLinkInfo([&](DataOnlyCallLinkInfo& callLinkInfo) {
-            callLinkInfo.visitWeak(vm);
+            callLinkInfo.reconcileWeakReferencesAtGCEnd(vm);
         });
     }
 
 #if ENABLE(JIT)
     if (!!jitCode())
-        finalizeJITInlineCaches();
+        reconcileJITInlineCachesAtGCEnd();
 #endif
 
 #if ENABLE(DFG_JIT)
     if (JSC::JITCode::isOptimizingJIT(jitType())) {
         DFG::CommonData* dfgCommon = m_jitCode->dfgCommon();
         if (auto* statuses = dfgCommon->recordedStatuses.get())
-            statuses->finalize(vm);
+            statuses->reconcileWeakReferences(vm);
 
         if (auto* jitData = dfgJITData())
-            jitData->finalizeUnconditionally();
+            jitData->reconcileWeakReferencesAtGCEnd();
     }
 #endif // ENABLE(DFG_JIT)
 
@@ -1971,6 +1982,10 @@ void CodeBlock::stronglyVisitStrongReferences(const ConcurrentJSLocker& locker, 
 #endif
 }
 
+// Runs from visitChildren, so the CodeBlock is already known live. It is live either
+// because something marked it directly, for instance a conservative stack scan finding
+// it running, or because all of its code dependencies are still live. In the former case
+// we need to ensure those dependencies stay alive, and that is what happens here.
 template<typename Visitor>
 void CodeBlock::stronglyVisitWeakReferences(const ConcurrentJSLocker&, Visitor& visitor)
 {
@@ -2195,14 +2210,8 @@ bool CodeBlock::hasOpDebugForLineAndColumn(unsigned line, std::optional<unsigned
 
 void CodeBlock::shrinkToFit(const ConcurrentJSLocker&, ShrinkMode shrinkMode)
 {
-#if USE(JSVALUE32_64)
-    // Only 32bit Baseline JIT is touching m_constantRegisters address directly.
-    if (shrinkMode == ShrinkMode::EarlyShrink)
-        m_constantRegisters.shrinkToFit();
-#else
     UNUSED_PARAM(shrinkMode);
     m_constantRegisters.shrinkToFit();
-#endif
 }
 
 void CodeBlock::linkIncomingCall(JSCell* caller, CallLinkInfoBase* incoming)
@@ -3050,10 +3059,6 @@ void CodeBlock::updateAllNonLazyValueProfilePredictions(const ConcurrentJSLocker
 
 void CodeBlock::updateAllLazyValueProfilePredictions(const ConcurrentJSLocker& locker)
 {
-#if USE(JSVALUE32_64)
-    // JSVALUE64 does not need a lock.
-    ASSERT(m_lock.isLocked());
-#endif
 #if ENABLE(DFG_JIT)
     lazyValueProfiles().computeUpdatedPredictions(locker, this);
 #else
@@ -3096,6 +3101,9 @@ void CodeBlock::updateAllArrayAllocationProfilePredictions()
     });
 }
 
+// Folds each profile's sampled value into a pointer-free SpeculatedType and clears the sample.
+// The samples are untraced JSValues and StructureIDs, so this only runs while they are still
+// readable: after marking, before sweep.
 void CodeBlock::updateAllPredictions()
 {
     {
@@ -3371,6 +3379,8 @@ ValueProfile* CodeBlock::tryGetValueProfileForBytecodeIndex(BytecodeIndex byteco
 
     case op_iterator_open:
         return &m_metadata->valueProfilesEnd()[-static_cast<ptrdiff_t>(valueProfileOffsetFor(instruction->as<OpIteratorOpen>(), bytecodeIndex.checkpoint()))];
+    case op_async_iterator_open:
+        return &m_metadata->valueProfilesEnd()[-static_cast<ptrdiff_t>(valueProfileOffsetFor(instruction->as<OpAsyncIteratorOpen>(), bytecodeIndex.checkpoint()))];
     case op_iterator_next:
         return &m_metadata->valueProfilesEnd()[-static_cast<ptrdiff_t>(valueProfileOffsetFor(instruction->as<OpIteratorNext>(), bytecodeIndex.checkpoint()))];
     case op_instanceof:

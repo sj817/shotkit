@@ -68,163 +68,50 @@
 namespace WebCore {
 namespace Style {
 
-#define DECLARE_PROPERTY_CUSTOM_HANDLERS(property) \
-    static void applyInherit##property(BuilderState&); \
-    static void applyInitial##property(BuilderState&); \
-    static void applyValue##property(BuilderState&, CSSValue&)
+template<typename T>
+decltype(auto) forwardInheritedValue(T&& value)
+{
+    if constexpr (std::is_lvalue_reference_v<T>)
+        return std::remove_cvref_t<T>(value);
+    else
+        return std::forward<T>(value);
+}
 
-template<typename T> inline T forwardInheritedValue(T&& value) { return std::forward<T>(value); }
-template<auto R, typename V> inline Length<R, V> forwardInheritedValue(const Length<R, V>& value) { auto copy = value; return copy; }
-inline AccentColor forwardInheritedValue(const AccentColor& value) { auto copy = value; return copy; }
-inline AnchorNames forwardInheritedValue(const AnchorNames& value) { auto copy = value; return copy; }
-inline AppleColorFilter forwardInheritedValue(const AppleColorFilter& value) { auto copy = value; return copy; }
-inline AspectRatio forwardInheritedValue(const AspectRatio& value) { auto copy = value; return copy; }
-inline BackgroundSize forwardInheritedValue(const BackgroundSize& value) { auto copy = value; return copy; }
-inline BlockEllipsis forwardInheritedValue(const BlockEllipsis& value) { auto copy = value; return copy; }
-inline BlockStepSize forwardInheritedValue(const BlockStepSize& value) { auto copy = value; return copy; }
-inline BorderImageSource forwardInheritedValue(const BorderImageSource& value) { auto copy = value; return copy; }
-inline BorderImageSlice forwardInheritedValue(const BorderImageSlice& value) { auto copy = value; return copy; }
-inline BorderImageWidth forwardInheritedValue(const BorderImageWidth& value) { auto copy = value; return copy; }
-inline BorderImageOutset forwardInheritedValue(const BorderImageOutset& value) { auto copy = value; return copy; }
-inline BorderImageRepeat forwardInheritedValue(const BorderImageRepeat& value) { auto copy = value; return copy; }
-inline BorderRadiusValue forwardInheritedValue(const BorderRadiusValue& value) { auto copy = value; return copy; }
-inline BoxShadows forwardInheritedValue(const BoxShadows& value) { auto copy = value; return copy; }
-inline CaretColor forwardInheritedValue(const CaretColor& value) { auto copy = value; return copy; }
-inline ContainIntrinsicSize forwardInheritedValue(const ContainIntrinsicSize& value) { auto copy = value; return copy; }
-inline ContainerNames forwardInheritedValue(const ContainerNames& value) { auto copy = value; return copy; }
-inline CounterIncrement forwardInheritedValue(const CounterIncrement& value) { auto copy = value; return copy; }
-inline CounterReset forwardInheritedValue(const CounterReset& value) { auto copy = value; return copy; }
-inline CounterSet forwardInheritedValue(const CounterSet& value) { auto copy = value; return copy; }
-inline Content forwardInheritedValue(const Content& value) { auto copy = value; return copy; }
-inline WebCore::Color forwardInheritedValue(const WebCore::Color& value) { auto copy = value; return copy; }
-inline Color forwardInheritedValue(const Color& value) { auto copy = value; return copy; }
-inline EasingFunction forwardInheritedValue(const EasingFunction& value) { auto copy = value; return copy; }
-inline GapGutter forwardInheritedValue(const GapGutter& value) { auto copy = value; return copy; }
-inline FontFamilies forwardInheritedValue(const FontFamilies& value) { auto copy = value; return copy; }
-inline ScrollMarginEdge forwardInheritedValue(const ScrollMarginEdge& value) { auto copy = value; return copy; }
-inline ScrollPaddingEdge forwardInheritedValue(const ScrollPaddingEdge& value) { auto copy = value; return copy; }
-inline LineWidth forwardInheritedValue(const LineWidth& value) { auto copy = value; return copy; }
-inline MaskBorderSource forwardInheritedValue(const MaskBorderSource& value) { auto copy = value; return copy; }
-inline MaskBorderSlice forwardInheritedValue(const MaskBorderSlice& value) { auto copy = value; return copy; }
-inline MaskBorderWidth forwardInheritedValue(const MaskBorderWidth& value) { auto copy = value; return copy; }
-inline MaskBorderOutset forwardInheritedValue(const MaskBorderOutset& value) { auto copy = value; return copy; }
-inline MaskBorderRepeat forwardInheritedValue(const MaskBorderRepeat& value) { auto copy = value; return copy; }
-inline MarginEdge forwardInheritedValue(const MarginEdge& value) { auto copy = value; return copy; }
-inline PaddingEdge forwardInheritedValue(const PaddingEdge& value) { auto copy = value; return copy; }
-inline ImageOrNone forwardInheritedValue(const ImageOrNone& value) { auto copy = value; return copy; }
-inline InsetEdge forwardInheritedValue(const InsetEdge& value) { auto copy = value; return copy; }
-inline Perspective forwardInheritedValue(const Perspective& value) { auto copy = value; return copy; }
-inline Quotes forwardInheritedValue(const Quotes& value) { auto copy = value; return copy; }
-inline Rotate forwardInheritedValue(const Rotate& value) { auto copy = value; return copy; }
-inline Scale forwardInheritedValue(const Scale& value) { auto copy = value; return copy; }
-inline Translate forwardInheritedValue(const Translate& value) { auto copy = value; return copy; }
-inline PreferredSize forwardInheritedValue(const PreferredSize& value) { auto copy = value; return copy; }
-inline MinimumSize forwardInheritedValue(const MinimumSize& value) { auto copy = value; return copy; }
-inline MaximumSize forwardInheritedValue(const MaximumSize& value) { auto copy = value; return copy; }
-inline Filter forwardInheritedValue(const Filter& value) { auto copy = value; return copy; }
-inline FlexBasis forwardInheritedValue(const FlexBasis& value) { auto copy = value; return copy; }
-inline DynamicRangeLimit forwardInheritedValue(const DynamicRangeLimit& value) { auto copy = value; return copy; }
-inline Clip forwardInheritedValue(const Clip& value) { auto copy = value; return copy; }
-inline ClipPath forwardInheritedValue(const ClipPath& value) { auto copy = value; return copy; }
-inline CornerShapeValue forwardInheritedValue(const CornerShapeValue& value) { auto copy = value; return copy; }
-inline GridPosition forwardInheritedValue(const GridPosition& value) { auto copy = value; return copy; }
-inline GridTemplateAreas forwardInheritedValue(const GridTemplateAreas& value) { auto copy = value; return copy; }
-inline GridTemplateList forwardInheritedValue(const GridTemplateList& value) { auto copy = value; return copy; }
-inline GridTrackSizes forwardInheritedValue(const GridTrackSizes& value) { auto copy = value; return copy; }
-inline HyphenateCharacter forwardInheritedValue(const HyphenateCharacter& value) { auto copy = value; return copy; }
-inline FlowTolerance forwardInheritedValue(const FlowTolerance& value) { auto copy = value; return copy; }
-inline LetterSpacing forwardInheritedValue(const LetterSpacing& value) { auto copy = value; return copy; }
-inline LineHeight forwardInheritedValue(const LineHeight& value) { auto copy = value; return copy; }
-inline ListStyleType forwardInheritedValue(const ListStyleType& value) { auto copy = value; return copy; }
-inline NameScope forwardInheritedValue(const NameScope& value) { auto copy = value; return copy; }
-inline OffsetAnchor forwardInheritedValue(const OffsetAnchor& value) { auto copy = value; return copy; }
-inline OffsetDistance forwardInheritedValue(const OffsetDistance& value) { auto copy = value; return copy; }
-inline OffsetPath forwardInheritedValue(const OffsetPath& value) { auto copy = value; return copy; }
-inline OffsetPosition forwardInheritedValue(const OffsetPosition& value) { auto copy = value; return copy; }
-inline OffsetRotate forwardInheritedValue(const OffsetRotate& value) { auto copy = value; return copy; }
-inline ObjectViewBox forwardInheritedValue(const ObjectViewBox& value) { auto copy = value; return copy; }
-inline OutlineOffset forwardInheritedValue(const OutlineOffset& value) { auto copy = value; return copy; }
-inline OverflowClipMargin forwardInheritedValue(const OverflowClipMargin& value) { auto copy = value; return copy; }
-inline Position forwardInheritedValue(const Position& value) { auto copy = value; return copy; }
-inline PositionAnchor forwardInheritedValue(const PositionAnchor& value) { auto copy = value; return copy; }
-inline PositionTryFallbacks forwardInheritedValue(const PositionTryFallbacks& value) { auto copy = value; return copy; }
-inline PositionX forwardInheritedValue(const PositionX& value) { auto copy = value; return copy; }
-inline PositionY forwardInheritedValue(const PositionY& value) { auto copy = value; return copy; }
-inline RepeatStyle forwardInheritedValue(const RepeatStyle& value) { auto copy = value; return copy; }
-inline SVGBaselineShift forwardInheritedValue(const SVGBaselineShift& value) { auto copy = value; return copy; }
-inline SVGCenterCoordinateComponent forwardInheritedValue(const SVGCenterCoordinateComponent& value) { auto copy = value; return copy; }
-inline SVGCoordinateComponent forwardInheritedValue(const SVGCoordinateComponent& value) { auto copy = value; return copy; }
-inline SVGMarkerResource forwardInheritedValue(const SVGMarkerResource& value) { auto copy = value; return copy; }
-inline SVGPathData forwardInheritedValue(const SVGPathData& value) { auto copy = value; return copy; }
-inline SVGPaint forwardInheritedValue(const SVGPaint& value) { auto copy = value; return copy; }
-inline SVGRadius forwardInheritedValue(const SVGRadius& value) { auto copy = value; return copy; }
-inline SVGRadiusComponent forwardInheritedValue(const SVGRadiusComponent& value) { auto copy = value; return copy; }
-inline SVGStrokeDasharray forwardInheritedValue(const SVGStrokeDasharray& value) { auto copy = value; return copy; }
-inline SVGStrokeDashoffset forwardInheritedValue(const SVGStrokeDashoffset& value) { auto copy = value; return copy; }
-inline ScrollSnapAlign forwardInheritedValue(const ScrollSnapAlign& value) { auto copy = value; return copy; }
-inline ScrollSnapType forwardInheritedValue(const ScrollSnapType& value) { auto copy = value; return copy; }
-inline ScrollbarColor forwardInheritedValue(const ScrollbarColor& value) { auto copy = value; return copy; }
-inline ScrollbarGutter forwardInheritedValue(const ScrollbarGutter& value) { auto copy = value; return copy; }
-inline ContainerType forwardInheritedValue(const ContainerType& value) { auto copy = value; return copy; }
-inline ShapeMargin forwardInheritedValue(const ShapeMargin& value) { auto copy = value; return copy; }
-inline ShapeOutside forwardInheritedValue(const ShapeOutside& value) { auto copy = value; return copy; }
-inline SingleAnimationName forwardInheritedValue(const SingleAnimationName& value) { auto copy = value; return copy; }
-inline SingleAnimationRangeStart forwardInheritedValue(const SingleAnimationRangeStart& value) { auto copy = value; return copy; }
-inline SingleAnimationRangeEnd forwardInheritedValue(const SingleAnimationRangeEnd& value) { auto copy = value; return copy; }
-inline SingleAnimationRange forwardInheritedValue(const SingleAnimationRange& value) { auto copy = value; return copy; }
-inline SingleAnimationTimeline forwardInheritedValue(const SingleAnimationTimeline& value) { auto copy = value; return copy; }
-inline SingleTransitionProperty forwardInheritedValue(const SingleTransitionProperty& value) { auto copy = value; return copy; }
-inline StrokeWidth forwardInheritedValue(const StrokeWidth& value) { auto copy = value; return copy; }
-inline TabSize forwardInheritedValue(const TabSize& value) { auto copy = value; return copy; }
-inline TextDecorationLine forwardInheritedValue(const TextDecorationLine& value) { auto copy = value; return copy; }
-inline TextDecorationThickness forwardInheritedValue(const TextDecorationThickness& value) { auto copy = value; return copy; }
-inline TextEmphasisStyle forwardInheritedValue(const TextEmphasisStyle& value) { auto copy = value; return copy; }
-inline TextIndent forwardInheritedValue(const TextIndent& value) { auto copy = value; return copy; }
-inline TextShadows forwardInheritedValue(const TextShadows& value) { auto copy = value; return copy; }
-inline TextUnderlineOffset forwardInheritedValue(const TextUnderlineOffset& value) { auto copy = value; return copy; }
-inline URL forwardInheritedValue(const URL& value) { auto copy = value; return copy; }
-inline FixedVector<PositionTryFallback> forwardInheritedValue(const FixedVector<PositionTryFallback>& value) { auto copy = value; return copy; }
-inline ProgressTimelineName forwardInheritedValue(const ProgressTimelineName& value) { auto copy = value; return copy; }
-inline ScrollTimelines forwardInheritedValue(const ScrollTimelines& value) { auto copy = value; return copy; }
-inline TimelineTriggerName forwardInheritedValue(const TimelineTriggerName& value) { auto copy = value; return copy; }
-inline Transform forwardInheritedValue(const Transform& value) { auto copy = value; return copy; }
-inline VerticalAlign forwardInheritedValue(const VerticalAlign& value) { auto copy = value; return copy; }
-inline ViewTimelineInsetItem forwardInheritedValue(const ViewTimelineInsetItem& value) { auto copy = value; return copy; }
-inline ViewTimelines forwardInheritedValue(const ViewTimelines& value) { auto copy = value; return copy; }
-inline ViewTransitionClasses forwardInheritedValue(const ViewTransitionClasses& value) { auto copy = value; return copy; }
-inline ViewTransitionName forwardInheritedValue(const ViewTransitionName& value) { auto copy = value; return copy; }
-inline WebkitBoxReflect forwardInheritedValue(const WebkitBoxReflect& value) { auto copy = value; return copy; }
-inline WebkitInitialLetter forwardInheritedValue(const WebkitInitialLetter& value) { auto copy = value; return copy; }
-inline WebkitLineClamp forwardInheritedValue(const WebkitLineClamp& value) { auto copy = value; return copy; }
-inline WebkitLineGrid forwardInheritedValue(const WebkitLineGrid& value) { auto copy = value; return copy; }
-inline WebkitMarqueeIncrement forwardInheritedValue(const WebkitMarqueeIncrement& value) { auto copy = value; return copy; }
-inline WillChange forwardInheritedValue(const WillChange& value) { auto copy = value; return copy; }
-inline WordSpacing forwardInheritedValue(const WordSpacing& value) { auto copy = value; return copy; }
-
-// Note that we assume the CSS parser only allows valid CSSValue types.
 class BuilderCustom {
 public:
-    // Custom handling of inherit, initial and value setting.
-    DECLARE_PROPERTY_CUSTOM_HANDLERS(FontFamily);
-    DECLARE_PROPERTY_CUSTOM_HANDLERS(FontSize);
-    DECLARE_PROPERTY_CUSTOM_HANDLERS(LetterSpacing);
-#if ENABLE(TEXT_AUTOSIZING)
-    DECLARE_PROPERTY_CUSTOM_HANDLERS(LineHeight);
-#endif
-    DECLARE_PROPERTY_CUSTOM_HANDLERS(WordSpacing);
-    DECLARE_PROPERTY_CUSTOM_HANDLERS(Zoom);
+    static void applyInheritFontFamily(BuilderState&);
+    static void applyInitialFontFamily(BuilderState&);
+    static void applyValueFontFamily(BuilderState&, CSSValue&);
 
-    // Custom handling of initial setting only.
-    static void applyInitialBorderTopWidth(BuilderState&);
-    static void applyInitialBorderRightWidth(BuilderState&);
-    static void applyInitialBorderBottomWidth(BuilderState&);
-    static void applyInitialBorderLeftWidth(BuilderState&);
-    static void applyInitialOutlineWidth(BuilderState&);
-    static void applyInitialColumnRuleWidth(BuilderState&);
+    static void applyInheritFontSize(BuilderState&);
+    static void applyInitialFontSize(BuilderState&);
+    static void applyValueFontSize(BuilderState&, CSSValue&);
+
+    static void applyInheritLetterSpacing(BuilderState&);
+    static void applyInitialLetterSpacing(BuilderState&);
+    static void applyValueLetterSpacing(BuilderState&, CSSValue&);
+
+#if ENABLE(TEXT_AUTOSIZING)
+    static void applyInheritLineHeight(BuilderState&);
+    static void applyInitialLineHeight(BuilderState&);
+    static void applyValueLineHeight(BuilderState&, CSSValue&);
+#endif
+
+    static void applyInheritWordSpacing(BuilderState&);
+    static void applyInitialWordSpacing(BuilderState&);
+    static void applyValueWordSpacing(BuilderState&, CSSValue&);
+
+    static void applyInheritZoom(BuilderState&);
+    static void applyInitialZoom(BuilderState&);
+    static void applyValueZoom(BuilderState&, CSSValue&);
+
     static void applyInitialColor(BuilderState&);
+    static void applyValueColor(BuilderState&, CSSValue&);
+    static void applyHighlightInitialColor(BuilderState&);
+    static void applyHighlightInheritColor(BuilderState&);
+    static void applyHighlightValueColor(BuilderState&, CSSValue&);
 
     // Custom handling of value setting only.
-    static void applyValueColor(BuilderState&, CSSValue&);
     static void applyValueWebkitLocale(BuilderState&, CSSValue&);
     static void applyValueTextOrientation(BuilderState&, CSSValue&);
 #if ENABLE(TEXT_AUTOSIZING)
@@ -236,12 +123,6 @@ public:
 
 private:
     static void resetUsedZoom(BuilderState&);
-
-    enum CounterBehavior { Increment, Reset, Set };
-    template<CounterBehavior>
-    static void applyInheritCounter(BuilderState&);
-    template<CounterBehavior>
-    static void applyValueCounter(BuilderState&, CSSValue&);
 
     static float largerFontSize(float size);
     static float smallerFontSize(float size);
@@ -575,54 +456,6 @@ inline void BuilderCustom::applyValueFontFamily(BuilderState& builderState, CSSV
     }
 }
 
-inline void BuilderCustom::applyInitialBorderTopWidth(BuilderState& builderState)
-{
-    if (!builderState.cssToLengthConversionData().evaluationTimeZoomEnabled())
-        builderState.style().setBorderTopWidth(LineWidth::snapLengthAsBorderWidth(3.0f * builderState.style().usedZoom(), builderState.style().deviceScaleFactor()));
-    else
-        builderState.style().setBorderTopWidth(ComputedStyle::initialBorderTopWidth());
-}
-
-inline void BuilderCustom::applyInitialBorderRightWidth(BuilderState& builderState)
-{
-    if (!builderState.cssToLengthConversionData().evaluationTimeZoomEnabled())
-        builderState.style().setBorderRightWidth(LineWidth::snapLengthAsBorderWidth(3.0f * builderState.style().usedZoom(), builderState.style().deviceScaleFactor()));
-    else
-        builderState.style().setBorderRightWidth(ComputedStyle::initialBorderRightWidth());
-}
-
-inline void BuilderCustom::applyInitialBorderBottomWidth(BuilderState& builderState)
-{
-    if (!builderState.cssToLengthConversionData().evaluationTimeZoomEnabled())
-        builderState.style().setBorderBottomWidth(LineWidth::snapLengthAsBorderWidth(3.0f * builderState.style().usedZoom(), builderState.style().deviceScaleFactor()));
-    else
-        builderState.style().setBorderBottomWidth(ComputedStyle::initialBorderBottomWidth());
-}
-
-inline void BuilderCustom::applyInitialBorderLeftWidth(BuilderState& builderState)
-{
-    if (!builderState.cssToLengthConversionData().evaluationTimeZoomEnabled())
-        builderState.style().setBorderLeftWidth(LineWidth::snapLengthAsBorderWidth(3.0f * builderState.style().usedZoom(), builderState.style().deviceScaleFactor()));
-    else
-        builderState.style().setBorderLeftWidth(ComputedStyle::initialBorderLeftWidth());
-}
-
-inline void BuilderCustom::applyInitialOutlineWidth(BuilderState& builderState)
-{
-    if (!builderState.cssToLengthConversionData().evaluationTimeZoomEnabled())
-        builderState.style().setOutlineWidth(LineWidth::snapLengthAsBorderWidth(3.0f * builderState.style().usedZoom(), builderState.style().deviceScaleFactor()));
-    else
-        builderState.style().setOutlineWidth(ComputedStyle::initialOutlineWidth());
-}
-
-inline void BuilderCustom::applyInitialColumnRuleWidth(BuilderState& builderState)
-{
-    if (!builderState.cssToLengthConversionData().evaluationTimeZoomEnabled())
-        builderState.style().setColumnRuleWidth(LineWidth::snapLengthAsBorderWidth(3.0f * builderState.style().usedZoom(), builderState.style().deviceScaleFactor()));
-    else
-        builderState.style().setColumnRuleWidth(ComputedStyle::initialColumnRuleWidth());
-}
-
 inline void BuilderCustom::applyInitialFontSize(BuilderState& builderState)
 {
     auto fontDescription = builderState.fontDescription();
@@ -791,19 +624,17 @@ inline void BuilderCustom::applyValueFontSize(BuilderState& builderState, CSSVal
         // FIXME: Checking `primitiveValue->isPercentageOrParentFontRelativeLength()` is not sufficient to determine if any parent relative length units have been used, as arbitrary calc() expressions may contain them as well. For example, `font-size: calc(1px + 1em)`.
         builderState.setFontDescriptionIsAbsoluteSize(parentIsAbsoluteSize || !primitiveValue->isPercentageOrParentFontRelativeLength());
 
-        auto conversionData = builderState.cssToLengthConversionData().copyForFontSize();
+        using StyleType = LengthPercentage<CSS::Nonnegative>;
 
-        using StyleType = LengthPercentage<CSS::Nonnegative, float>;
-
-        auto handleLength = [](const auto& length) -> float { return length.resolveZoom(ZoomNeeded { }); };
+        auto handleLength = [](const auto& length) -> float { return length.resolveZoom(ZoomFactor::none()); };
         auto handlePercentage = [&](const auto& percentage) -> float { return percentage.value * parentSize / 100.0f; };
-        auto handleCalc = [&](const auto& calc) -> float { return calc.evaluate(parentSize, ZoomNeeded { }); };
+        auto handleCalc = [&](const auto& calc) -> float { return calc.evaluate(parentSize, ZoomFactor::none()); };
 
         size =  WTF::switchOn(*primitiveValue,
             [&](const CSSPrimitiveValue::Calc& calc) -> float {
                 using CSSRaw = typename StyleType::CSS::Raw;
 
-                auto resolved = toStyle(CSS::UnevaluatedCalc<CSSRaw> { calc }, conversionData);
+                auto resolved = toStyle(CSS::UnevaluatedCalc<CSSRaw> { calc }, builderState);
                 return WTF::switchOn(resolved,
                     [&](const typename StyleType::Dimension& length) {
                         return handleLength(length);
@@ -821,9 +652,9 @@ inline void BuilderCustom::applyValueFontSize(BuilderState& builderState, CSSVal
                 using CSSPercentageRaw = typename StyleType::Percentage::CSS::Raw;
 
                 if (auto unit = CSSDimensionRaw::UnitTraits::validate(raw.unit))
-                    return handleLength(toStyle(CSSDimensionRaw(*unit, raw.value), conversionData));
+                    return handleLength(toStyle(CSSDimensionRaw(*unit, raw.value), builderState));
                 if (auto unit = CSSPercentageRaw::UnitTraits::validate(raw.unit))
-                    return handlePercentage(toStyle(CSSPercentageRaw(*unit, raw.value), conversionData));
+                    return handlePercentage(toStyle(CSSPercentageRaw(*unit, raw.value), builderState));
 
                 builderState.setCurrentPropertyInvalidAtComputedValueTime();
                 return 0;
@@ -873,6 +704,46 @@ inline void BuilderCustom::applyValueColor(BuilderState& builderState, CSSValue&
 
     builderState.style().setDisallowsFastPathInheritance();
     builderState.style().setHasExplicitlySetColor(builderState.isAuthorOrigin());
+}
+
+inline void BuilderCustom::applyHighlightInitialColor(BuilderState& builderState)
+{
+    applyInitialColor(builderState);
+    builderState.style().setColorIsCurrentColorForHighlight(false);
+}
+
+// currentcolor in a highlight pseudo-element is the originating element's color, so the chain
+// inherits the keyword rather than the color it resolved to. At the start of the chain the inherited
+// value is currentColor. https://drafts.csswg.org/css-pseudo-4/#highlight-cascade
+// FIXME: A value that only references currentcolor, like color-mix(in oklab, teal, currentcolor),
+// still propagates as the color it resolved to. Resolving those per element needs the unresolved
+// Style::Color, which the color property doesn't store, and no engine does it today.
+inline void BuilderCustom::applyHighlightInheritColor(BuilderState& builderState)
+{
+    CheckedPtr parentHighlightStyle = builderState.parentHighlightStyle();
+    auto isCurrentColor = !parentHighlightStyle || parentHighlightStyle->colorIsCurrentColorForHighlight();
+    auto& sourceStyle = isCurrentColor ? builderState.parentStyle() : *parentHighlightStyle;
+
+    if (builderState.applyPropertyToRegularStyle()) {
+        builderState.style().setColor(forwardInheritedValue(sourceStyle.color()));
+        // FIXME: visitedLinkColor needs its own bit for this.
+        builderState.style().setColorIsCurrentColorForHighlight(isCurrentColor);
+    }
+    if (builderState.applyPropertyToVisitedLinkStyle())
+        builderState.style().setVisitedLinkColor(forwardInheritedValue(sourceStyle.color()));
+
+    builderState.style().setDisallowsFastPathInheritance();
+    // The seeding pass has no declaration to take the origin from, so it comes from the source.
+    // FIXME: When the source is the originating element, its own color counts as one the highlight set.
+    builderState.style().setHasExplicitlySetColor(builderState.isAuthorOrigin() || sourceStyle.hasExplicitlySetColor());
+}
+
+inline void BuilderCustom::applyHighlightValueColor(BuilderState& builderState, CSSValue& value)
+{
+    applyValueColor(builderState, value);
+
+    if (builderState.applyPropertyToRegularStyle())
+        builderState.style().setColorIsCurrentColorForHighlight(valueID(value) == CSSValueCurrentcolor);
 }
 
 } // namespace Style

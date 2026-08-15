@@ -1100,9 +1100,6 @@ RefPtr<StyleRuleViewTransition> CSSParser::consumeViewTransitionRule(CSSParserTo
 
 RefPtr<StyleRulePositionTry> CSSParser::consumePositionTryRule(CSSParserTokenRange prelude, CSSParserTokenRange block)
 {
-    if (!m_context.propertySettings.cssAnchorPositioningEnabled)
-        return nullptr;
-
     // Prelude should ONLY be a <dashed-ident>.
     auto ruleName = CSSPropertyParserHelpers::consumeEagerlyResolvableDashedIdentRaw(prelude);
     if (!ruleName)
@@ -1385,9 +1382,8 @@ RefPtr<StyleRuleContainer> CSSParser::consumeContainerRule(CSSParserTokenRange p
     if (!query)
         return nullptr;
 
-    prelude.consumeWhitespace();
-    if (!prelude.atEnd())
-        return nullptr;
+    // If we successfully parsed any conditions, there has to be at least one.
+    ASSERT(!query->isEmpty());
 
     if (RefPtr observerWrapper = m_observerWrapper.get()) {
         observerWrapper->observer().startRuleHeader(StyleRuleType::Container, observerWrapper->startOffset(originalPreludeRange));

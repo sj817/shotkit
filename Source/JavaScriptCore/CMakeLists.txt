@@ -239,12 +239,10 @@ set(LLINT_ASM
     llint/InPlaceInterpreter.asm
     llint/InPlaceInterpreter64.asm
     llint/LowLevelInterpreter.asm
-    llint/LowLevelInterpreter32_64.asm
     llint/LowLevelInterpreter64.asm
 )
 
 set(OFFLINE_ASM
-    offlineasm/arm.rb
     offlineasm/arm64.rb
     offlineasm/arm64e.rb
     offlineasm/asm.rb
@@ -291,11 +289,20 @@ add_custom_command(
     VERBATIM)
 add_custom_target(Bytecodes DEPENDS "${JavaScriptCore_DERIVED_SOURCES_DIR}/Bytecodes.h")
 
+add_custom_command(
+    OUTPUT ${JavaScriptCore_DERIVED_SOURCES_DIR}/JSCWebPreferenceOptions.h
+    MAIN_DEPENDENCY ${JAVASCRIPTCORE_DIR}/Scripts/PreferencesTemplates/JSCWebPreferenceOptions.h.erb
+    DEPENDS ${WTF_SCRIPTS_DIR}/GeneratePreferences.rb ${WTF_SCRIPTS_DIR}/Preferences/UnifiedWebPreferences.yaml WTF_CopyPreferences
+    COMMAND ${Ruby_EXECUTABLE} ${WTF_SCRIPTS_DIR}/GeneratePreferences.rb --frontend JavaScriptCore --outputDir "${JavaScriptCore_DERIVED_SOURCES_DIR}" --template ${JAVASCRIPTCORE_DIR}/Scripts/PreferencesTemplates/JSCWebPreferenceOptions.h.erb ${WTF_SCRIPTS_DIR}/Preferences/UnifiedWebPreferences.yaml
+    VERBATIM)
+add_custom_target(JSCWebPreferenceOptions DEPENDS "${JavaScriptCore_DERIVED_SOURCES_DIR}/JSCWebPreferenceOptions.h")
+
 string(TIMESTAMP BUILD_TIME "%s")
 
 list(APPEND JavaScriptCore_HEADERS
     ${JavaScriptCore_DERIVED_SOURCES_DIR}/BytecodeStructs.h
     ${JavaScriptCore_DERIVED_SOURCES_DIR}/Bytecodes.h
+    ${JavaScriptCore_DERIVED_SOURCES_DIR}/JSCWebPreferenceOptions.h
 )
 
 if (WTF_CPU_X86_64)
@@ -306,8 +313,6 @@ elseif (WTF_CPU_ARM64)
     else ()
         set(OFFLINE_ASM_BACKEND "ARM64")
     endif ()
-elseif (ARM_THUMB2_DETECTED)
-    set(OFFLINE_ASM_BACKEND "ARMv7")
 elseif (WTF_CPU_RISCV64)
     set(OFFLINE_ASM_BACKEND "RISCV64")
 endif ()
@@ -365,12 +370,10 @@ set(BUILTINS_GENERATOR_SCRIPTS
 )
 
 set(JavaScriptCore_BUILTINS_SOURCES
-    ${JAVASCRIPTCORE_DIR}/builtins/AsyncFromSyncIteratorPrototype.js
     ${JAVASCRIPTCORE_DIR}/builtins/ArrayConstructor.js
     ${JAVASCRIPTCORE_DIR}/builtins/ArrayIteratorPrototype.js
     ${JAVASCRIPTCORE_DIR}/builtins/ArrayPrototype.js
     ${JAVASCRIPTCORE_DIR}/builtins/AsyncDisposableStackPrototype.js
-    ${JAVASCRIPTCORE_DIR}/builtins/AsyncGeneratorPrototype.js
     ${JAVASCRIPTCORE_DIR}/builtins/AsyncIteratorPrototype.js
     ${JAVASCRIPTCORE_DIR}/builtins/DisposableStackPrototype.js
     ${JAVASCRIPTCORE_DIR}/builtins/FunctionPrototype.js
@@ -430,6 +433,7 @@ set(LLIntSettingsExtractor_DEPENDENCIES
     WTF_CopyHeaders
     bmalloc_CopyHeaders
 )
+set_property(TARGET LLIntSettingsExtractor PROPERTY SKIP_CODESIGN YES)
 WEBKIT_EXECUTABLE(LLIntSettingsExtractor)
 
 # LLIntSettingsExtractor target needs to have a direct or indirect
@@ -457,6 +461,7 @@ set(LLIntOffsetsExtractor_DEPENDENCIES
     WTF_CopyHeaders
     bmalloc_CopyHeaders
 )
+set_property(TARGET LLIntOffsetsExtractor PROPERTY SKIP_CODESIGN YES)
 WEBKIT_EXECUTABLE(LLIntOffsetsExtractor)
 
 # The build system will execute asm.rb every time LLIntOffsetsExtractor's mtime is newer than
@@ -541,6 +546,7 @@ set(JavaScriptCore_PUBLIC_FRAMEWORK_HEADERS
 set(JavaScriptCore_PRIVATE_FRAMEWORK_HEADERS
     ${JavaScriptCore_DERIVED_SOURCES_DIR}/Bytecodes.h
     ${JavaScriptCore_DERIVED_SOURCES_DIR}/JSCBuiltins.h
+    ${JavaScriptCore_DERIVED_SOURCES_DIR}/JSCWebPreferenceOptions.h
     ${JavaScriptCore_DERIVED_SOURCES_DIR}/WasmOps.h
 
     ${JavaScriptCore_DERIVED_SOURCES_DIR}/inspector/InspectorAlternateBackendDispatchers.h
@@ -612,8 +618,6 @@ set(JavaScriptCore_PRIVATE_FRAMEWORK_HEADERS
     assembler/ARM64Assembler.h
     assembler/ARM64EAssembler.h
     assembler/ARM64Registers.h
-    assembler/ARMv7Assembler.h
-    assembler/ARMv7Registers.h
     assembler/AbortReason.h
     assembler/AbstractMacroAssembler.h
     assembler/AllowMacroScratchRegisterUsage.h
@@ -630,7 +634,6 @@ set(JavaScriptCore_PRIVATE_FRAMEWORK_HEADERS
     assembler/MacroAssembler.h
     assembler/MacroAssemblerARM64.h
     assembler/MacroAssemblerARM64E.h
-    assembler/MacroAssemblerARMv7.h
     assembler/MacroAssemblerCodeRef.h
     assembler/MacroAssemblerHelpers.h
     assembler/MacroAssemblerX86_64.h
@@ -646,7 +649,6 @@ set(JavaScriptCore_PRIVATE_FRAMEWORK_HEADERS
     assembler/X86Assembler.h
     assembler/X86_64Registers.h
 
-    b3/air/AirAllocateRegistersByGraphColoring.h
     b3/air/AirDisassembler.h
     b3/B3CanonicalizePrePostIncrements.h
     b3/B3Common.h
@@ -820,6 +822,7 @@ set(JavaScriptCore_PRIVATE_FRAMEWORK_HEADERS
     heap/FullGCActivityCallback.h
     heap/GCActivityCallback.h
     heap/GCAssertions.h
+    heap/GCCompletionCallback.h
     heap/GCConductor.h
     heap/GCDeferralContext.h
     heap/GCIncomingRefCounted.h
@@ -832,16 +835,13 @@ set(JavaScriptCore_PRIVATE_FRAMEWORK_HEADERS
     heap/GCSegmentedArray.h
     heap/GCSegmentedArrayInlines.h
     heap/Handle.h
-    heap/HandleBlock.h
     heap/HandleForward.h
-    heap/HandleSet.h
     heap/HandleTypes.h
     heap/Heap.h
     heap/HeapAnalyzer.h
     heap/HeapCell.h
     heap/HeapCellInlines.h
     heap/HeapCellType.h
-    heap/HeapFinalizerCallback.h
     heap/HeapInlines.h
     heap/HeapIterationScope.h
     heap/HeapObserver.h
@@ -873,8 +873,10 @@ set(JavaScriptCore_PRIVATE_FRAMEWORK_HEADERS
     heap/SlotVisitorInlines.h
     heap/SlotVisitorMacros.h
     heap/Strong.h
+    heap/StrongBlock.h
     heap/StrongForward.h
     heap/StrongInlines.h
+    heap/StrongSet.h
     heap/Subspace.h
     heap/SubspaceInlines.h
     heap/Synchronousness.h
@@ -1195,6 +1197,7 @@ set(JavaScriptCore_PRIVATE_FRAMEWORK_HEADERS
     runtime/JSArrayBufferViewInlinesLight.h
     runtime/JSArrayInlines.h
     runtime/JSArrayIterator.h
+    runtime/JSArrayIteratorInlines.h
     runtime/JSArrayBuffer.h
     runtime/JSBigInt.h
     runtime/JSBigIntInlines.h
@@ -1715,6 +1718,7 @@ set(JavaScriptCore_INSPECTOR_DOMAINS
     ${JAVASCRIPTCORE_DIR}/inspector/protocol/ScriptProfiler.json
     ${JAVASCRIPTCORE_DIR}/inspector/protocol/Security.json
     ${JAVASCRIPTCORE_DIR}/inspector/protocol/ServiceWorker.json
+    ${JAVASCRIPTCORE_DIR}/inspector/protocol/Storage.json
     ${JAVASCRIPTCORE_DIR}/inspector/protocol/Target.json
     ${JAVASCRIPTCORE_DIR}/inspector/protocol/Timeline.json
     ${JAVASCRIPTCORE_DIR}/inspector/protocol/Worker.json
@@ -1757,6 +1761,7 @@ endif ()
 
 WEBKIT_FRAMEWORK_DECLARE(JavaScriptCore)
 WEBKIT_INCLUDE_CONFIG_FILES_IF_EXISTS()
+WEBKIT_ADD_TARGET_THREAD_SAFETY_WARNINGS(JavaScriptCore)
 WEBKIT_ADD_TARGET_UNSAFE_BUFFER_WARNINGS(JavaScriptCore)
 
 if (COMPILER_IS_GCC_OR_CLANG)
@@ -1776,23 +1781,21 @@ if (COMPILER_IS_GCC_OR_CLANG)
 endif ()
 
 WEBKIT_COPY_FILES(JavaScriptCore_CopyHeaders
-    PRUNE_STALE
     DESTINATION ${JavaScriptCore_HEADERS_DIR}
     FILES ${JavaScriptCore_PUBLIC_FRAMEWORK_HEADERS}
     FLATTENED
 )
 WEBKIT_SYMLINK_FILES(JavaScriptCore_CopyPrivateHeaders
-    PRUNE_STALE
     DESTINATION ${JavaScriptCore_PRIVATE_HEADERS_DIR}
     FILES ${JavaScriptCore_PRIVATE_FRAMEWORK_HEADERS}
     FLATTENED
 )
 
-add_dependencies(JavaScriptCore_CopyPrivateHeaders Bytecodes JSCBuiltins)
+add_dependencies(JavaScriptCore_CopyPrivateHeaders Bytecodes JSCBuiltins JSCWebPreferenceOptions)
 
 target_include_directories(LowLevelInterpreterLib
     PRIVATE "$<TARGET_PROPERTY:JavaScriptCore,INCLUDE_DIRECTORIES>" "${JavaScriptCore_PRIVATE_FRAMEWORK_HEADERS_DIR}/JavaScriptCore")
-add_dependencies(LowLevelInterpreterLib Bytecodes JSCBuiltins)
+add_dependencies(LowLevelInterpreterLib Bytecodes JSCBuiltins JSCWebPreferenceOptions)
 if (TARGET WTF_CopyHeaders)
     add_dependencies(LowLevelInterpreterLib WTF_CopyHeaders)
 endif ()
@@ -1852,9 +1855,13 @@ WEBKIT_DEFINE_SUBTARGET_WITH_PREFIX(JavaScriptCore JavaScriptCoreJIT
 
 WEBKIT_FRAMEWORK(JavaScriptCore)
 
+if (USE_APPLE_INTERNAL_SDK)
+    WEBKIT_TARGET_USE_PGO(JavaScriptCore PROFILE JavaScriptCore)
+endif ()
+
 WEBKIT_ADD_PREFIX_HEADER(JavaScriptCore JavaScriptCorePrefix.h PREFIX_LANGUAGES CXX)
 
-if (NOT "${PORT}" STREQUAL "Mac")
+if (NOT "${PORT}" STREQUAL "Cocoa")
     if (${JavaScriptCore_LIBRARY_TYPE} STREQUAL "SHARED")
         WEBKIT_POPULATE_LIBRARY_VERSION(JAVASCRIPTCORE)
         set_target_properties(JavaScriptCore PROPERTIES VERSION ${JAVASCRIPTCORE_VERSION} SOVERSION ${JAVASCRIPTCORE_VERSION_MAJOR})

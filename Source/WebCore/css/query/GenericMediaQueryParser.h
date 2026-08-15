@@ -89,8 +89,8 @@ std::optional<Condition> GenericMediaQueryParser<ConcreteParser>::consumeConditi
 
     Condition condition;
 
-    auto consumeOperator = [&]() -> std::optional<LogicalOperator> {
-        auto operatorToken = range.consumeIncludingWhitespace();
+    auto peekOperator = [&]() -> std::optional<LogicalOperator> {
+        auto operatorToken = range.peek();
         if (operatorToken.type() != IdentToken)
             return { };
         if (operatorToken.id() == CSSValueAnd)
@@ -102,9 +102,16 @@ std::optional<Condition> GenericMediaQueryParser<ConcreteParser>::consumeConditi
 
     do {
         if (!condition.queries.isEmpty()) {
-            auto op = consumeOperator();
+            auto op = peekOperator();
+
+            // Next token isn't 'and'/'or', nothing more to parse.
             if (!op)
-                return { };
+                break;
+
+            // Consume the token we just peeked.
+            range.consumeIncludingWhitespace();
+
+            // A condition with multiple queries must have the same operator.
             if (condition.queries.size() > 1 && condition.logicalOperator != *op)
                 return { };
             condition.logicalOperator = *op;
@@ -124,14 +131,16 @@ template<typename ConcreteParser>
 std::optional<QueryInParens> GenericMediaQueryParser<ConcreteParser>::consumeQueryInParens(CSSParserTokenRange& range, const MediaQueryParserContext& context, State& state)
 {
     std::optional<CSSValueID> functionId;
+    std::optional<StringView> functionName;
 
     if (range.peek().type() == FunctionToken) {
         if (state.inFunctionId)
             return { };
 
         functionId = range.peek().functionId();
+        functionName = range.peek().value();
+
         if (!ConcreteParser::isValidFunctionId(*functionId)) {
-            auto name = range.peek().value();
             auto functionRange = range.consumeBlock();
             range.consumeWhitespace();
 
@@ -139,7 +148,7 @@ std::optional<QueryInParens> GenericMediaQueryParser<ConcreteParser>::consumeQue
             if (!validationRange.consumeAnyValue())
                 return { };
 
-            return GeneralEnclosed { name.toString(), functionRange.serialize() };
+            return GeneralEnclosed { functionName->toString(), functionRange.serialize(CSSParserToken::SerializationMode::CustomProperty) };
         }
     }
 
@@ -154,23 +163,27 @@ std::optional<QueryInParens> GenericMediaQueryParser<ConcreteParser>::consumeQue
 
     SetForScope functionScope(state.inFunctionId, functionId ? *functionId : state.inFunctionId);
 
-    auto conditionRange = blockRange;
-    if (auto condition = consumeCondition(conditionRange, context, state)) {
-        condition->functionId = functionId;
-        return { condition };
-    }
-
+    // Try to parse as feature first before falling back to nested condition.
+    // Otherwise, when parsing something like (calc(10px + 10em) < width),
+    // consumeCondition => consumeQueryInParams => consumeCondition => consumeQueryInParams
+    // would consume calc(10px + 10em) as a general enclosed function instead of a feature.
     auto featureRange = blockRange;
     if (auto feature = ConcreteParser::consumeAndValidateFeature(featureRange, context, state)) {
         feature->functionId = functionId;
         return { *feature };
     }
 
+    auto conditionRange = blockRange;
+    if (auto condition = consumeCondition(conditionRange, context, state)) {
+        condition->functionId = functionId;
+        return { condition };
+    }
+
     auto validationRange = originalBlockRange;
     if (!validationRange.consumeAnyValue())
         return { };
 
-    return GeneralEnclosed { functionId ? nameString(*functionId) : nullAtom(), originalBlockRange.serialize() };
+    return GeneralEnclosed { functionName ? functionName->toString() : nullString(), originalBlockRange.serialize(CSSParserToken::SerializationMode::CustomProperty) };
 }
 
 template<typename ConcreteParser>

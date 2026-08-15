@@ -33,11 +33,13 @@
 #include "HTMLFrameOwnerElement.h"
 #include "FrameInlines.h"
 #include "NodeDocument.h"
+#include "PrivateClickMeasurement.h"
 #include "RemoteDOMWindow.h"
 #include "RemoteFrameClient.h"
 #include "RemoteFrameView.h"
 #include "ResourceTiming.h"
 #include "SecurityOrigin.h"
+#include "WebsitePolicies.h"
 #include <wtf/CompletionHandler.h>
 #include <wtf/HexNumber.h>
 #include <wtf/text/StringBuilder.h>
@@ -60,6 +62,7 @@ RemoteFrame::RemoteFrame(Page& page, ClientCreator&& clientCreator, FrameIdentif
     , m_client(clientCreator(*this))
     , m_layerHostingContextIdentifier(layerHostingContextIdentifier)
     , m_autoplayPolicy(AutoplayPolicy::Default)
+    , m_colorSchemePreference(ColorSchemePreference::NoPreference)
 {
     setView(RemoteFrameView::create(*this));
 }
@@ -106,17 +109,17 @@ bool RemoteFrame::preventsParentFromBeingComplete() const
 
 void RemoteFrame::changeLocation(FrameLoadRequest&& request)
 {
-    m_client->changeLocation(WTF::move(request));
+    m_client->changeLocation(WTF::move(request), std::nullopt);
 }
 
 void RemoteFrame::loadFrameRequest(FrameLoadRequest&& request, Event*)
 {
-    m_client->changeLocation(WTF::move(request));
+    m_client->changeLocation(WTF::move(request), std::nullopt);
 }
 
-void RemoteFrame::updateRemoteFrameAccessibilityOffset(IntPoint offset)
+void RemoteFrame::updateRemoteFrameOffsetInMainFrame(IntPoint offset)
 {
-    m_client->updateRemoteFrameAccessibilityOffset(frameID(), offset);
+    m_client->updateRemoteFrameOffsetInMainFrame(frameID(), offset);
 }
 
 #if ENABLE(ACCESSIBILITY_LOCAL_FRAME)
@@ -238,6 +241,11 @@ const SecurityOrigin& RemoteFrame::frameDocumentSecurityOriginOrOpaque() const
 AutoplayPolicy RemoteFrame::autoplayPolicy() const
 {
     return m_autoplayPolicy;
+}
+
+ColorSchemePreference RemoteFrame::colorSchemePreference() const
+{
+    return m_colorSchemePreference;
 }
 
 float RemoteFrame::usedZoomForChild(const Frame& child) const

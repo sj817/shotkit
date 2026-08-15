@@ -56,7 +56,7 @@ unset(_shot_js_only_module_regex)
 # 退化绑定二期 2b：degenerate-bindings.txt 中标记 strip-custom 的接口，其
 # 生成代码已剥掉接口级 Custom* 扩展属性、不再引用手写 Custom 绑定；这里把
 # 对应 JS*Custom.cpp 排除出编译（两处清单必须同步维护，见
-# Source/WebKitShot/tools/degenerate-bindings.txt）。
+# shot/degenerate-bindings.txt）。
 set(_shot_strip_custom_bindings
     bindings/js/JSDocumentCustom.cpp
     bindings/js/JSElementCustom.cpp

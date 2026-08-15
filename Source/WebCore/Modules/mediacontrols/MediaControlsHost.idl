@@ -69,9 +69,13 @@ enum DeviceType {
     readonly attribute boolean supportsRewind;
     readonly attribute boolean needsChromeMediaControlsPseudoElement;
     readonly attribute boolean isMediaControlsMacInlineSizeSpecsEnabled;
+    readonly attribute boolean spatialVideoRenderingEnabled;
+    readonly attribute DOMString spatialVideoProjectionKind;
+    readonly attribute long? spatialVideoHorizontalFieldOfView;
     readonly attribute boolean isAVExperienceControllerFullscreenEnabled;
 
     readonly attribute DOMString externalDeviceDisplayName;
+    readonly attribute DOMString externalDeviceRouteName;
     readonly attribute DeviceType externalDeviceType;
 
     attribute boolean controlsDependOnPageScaleFactor;

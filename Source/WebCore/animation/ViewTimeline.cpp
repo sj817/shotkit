@@ -29,10 +29,9 @@
 #include "AnimationTimelinesController.h"
 #include "CSSKeywordValueInlines.h"
 #include "CSSNumericFactory.h"
-#include "CSSPropertyParserConsumer+Timeline.h"
-#include "CSSValuePair.h"
 #include "Document.h"
 #include "Element.h"
+#include "FloatQuad.h"
 #include "LegacyRenderSVGModelObject.h"
 #include "RenderBlock.h"
 #include "RenderBoxModelObject.h"
@@ -44,42 +43,23 @@
 #include "StyleableInlines.h"
 #include "StyleBuilderState.h"
 #include "StyleKeyword+Logging.h"
-#include "StylePrimitiveNumericOrKeyword+CSSValueConversion.h"
-#include "StylePrimitiveNumericOrKeyword+DeprecatedCSSValueConversion.h"
 #include "StylePrimitiveNumericTypes+Evaluation.h"
 #include "StylePrimitiveNumericTypes+Logging.h"
 #include "StyleScrollPadding.h"
 #include "StyleSingleAnimationRange.h"
+#include "ViewTimelineOptions.h"
 #include "WebAnimation.h"
 
 namespace WebCore {
 
-static bool isValidInset(const RefPtr<CSSValue>& inset)
-{
-    if (!inset)
-        return true;
-
-    if (RefPtr keywordValue = dynamicDowncast<CSSKeywordValue>(*inset))
-        return keywordValue->valueID() == CSSValueAuto;
-    if (RefPtr primitiveValue = dynamicDowncast<CSSPrimitiveValue>(*inset))
-        return primitiveValue->isLength() || primitiveValue->isPercentage();
-
-    return false;
-}
-
 ExceptionOr<Ref<ViewTimeline>> ViewTimeline::create(Document& document, ViewTimelineOptions&& options)
 {
-    auto viewTimeline = adoptRef(*new ViewTimeline(options.axis));
-
-    auto specifiedInsetsOrException = viewTimeline->validateSpecifiedInsets(options.inset, document);
-    if (specifiedInsetsOrException.hasException())
-        return specifiedInsetsOrException.releaseException();
-
-    auto specifiedInsets = specifiedInsetsOrException.releaseReturnValue();
-    if (!isValidInset(specifiedInsets.start) || !isValidInset(specifiedInsets.end))
+    auto insets = validateViewTimelineInset(WTF::move(options.inset), document);
+    if (!insets)
         return Exception { ExceptionCode::TypeError };
 
-    viewTimeline->m_specifiedInsets = WTF::move(specifiedInsets);
+    auto viewTimeline = ViewTimeline::create(nullAtom(), options.axis, WTF::move(*insets), Style::ZoomFactor::none());
+
     viewTimeline->setSubject(options.subject.get());
     if (auto subject = options.subject)
         protect(subject->document())->updateLayoutIgnorePendingStylesheets();
@@ -88,86 +68,15 @@ ExceptionOr<Ref<ViewTimeline>> ViewTimeline::create(Document& document, ViewTime
     return viewTimeline;
 }
 
-Ref<ViewTimeline> ViewTimeline::create(const AtomString& name, ScrollAxis axis, const Style::ViewTimelineInsetItem& insetItem)
+Ref<ViewTimeline> ViewTimeline::create(const AtomString& name, ScrollAxis axis, const Style::ViewTimelineInsetItem& insets, const Style::ZoomFactor& usedZoomForLength)
 {
-    return adoptRef(*new ViewTimeline(name, axis, insetItem));
+    return adoptRef(*new ViewTimeline(name, axis, insets, usedZoomForLength));
 }
 
-ViewTimeline::ViewTimeline(ScrollAxis axis)
-    : ScrollTimeline(nullAtom(), axis)
-    , m_insets(CSS::Keyword::Auto { })
-{
-}
-
-ViewTimeline::ViewTimeline(const AtomString& name, ScrollAxis axis, const Style::ViewTimelineInsetItem& insetItem)
+ViewTimeline::ViewTimeline(const AtomString& name, ScrollAxis axis, const Style::ViewTimelineInsetItem& insets, const Style::ZoomFactor& usedZoomForLength)
     : ScrollTimeline(name, axis)
-    , m_insets(insetItem)
+    , m_insets({ .insets = insets, .zoom = usedZoomForLength })
 {
-}
-
-ExceptionOr<ViewTimeline::SpecifiedViewTimelineInsets> ViewTimeline::validateSpecifiedInsets(const ViewTimelineInsetValue inset, const Document& document)
-{
-    // https://drafts.csswg.org/scroll-animations-1/#dom-viewtimeline-viewtimeline
-
-    // FIXME: note that we use CSSOMKeywordish instead of CSSOMKeywordValue to match Chrome,
-    // issue being tracked at https://github.com/w3c/csswg-drafts/issues/11477.
-
-    // If a DOMString value is provided as an inset, parse it as a <'view-timeline-inset'> value;
-    if (auto* insetString = std::get_if<String>(&inset)) {
-        if (insetString->isEmpty())
-            return Exception { ExceptionCode::TypeError };
-        auto consumedInset = CSSPropertyParserHelpers::parseSingleViewTimelineInsetItem(*insetString, Ref { document }->cssParserContext());
-        if (!consumedInset)
-            return Exception { ExceptionCode::TypeError };
-
-        if (RefPtr insetPair = dynamicDowncast<CSSValuePair>(consumedInset))
-            return { { insetPair->first(), insetPair->second() } };
-        return { { consumedInset, nullptr } };
-    }
-
-    auto cssValueForCSSNumericValue = [&](Ref<CSSNumericValue> numericValue) -> ExceptionOr<RefPtr<CSSValue>> {
-        if (RefPtr insetValue = dynamicDowncast<CSSUnitValue>(numericValue))
-            return upcast<CSSValue>(dynamicDowncast<CSSPrimitiveValue>(insetValue->toCSSValue()));
-        return nullptr;
-    };
-
-    auto cssValueForCSSKeywordValue = [&](Ref<CSSOMKeywordValue> keywordValue) -> ExceptionOr<RefPtr<CSSValue>> {
-        if (keywordValue->value() != "auto"_s)
-            return Exception { ExceptionCode::TypeError };
-        return nullptr;
-    };
-
-    auto cssValueForIndividualInset = [&](ViewTimelineIndividualInset individualInset) -> ExceptionOr<RefPtr<CSSValue>> {
-        if (auto* numericInset = std::get_if<Ref<CSSNumericValue>>(&individualInset))
-            return cssValueForCSSNumericValue(*numericInset);
-        if (auto* stringInset = std::get_if<String>(&individualInset))
-            return cssValueForCSSKeywordValue(CSSOMKeywordValue::rectifyKeywordish(*stringInset));
-        ASSERT(std::holds_alternative<Ref<CSSOMKeywordValue>>(individualInset));
-        return cssValueForCSSKeywordValue(CSSOMKeywordValue::rectifyKeywordish(std::get<Ref<CSSOMKeywordValue>>(individualInset)));
-    };
-
-    // if a sequence is provided, the first value represents the start inset and the second value represents the end inset.
-    // If the sequence has only one value, it is duplicated. If it has zero values or more than two values, or if it contains
-    // a CSSOMKeywordValue whose value is not "auto", throw a TypeError.
-    auto insetList = std::get<Vector<ViewTimelineIndividualInset>>(inset);
-    auto numberOfInsets = insetList.size();
-
-    if (!numberOfInsets || numberOfInsets > 2)
-        return Exception { ExceptionCode::TypeError };
-
-    auto startInsetOrException = cssValueForIndividualInset(insetList.at(0));
-    if (startInsetOrException.hasException())
-        return startInsetOrException.releaseException();
-    auto startInset = startInsetOrException.releaseReturnValue();
-
-    if (numberOfInsets == 1)
-        return { { startInset, startInset } };
-
-    auto endInsetOrException = cssValueForIndividualInset(insetList.at(1));
-    if (endInsetOrException.hasException())
-        return endInsetOrException.releaseException();
-    auto endInset = endInsetOrException.releaseReturnValue();
-    return { { startInset, endInset } };
 }
 
 const Element* ViewTimeline::subject() const
@@ -222,6 +131,8 @@ StickinessAdjustmentData StickinessAdjustmentData::computeStickinessAdjustmentDa
         float subjectPositionInScroller = stickyBoxStuckPosition + subjectOffset - stickyBoxStaticPosition;
         if (subjectPositionInScroller > scrollContainerSize)
             return StickinessLocation::BeforeEntry;
+        if (subjectPositionInScroller < 0 && subjectPositionInScroller + subjectSize > scrollContainerSize)
+            return StickinessLocation::WhileCovering;
         if (subjectPositionInScroller + subjectSize > scrollContainerSize)
             return StickinessLocation::DuringEntry;
         if (subjectPositionInScroller + subjectSize < 0)
@@ -256,9 +167,9 @@ StickinessAdjustmentData StickinessAdjustmentData::computeStickinessAdjustmentDa
 float StickinessAdjustmentData::entryDistanceAdjustment() const
 {
     float entryDistanceAdjustment = 0;
-    if (topOrLeftAdjustmentLocation == StickinessLocation::DuringEntry)
+    if (topOrLeftAdjustmentLocation == StickinessLocation::DuringEntry || topOrLeftAdjustmentLocation == StickinessLocation::WhileCovering)
         entryDistanceAdjustment += stickyTopOrLeftAdjustment;
-    if (bottomOrRightAdjustmentLocation == StickinessLocation::DuringEntry)
+    if (bottomOrRightAdjustmentLocation == StickinessLocation::DuringEntry || bottomOrRightAdjustmentLocation == StickinessLocation::WhileCovering)
         entryDistanceAdjustment -= stickyBottomOrRightAdjustment;
     return entryDistanceAdjustment;
 }
@@ -266,9 +177,9 @@ float StickinessAdjustmentData::entryDistanceAdjustment() const
 float StickinessAdjustmentData::exitDistanceAdjustment() const
 {
     float exitDistanceAdjustment = 0;
-    if (topOrLeftAdjustmentLocation == StickinessLocation::DuringExit)
+    if (topOrLeftAdjustmentLocation == StickinessLocation::DuringExit || topOrLeftAdjustmentLocation == StickinessLocation::WhileCovering)
         exitDistanceAdjustment += stickyTopOrLeftAdjustment;
-    if (bottomOrRightAdjustmentLocation == StickinessLocation::DuringExit)
+    if (bottomOrRightAdjustmentLocation == StickinessLocation::DuringExit || bottomOrRightAdjustmentLocation == StickinessLocation::WhileCovering)
         exitDistanceAdjustment -= stickyBottomOrRightAdjustment;
     return exitDistanceAdjustment;
 }
@@ -335,69 +246,45 @@ void ViewTimeline::cacheCurrentTime()
         subjectOffset -= scrollDirection.isVertical ? scrollerPaddingBoxOrigin.y() : scrollerPaddingBoxOrigin.x();
 
         auto subjectBounds = [&] -> FloatSize {
+            // For an SVG subject, map its local box through the SVG transform chain so the size stays
+            // consistent with the (already transform-aware) offset, e.g. a rotated <foreignObject>.
+            auto svgLocalBounds = [&]() -> std::optional<FloatRect> {
+                if (auto* subjectRenderSVGModelObject = dynamicDowncast<RenderSVGModelObject>(subjectRenderer.get()))
+                    return subjectRenderSVGModelObject->borderBoxRectEquivalent();
+                if (subjectRenderer->isRenderOrLegacyRenderSVGForeignObject() || is<LegacyRenderSVGModelObject>(subjectRenderer.get()))
+                    return subjectRenderer->objectBoundingBox();
+                return std::nullopt;
+            }();
+            if (svgLocalBounds)
+                return subjectRenderer->localToContainerQuad(FloatQuad { *svgLocalBounds }, sourceRenderer.get(), options).boundingBox().size();
             if (CheckedPtr subjectRenderBoxModelObject = dynamicDowncast<RenderBoxModelObject>(subjectRenderer.get()))
                 return subjectRenderBoxModelObject->borderBoundingBox().size();
-            if (auto* subjectRenderSVGModelObject = dynamicDowncast<RenderSVGModelObject>(subjectRenderer.get()))
-                return subjectRenderSVGModelObject->borderBoxRectEquivalent().size();
-            if (is<LegacyRenderSVGModelObject>(subjectRenderer.get()))
-                return subjectRenderer->objectBoundingBox().size();
             return { };
         }();
 
         auto subjectSize = scrollDirection.isVertical ? subjectBounds.height() : subjectBounds.width();
 
-        if (m_specifiedInsets) {
-            auto conversionData = CSSToLengthConversionData::tryCreateForNonStyleBuildingResolution(subject->element);
-
-            auto computedInset = [&](const CSSValue& specifiedInset) {
-                if (!conversionData)
-                    return Style::deprecatedToStyleFromCSSValue<Style::ViewTimelineInsetItem::Offset>(specifiedInset).value_or(Style::ViewTimelineInsetItem::Offset { CSS::Keyword::Auto { } });
-                return Style::toStyleFromCSSValue<Style::ViewTimelineInsetItem::Offset>(*conversionData, specifiedInset);
-            };
-
-            if (m_specifiedInsets->start && m_specifiedInsets->end) {
-                m_insets = {
-                    computedInset(protect(*m_specifiedInsets->start)),
-                    computedInset(protect(*m_specifiedInsets->end)),
-                };
-            } else if (m_specifiedInsets->start) {
-                m_insets = {
-                    computedInset(protect(*m_specifiedInsets->start)),
-                };
-            } else if (m_specifiedInsets->end) {
-                m_insets = {
-                    Style::ViewTimelineInsetItem::Offset { CSS::Keyword::Auto { } },
-                    computedInset(protect(*m_specifiedInsets->end)),
-                };
-            } else {
-                m_insets = {
-                    Style::ViewTimelineInsetItem::Offset { CSS::Keyword::Auto { } },
-                    Style::ViewTimelineInsetItem::Offset { CSS::Keyword::Auto { } },
-                };
-            }
-        }
-
-        enum class PaddingEdge : bool { Start, End };
-        auto scrollPadding = [&](PaddingEdge edge) {
-            auto& style = sourceRenderer->style();
-            if (edge == PaddingEdge::Start)
-                return scrollDirection.isVertical ? style.scrollPaddingTop() : style.scrollPaddingLeft();
-            return scrollDirection.isVertical ? style.scrollPaddingBottom() : style.scrollPaddingRight();
+        auto scrollPaddingStart = [&] {
+            CheckedRef style = sourceRenderer->style();
+            return Style::evaluate<float>(scrollDirection.isVertical ? style->scrollPaddingTop() : style->scrollPaddingLeft(), scrollContainerSize, style->usedZoomForLength());
         };
-        auto zoom = sourceRenderer->style().usedZoomForLength();
+        auto scrollPaddingEnd = [&] {
+            CheckedRef style = sourceRenderer->style();
+            return Style::evaluate<float>(scrollDirection.isVertical ? style->scrollPaddingBottom() : style->scrollPaddingRight(), scrollContainerSize, style->usedZoomForLength());
+        };
 
         float insetStart = 0;
         float insetEnd = 0;
 
-        if (m_insets.start().isAuto())
-            insetStart = Style::evaluate<float>(scrollPadding(PaddingEdge::Start), scrollContainerSize, zoom);
+        if (m_insets.insets.start().isAuto())
+            insetStart = scrollPaddingStart();
         else
-            insetStart = Style::evaluate<float>(m_insets.start(), scrollContainerSize, Style::ZoomNeeded { });
+            insetStart = Style::evaluate<float>(m_insets.insets.start(), scrollContainerSize, m_insets.zoom);
 
-        if (m_insets.end().isAuto())
-            insetEnd = Style::evaluate<float>(scrollPadding(PaddingEdge::End), scrollContainerSize, zoom);
+        if (m_insets.insets.end().isAuto())
+            insetEnd = scrollPaddingEnd();
         else
-            insetEnd = Style::evaluate<float>(m_insets.end(), scrollContainerSize, Style::ZoomNeeded { });
+            insetEnd = Style::evaluate<float>(m_insets.insets.end(), scrollContainerSize, m_insets.zoom);
 
         StickinessAdjustmentData stickyData;
         if (CheckedPtr stickyContainer = dynamicDowncast<RenderBoxModelObject>(this->stickyContainer().get())) {
@@ -603,27 +490,27 @@ std::pair<double, double> ViewTimeline::offsetIntervalForTimelineRangeName(const
     return { computeOffset(0), computeOffset(1) };
 }
 
-std::pair<double, double> ViewTimeline::offsetIntervalForAttachmentRange(const Style::SingleAnimationRange& attachmentRange) const
+std::pair<double, double> ViewTimeline::offsetIntervalForAttachmentRange(const ResolvableTimelineRange& resolvableTimelineRange) const
 {
     auto data = computeTimelineData();
     auto timelineRange = data.rangeEnd - data.rangeStart;
     ASSERT(timelineRange);
 
-    auto offsetForSingleTimelineRange = [&](const auto& rangeToConvert) {
-        auto [conversionRangeStart, conversionRangeEnd] = intervalForTimelineRangeName(data, rangeToConvert.name());
+    auto offsetForSingleTimelineRange = [&](const auto& edge, auto zoom) {
+        auto [conversionRangeStart, conversionRangeEnd] = intervalForTimelineRangeName(data, edge.name());
         auto conversionRange = conversionRangeEnd - conversionRangeStart;
-        auto convertedValue = Style::evaluate<float>(rangeToConvert.offset(), conversionRange, Style::ZoomNeeded { });
+        auto convertedValue = Style::evaluate<float>(edge.offset(), conversionRange, zoom);
         auto position = conversionRangeStart + convertedValue;
         return (position - data.rangeStart) / timelineRange;
     };
 
     return {
-        offsetForSingleTimelineRange(attachmentRange.start),
-        offsetForSingleTimelineRange(attachmentRange.end)
+        offsetForSingleTimelineRange(resolvableTimelineRange.start, resolvableTimelineRange.startZoom),
+        offsetForSingleTimelineRange(resolvableTimelineRange.end, resolvableTimelineRange.endZoom)
     };
 }
 
-std::pair<WebAnimationTime, WebAnimationTime> ViewTimeline::intervalForAttachmentRange(const Style::SingleAnimationRange& attachmentRange) const
+std::pair<WebAnimationTime, WebAnimationTime> ViewTimeline::intervalForAttachmentRange(const ResolvableTimelineRange& resolvableTimelineRange) const
 {
     // https://drafts.csswg.org/scroll-animations-1/#view-timelines-ranges
     auto data = computeTimelineData();
@@ -631,17 +518,24 @@ std::pair<WebAnimationTime, WebAnimationTime> ViewTimeline::intervalForAttachmen
     if (!timelineRange)
         return { WebAnimationTime::fromPercentage(0), WebAnimationTime::fromPercentage(100) };
 
-    auto computeTime = [&](const auto& rangeToConvert) {
-        auto mappedOffset = mapOffsetToTimelineRange(data, rangeToConvert.name(), [&](const float& subjectRange) {
-            return Style::evaluate<float>(rangeToConvert.offset(), subjectRange, Style::ZoomNeeded { });
+    auto computeTime = [&](const auto& edge, auto zoom) {
+        auto mappedOffset = mapOffsetToTimelineRange(data, edge.name(), [&](const float& subjectRange) {
+            return Style::evaluate<float>(edge.offset(), subjectRange, zoom);
         });
         return WebAnimationTime::fromPercentage(mappedOffset * 100);
     };
 
-    auto attachmentRangeOrDefault = attachmentRange.isDefault() ? defaultRange() : attachmentRange;
+    if (resolvableTimelineRange.isDefault()) {
+        auto range = defaultRange();
+        return {
+            computeTime(range.start, Style::ZoomFactor::none()),
+            computeTime(range.end, Style::ZoomFactor::none()),
+        };
+    }
+
     return {
-        computeTime(attachmentRangeOrDefault.start),
-        computeTime(attachmentRangeOrDefault.end),
+        computeTime(resolvableTimelineRange.start, resolvableTimelineRange.startZoom),
+        computeTime(resolvableTimelineRange.end, resolvableTimelineRange.endZoom),
     };
 }
 
@@ -655,9 +549,14 @@ Ref<CSSNumericValue> ViewTimeline::endOffset() const
     return CSSNumericFactory::px(computeTimelineData().rangeEnd);
 }
 
-bool ViewTimeline::matchesAnonymousViewFunctionForSubject(const Style::ViewFunction& viewFunction, const Styleable& subject) const
+bool ViewTimeline::matchesAnonymousViewFunctionForSubject(const Style::ViewFunction& viewFunction, const Style::ZoomFactor& usedZoomForLength, const Styleable& subject) const
 {
-    return isStyleOriginated() && name().isEmpty() && m_insets == viewFunction->insets && axis() == viewFunction->axis && m_subject.styleable() == subject;
+    return isStyleOriginated()
+        && name().isEmpty()
+        && m_insets.insets == viewFunction->insets
+        && m_insets.zoom == usedZoomForLength
+        && axis() == viewFunction->axis
+        && m_subject.styleable() == subject;
 }
 
 WTF::TextStream& operator<<(WTF::TextStream& ts, const StickinessAdjustmentData& stickiness)
@@ -672,6 +571,7 @@ WTF::TextStream& operator<<(WTF::TextStream& ts, const StickinessAdjustmentData:
     case StickinessAdjustmentData::StickinessLocation::BeforeEntry: ts << "BeforeEntry"_s; break;
     case StickinessAdjustmentData::StickinessLocation::DuringEntry: ts << "DuringEntry"_s; break;
     case StickinessAdjustmentData::StickinessLocation::WhileContained: ts << "WhileContained"_s; break;
+    case StickinessAdjustmentData::StickinessLocation::WhileCovering: ts << "WhileCovering"_s; break;
     case StickinessAdjustmentData::StickinessLocation::DuringExit: ts << "DuringExit"_s; break;
     case StickinessAdjustmentData::StickinessLocation::AfterExit: ts << "AfterExit"_s; break;
     }
@@ -680,7 +580,7 @@ WTF::TextStream& operator<<(WTF::TextStream& ts, const StickinessAdjustmentData:
 
 TextStream& operator<<(TextStream& ts, const ViewTimeline& timeline)
 {
-    return ts << timeline.name() << ' ' << timeline.axis() << ' ' << timeline.insets();
+    return ts << timeline.name() << ' ' << timeline.axis() << ' ' << timeline.insets().insets;
 }
 
 } // namespace WebCore

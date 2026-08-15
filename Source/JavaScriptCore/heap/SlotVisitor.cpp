@@ -156,11 +156,7 @@ void SlotVisitor::appendJSCellOrAuxiliary(HeapCell* heapCell)
                     out.print(text);
                     out.print("GC type: ", heap()->collectionScope(), "\n");
                     out.print("Object at: ", RawPointer(jsCell), "\n");
-#if USE(JSVALUE64)
                     out.print("Structure ID: ", structureID.bits(), " (", RawPointer(structureID.decode()), ")\n");
-#else
-                    out.print("Structure: ", RawPointer(structureID.decode()), "\n");
-#endif
                     out.print("Object contents:");
                     for (unsigned i = 0; i < 2; ++i)
                         out.print(" ", format("0x%016llx", std::bit_cast<uint64_t*>(jsCell)[i]));
@@ -515,9 +511,7 @@ NEVER_INLINE void SlotVisitor::drain(MonotonicTime timeout)
                     if (!countdown || !stack.canRemoveLast())
                         return nullptr;
                     --countdown;
-                    const JSCell* cell = stack.removeLast();
-                    __builtin_prefetch(cell);
-                    return cell;
+                    return stack.popAndPrefetch();
                 };
                 for (const JSCell* next = popAndPrefetch(); next;) {
                     const JSCell* cell = next;
@@ -575,11 +569,17 @@ size_t SlotVisitor::performIncrementOfDraining(size_t bytesRequested)
                     m_isFirstVisit = (&stack == &m_collectorStack);
 
                     unsigned countdown = Options::minimumNumberOfScansBetweenRebalance();
-                    while (countdown && stack.canRemoveLast() && !isDone()) {
-                        const JSCell* cell = stack.removeLast();
+                    auto popAndPrefetch = [&] ALWAYS_INLINE_LAMBDA -> const JSCell* {
+                        if (!countdown || !stack.canRemoveLast() || isDone())
+                            return nullptr;
+                        --countdown;
+                        return stack.popAndPrefetch();
+                    };
+                    for (const JSCell* next = popAndPrefetch(); next;) {
+                        const JSCell* cell = next;
+                        next = popAndPrefetch();
                         cellBytesVisited += cell->cellSize();
                         visitChildren(cell);
-                        countdown--;
                     }
                     return IterationStatus::Done;
                 });

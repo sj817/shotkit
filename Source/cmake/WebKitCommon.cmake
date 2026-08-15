@@ -9,7 +9,7 @@ if (NOT HAS_RUN_WEBKIT_COMMON)
     # Preset values are not replayed on auto-reconfigure; if CMake's "compiler
     # changed" path wipes the cache, these silently revert. Stamp them outside
     # the cache and refuse to proceed if any go missing.
-    set(WEBKIT_IDENTITY_VARS CMAKE_BUILD_TYPE PORT DEVELOPER_MODE ENABLE_SANITIZERS CMAKE_IOS_SIMULATOR CMAKE_OSX_SYSROOT)
+    set(WEBKIT_IDENTITY_VARS CMAKE_BUILD_TYPE PORT DEVELOPER_MODE ENABLE_SANITIZERS WEBKIT_SDK_NAME CMAKE_OSX_SYSROOT)
     set(_config_stamp "${CMAKE_BINARY_DIR}/.webkit-config-stamp")
     if (EXISTS "${_config_stamp}")
         file(STRINGS "${_config_stamp}" _stamp_lines)
@@ -73,6 +73,7 @@ if (NOT HAS_RUN_WEBKIT_COMMON)
     # Determine which port will be built
     # -----------------------------------------------------------------------------
     set(ALL_PORTS
+        Cocoa
         GTK
         IOS
         JSCOnly
@@ -87,13 +88,32 @@ if (NOT HAS_RUN_WEBKIT_COMMON)
     list(FIND ALL_PORTS ${PORT} RET)
     if (${RET} EQUAL -1)
         if (APPLE AND PORT STREQUAL "NOPORT")
-            set(PORT "Mac" CACHE STRING "choose which WebKit port to build (one of ${ALL_PORTS})" FORCE)
+            set(PORT "Cocoa" CACHE STRING "choose which WebKit port to build (one of ${ALL_PORTS})" FORCE)
         else ()
             message(FATAL_ERROR "Please choose which WebKit port to build (one of ${ALL_PORTS})")
         endif ()
     endif ()
 
+    # Mac and IOS are aliases for the Cocoa port; the target platform is selected
+    # by the SDK (CMAKE_OSX_SYSROOT / WEBKIT_SDK_NAME), not by the port name.
+    if (PORT STREQUAL "Mac" OR PORT STREQUAL "IOS")
+        set(PORT "Cocoa" CACHE STRING "choose which WebKit port to build (one of ${ALL_PORTS})" FORCE)
+    endif ()
+
     string(TOLOWER ${PORT} WEBKIT_PORT_DIR)
+
+    # -----------------------------------------------------------------------------
+    # Check the CMake generator.
+    # -----------------------------------------------------------------------------
+    # The GTK and WPE ports only support the Ninja generator.
+    # Ninja has its own dependency graph, used for dependencies between targets
+    if (PORT STREQUAL "GTK" OR PORT STREQUAL "WPE")
+        if (NOT CMAKE_GENERATOR MATCHES "Ninja")
+            message(FATAL_ERROR "The ${PORT} port requires the Ninja generator, but this build "
+                "directory was configured with the \"${CMAKE_GENERATOR}\" generator.\n"
+                "Re-run CMake with -GNinja or export CMAKE_GENERATOR=Ninja\n")
+        endif ()
+    endif ()
 
     set(_stamp_content "")
     foreach (_var IN LISTS WEBKIT_IDENTITY_VARS)
@@ -309,6 +329,7 @@ if (NOT HAS_RUN_WEBKIT_COMMON)
     include(WebKitCompilerFlags)
     include(WebKitStaticAnalysis)
     include(WebKitFeatures)
+    include(WebKitEntitlements)
 
     if (USE_APPLE_INTERNAL_SDK)
         list(APPEND CMAKE_MODULE_PATH "${CMAKE_SOURCE_DIR}/../Internal/WebKit/WebKitAdditions/CMake")
@@ -376,8 +397,11 @@ if (NOT HAS_RUN_WEBKIT_COMMON)
         message(STATUS "  Override at runtime with: LLVM_PROFILE_FILE=/your/path/%p_%m.profraw")
     endif ()
 
-    # Phase 2: Profile Use - build optimized binary using collected profile data
-    if (USE_PGO_PROFILE AND COMPILER_IS_CLANG AND NOT MSVC)
+    # Phase 2: Profile Use - build optimized binary using collected profile data.
+    # This is the generic single-profile path for most ports. On Apple internal SDK
+    # builds, the WebKitAdditions overlay applies per-framework profiles instead,
+    # so skip there.
+    if (USE_PGO_PROFILE AND COMPILER_IS_CLANG AND NOT MSVC AND NOT USE_APPLE_INTERNAL_SDK)
         set(PGO_PROFILE_PATH "" CACHE FILEPATH "Path to merged .profdata file for PGO")
         if (NOT PGO_PROFILE_PATH)
             message(FATAL_ERROR "USE_PGO_PROFILE is ON but PGO_PROFILE_PATH is not set")

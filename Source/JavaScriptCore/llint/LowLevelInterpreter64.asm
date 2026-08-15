@@ -176,7 +176,6 @@ end
 
 macro doVMEntry(makeCall)
     functionPrologue()
-    pushCalleeSaves()
 
     const entry = a0
     const vm = a1
@@ -248,7 +247,7 @@ macro doVMEntry(makeCall)
         storeq t5, CodeBlock + (8 * 3)[sp]
     end
 
-    loadi PayloadOffset + ProtoCallFrame::argCountAndCodeOriginValue[protoCallFrame], t4
+    loadi LowWordOffset + ProtoCallFrame::argCountAndCodeOriginValue[protoCallFrame], t4
     subi 1, t4
     loadi ProtoCallFrame::paddedArgCount[protoCallFrame], t5
     subi 1, t5
@@ -308,7 +307,6 @@ macro doVMEntry(makeCall)
 
     subp cfr, CalleeRegisterSaveSize, sp
 
-    popCalleeSaves()
     functionEpilogue()
     ret
 end
@@ -333,7 +331,6 @@ _llint_throw_stack_overflow_error_from_vm_entry:
     move ValueUndefined, r0
 
     subp cfr, CalleeRegisterSaveSize, sp
-    popCalleeSaves()
     functionEpilogue()
     ret
 
@@ -367,7 +364,7 @@ macro makeHostFunctionCall(entry, protoCallFrame, temp1, temp2)
     loadp ProtoCallFrame::globalObject[protoCallFrame], a0
     move sp, a1
     if C_LOOP
-        storep lr, 8[sp]
+        storep lr, ReturnPC[sp]
         cloopCallNative temp1
     else
         call temp1, HostFunctionPtrTag
@@ -391,18 +388,15 @@ op(llint_handle_uncaught_exception, macro ()
     move ValueUndefined, r0
 
     subp cfr, CalleeRegisterSaveSize, sp
-    popCalleeSaves()
     functionEpilogue()
     ret
 end)
 
 op(llint_get_host_call_return_value, macro ()
     functionPrologue()
-    pushCalleeSaves()
     loadp Callee[cfr], t0
     convertJSCalleeToVM(t0)
     loadq VM::encodedHostCallReturnValue[t0], t0
-    popCalleeSaves()
     functionEpilogue()
     ret
 end)
@@ -707,7 +701,7 @@ end
 
 # Expects that CodeBlock is in t1, which is what prologue() leaves behind.
 macro functionArityCheck(opcodeName, doneLabel)
-    loadi PayloadOffset + ArgumentCountIncludingThis[cfr], t0
+    loadi LowWordOffset + ArgumentCountIncludingThis[cfr], t0
     loadi CodeBlock::m_numParameters[t1], t2
     biaeq t0, t2, doneLabel
 
@@ -750,7 +744,7 @@ macro functionArityCheck(opcodeName, doneLabel)
 .noError:
     move r1, t1 # r1 contains slotsToAdd.
     btiz t1, .continue
-    loadi PayloadOffset + ArgumentCountIncludingThis[cfr], t2
+    loadi LowWordOffset + ArgumentCountIncludingThis[cfr], t2
     addi CallFrameHeaderSlots, t2
 
     // Check if there are some unaligned slots we can use
@@ -841,16 +835,31 @@ _llint_op_enter:
     addq 1, t2
     btqnz t2, .opEnterLoop
 .opEnterDone:
-    callSlowPath(_slow_path_enter)
+    loadp CodeBlock[cfr], t2
+    loadi CodeBlock::m_numberOfArgumentsToSkipAndCouldBeTainted[t2], t1
+    btis t1, .opEnterSlow
+    loadp CodeBlock::m_vm[t2], t0
+    loadb JSCell::m_cellState[t2], t1
+    loadi (constexpr (VM::offsetOfHeapBarrierThreshold()))[t0], t0
+    bibeq t1, t0, .opEnterSlow
+    loadis CodeBlock::m_scopeRegister[t2], t1
+    loadp Callee[cfr], t0
+    loadp JSCallee::m_scope[t0], t0
+    storeq t0, [cfr, t1, 8]
 
+.opEnterDispatch:
     checkTraps(macro()
         dispatchOp(narrow, op_enter)
     end)
 
+.opEnterSlow:
+    callSlowPath(_slow_path_enter)
+    jmp .opEnterDispatch
+
 
 llintOpWithProfile(op_get_argument, OpGetArgument, macro (size, get, dispatch, return)
     get(m_index, t2)
-    loadi PayloadOffset + ArgumentCountIncludingThis[cfr], t0
+    loadi LowWordOffset + ArgumentCountIncludingThis[cfr], t0
     bilteq t0, t2, .opGetArgumentOutOfBounds
     loadq ThisArgumentOffset[cfr, t2, 8], t0
     return(t0)
@@ -861,7 +870,7 @@ end)
 
 
 llintOpWithReturn(op_argument_count, OpArgumentCount, macro (size, get, dispatch, return)
-    loadi PayloadOffset + ArgumentCountIncludingThis[cfr], t0
+    loadi LowWordOffset + ArgumentCountIncludingThis[cfr], t0
     subi 1, t0
     orq TagNumber, t0
     return(t0)
@@ -2473,7 +2482,7 @@ macro callHelper(opcodeName, opcodeStruct, dispatchAfterCall, valueProfileName, 
     negp t3
     addp cfr, t3
     getArgumentCountIncludingThis(t2)
-    storei t2, ArgumentCountIncludingThis + PayloadOffset[t3]
+    storei t2, ArgumentCountIncludingThis + LowWordOffset[t3]
 
     # Store location bits and |callee|, and configure sp.
     storePC()
@@ -2503,7 +2512,7 @@ macro callHelper(opcodeName, opcodeStruct, dispatchAfterCall, valueProfileName, 
     invokeCall(opcodeName, size, opcodeStruct, valueProfileName, dstVirtualRegister, dispatch, t5, t1, JSEntryPtrTag)
 
 .opCallSlow:
-    # 64bit:t0 32bit(t0,t1) is callee
+    # t0 is callee
     # t2 is CallLinkInfo*
     prepareCall(t2, t3, t4, t1, macro(address)
         storep 0, address
@@ -2543,17 +2552,7 @@ macro doCallVarargs(opcodeName, size, get, opcodeStruct, valueProfileName, dstVi
     callSlowPath(frameSlowPath)
     branchIfException(_llint_throw_from_slow_path_trampoline)
     # calleeFrame in r1
-    if JSVALUE64
-        move r1, sp
-    else
-        # The calleeFrame is not stack aligned, move down by CallerFrameAndPCSize to align
-        if ARMv7
-            subp r1, CallerFrameAndPCSize, t2
-            move t2, sp
-        else
-            subp r1, CallerFrameAndPCSize, sp
-        end
-    end
+    move r1, sp
     callCallSlowPath(
         slowPath,
         # Those parameters are r0 and r1
@@ -2587,7 +2586,7 @@ macro doCallVarargs(opcodeName, size, get, opcodeStruct, valueProfileName, dstVi
             invokeCall(opcodeName, size, opcodeStruct, valueProfileName, dstVirtualRegister, dispatch, t5, t1, JSEntryPtrTag)
 
         .opCallSlow:
-            # 64bit:t0 32bit(t0,t1) is callee
+            # t0 is callee
             # t2 is CallLinkInfo*
             prepareCall(t2, t3, t4, t1, macro(address)
                 storep 0, address
@@ -3267,18 +3266,18 @@ llintOpWithMetadata(op_instanceof, OpInstanceof, macro (size, get, dispatch, met
     dispatch()
 end)
 
-llintOpWithMetadata(op_iterator_open, OpIteratorOpen, macro (size, get, dispatch, metadata, return)
+macro iteratorOpenGenericImpl(size, get, dispatch, metadata, opcodeStruct, opcodeName, tryFastNarrow, tryFastWide16, tryFastWide32, getNextSlowPath, updateArrayProfile)
     macro fastNarrow()
-        callSlowPath(_iterator_open_try_fast_narrow)
+        callSlowPath(tryFastNarrow)
     end
     macro fastWide16()
-        callSlowPath(_iterator_open_try_fast_wide16)
+        callSlowPath(tryFastWide16)
     end
     macro fastWide32()
-        callSlowPath(_iterator_open_try_fast_wide32)
+        callSlowPath(tryFastWide32)
     end
     size(fastNarrow, fastWide16, fastWide32, macro (callOp) callOp() end)
-    
+
     bpeq r1, constexpr IterationMode::Generic, .iteratorOpenGeneric
     dispatch()
 
@@ -3293,20 +3292,15 @@ llintOpWithMetadata(op_iterator_open, OpIteratorOpen, macro (size, get, dispatch
     end
 
     macro getArgumentIncludingThisStart(dst)
-        getu(size, OpIteratorOpen, m_stackOffset, dst)
+        getu(size, opcodeStruct, m_stackOffset, dst)
     end
 
     macro getArgumentIncludingThisCount(dst)
         move 1, dst
     end
 
-    metadata(t5, t0)
-    get(m_iterable, t0)
-    btqnz t0, notCellMask, .done
-    loadi JSCell::m_structureID[t0], t3
-    storei t3, OpIteratorOpen::Metadata::m_arrayProfile.m_lastSeenStructureID[t5]
-    .done:
-    callHelper(op_iterator_open, OpIteratorOpen, dispatchAfterRegularCall, m_iteratorValueProfile, m_iterator, prepareForRegularCall, invokeForRegularCall, prepareForSlowRegularCall, size, gotoGetByIdCheckpoint, metadata, getCallee, getArgumentIncludingThisStart, getArgumentIncludingThisCount)
+    updateArrayProfile(get, metadata)
+    callHelper(opcodeName, opcodeStruct, dispatchAfterRegularCall, m_iteratorValueProfile, m_iterator, prepareForRegularCall, invokeForRegularCall, prepareForSlowRegularCall, size, gotoGetByIdCheckpoint, metadata, getCallee, getArgumentIncludingThisStart, getArgumentIncludingThisCount)
 
 .getByIdStart:
     macro storeNextAndDispatch(value)
@@ -3319,15 +3313,26 @@ llintOpWithMetadata(op_iterator_open, OpIteratorOpen, macro (size, get, dispatch
     loadVariable(get, m_iterator, t3)
     btqnz t3, notCellMask, .iteratorOpenGenericGetNextSlow
     metadata(t2, t1)
-    performGetByIDHelper(OpIteratorOpen, m_modeMetadata, m_nextValueProfile, .iteratorOpenGenericGetNextSlow, size, storeNextAndDispatch)
+    performGetByIDHelper(opcodeStruct, m_modeMetadata, m_nextValueProfile, .iteratorOpenGenericGetNextSlow, size, storeNextAndDispatch)
 
 .iteratorOpenGenericGetNextSlow:
-    callSlowPath(_llint_slow_path_iterator_open_get_next)
+    callSlowPath(getNextSlowPath)
     dispatch()
 
 .iteratorOpenException:
     jmp _llint_throw_from_slow_path_trampoline
+end
 
+llintOpWithMetadata(op_iterator_open, OpIteratorOpen, macro (size, get, dispatch, metadata, return)
+    macro updateArrayProfile(get, metadata)
+        metadata(t5, t0)
+        get(m_iterable, t0)
+        btqnz t0, notCellMask, .iteratorOpenArrayProfileDone
+        loadi JSCell::m_structureID[t0], t3
+        storei t3, OpIteratorOpen::Metadata::m_arrayProfile.m_lastSeenStructureID[t5]
+    .iteratorOpenArrayProfileDone:
+    end
+    iteratorOpenGenericImpl(size, get, dispatch, metadata, OpIteratorOpen, op_iterator_open, _iterator_open_try_fast_narrow, _iterator_open_try_fast_wide16, _iterator_open_try_fast_wide32, _llint_slow_path_iterator_open_get_next, updateArrayProfile)
 end)
 
 llintOpWithMetadata(op_iterator_next, OpIteratorNext, macro (size, get, dispatch, metadata, return)
@@ -3369,6 +3374,9 @@ llintOpWithMetadata(op_iterator_next, OpIteratorNext, macro (size, get, dispatch
 
     # Use m_value slot as a tmp since we are going to write to it later.
     metadata(t5, t0)
+    loadh OpIteratorNext::Metadata::m_iterationMetadata + IterationModeMetadata::seenModes[t5], t0
+    ori constexpr IterationMode::Generic, t0
+    storeh t0, OpIteratorNext::Metadata::m_iterationMetadata + IterationModeMetadata::seenModes[t5]
     callHelper(op_iterator_next, OpIteratorNext, dispatchAfterRegularCall, m_nextResultValueProfile, m_value, prepareForRegularCall, invokeForRegularCall, prepareForSlowRegularCall, size, gotoGetDoneCheckpoint, metadata, getCallee, getArgumentIncludingThisStart, getArgumentIncludingThisCount)
 
 .getDoneStart:
@@ -3415,6 +3423,41 @@ llintOpWithMetadata(op_iterator_next, OpIteratorNext, macro (size, get, dispatch
 .getValueSlow:
     callSlowPath(_llint_slow_path_iterator_next_get_value)
     dispatch()
+end)
+
+llintOpWithMetadata(op_async_iterator_next, OpAsyncIteratorNext, macro (size, get, dispatch, metadata, return)
+    loadVariable(get, m_next, t0)
+    btqnz t0, notCellMask, .asyncIteratorNextGeneric
+    bbneq JSCell::m_type[t0], constexpr SentinelType, .asyncIteratorNextGeneric
+
+    callSlowPath(_llint_slow_path_async_iterator_next_with_driver)
+    dispatch()
+
+.asyncIteratorNextGeneric:
+    macro getCallee(dst)
+        get(m_next, dst)
+    end
+
+    macro getArgumentIncludingThisStart(dst)
+        getu(size, OpAsyncIteratorNext, m_stackOffset, dst)
+    end
+
+    macro getArgumentIncludingThisCount(dst)
+        getArgumentIncludingThisCountForAsyncIteratorNext(size, dst)
+    end
+
+    metadata(t5, t0)
+    loadh OpAsyncIteratorNext::Metadata::m_iterationMetadata + IterationModeMetadata::seenModes[t5], t0
+    ori constexpr IterationMode::Generic, t0
+    storeh t0, OpAsyncIteratorNext::Metadata::m_iterationMetadata + IterationModeMetadata::seenModes[t5]
+    callHelper(op_async_iterator_next, OpAsyncIteratorNext, dispatchAfterRegularCall, m_valueProfile, m_dst, prepareForRegularCall, invokeForRegularCall, prepareForSlowRegularCall, size, dispatch, metadata, getCallee, getArgumentIncludingThisStart, getArgumentIncludingThisCount)
+end)
+
+llintOpWithMetadata(op_async_iterator_open, OpAsyncIteratorOpen, macro (size, get, dispatch, metadata, return)
+    macro updateArrayProfile(get, metadata)
+        metadata(t5, t0)
+    end
+    iteratorOpenGenericImpl(size, get, dispatch, metadata, OpAsyncIteratorOpen, op_async_iterator_open, _async_iterator_open_try_fast_narrow, _async_iterator_open_try_fast_wide16, _async_iterator_open_try_fast_wide32, _llint_slow_path_async_iterator_open_get_next, updateArrayProfile)
 end)
 
 llintOpWithReturn(op_get_property_enumerator, OpGetPropertyEnumerator, macro (size, get, dispatch, return)

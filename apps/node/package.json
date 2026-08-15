@@ -1,0 +1,89 @@
+{
+  "name": "@shotkit/node",
+  "version": "0.1.0",
+  "description": "Turn HTML or a URL into PNG/WebP screenshots without a browser — WebKit rendering, no page JavaScript, prebuilt binaries for Windows, Linux and macOS",
+  "license": "UNLICENSED",
+  "type": "module",
+  "sideEffects": false,
+  "main": "./dist/index.cjs",
+  "module": "./dist/index.mjs",
+  "types": "./dist/index.d.cts",
+  "exports": {
+    ".": {
+      "import": {
+        "types": "./dist/index.d.mts",
+        "default": "./dist/index.mjs"
+      },
+      "require": {
+        "types": "./dist/index.d.cts",
+        "default": "./dist/index.cjs"
+      }
+    }
+  },
+  "bin": {
+    "sk": "./dist/cli.mjs",
+    "shotkit": "./dist/cli.mjs"
+  },
+  "files": [
+    "dist/",
+    "README.md"
+  ],
+  "engines": {
+    "node": ">=18.18"
+  },
+  "scripts": {
+    "build": "tsdown",
+    "typecheck": "tsc --noEmit",
+    "test": "npm run build && node --test test/*.test.mjs test/*.test.cjs",
+    "stage": "tsx tools/stage-platform.ts",
+    "stage:win": "tsx tools/stage-platform.ts win32-x64",
+    "sync-versions": "tsx tools/sync-versions.ts"
+  },
+  "devDependencies": {
+    "@types/node": "26.1.1",
+    "publint": "0.3.23",
+    "tsdown": "0.22.14",
+    "tsx": "4.23.1",
+    "typescript": "5.9.3"
+  },
+  "overrides": {
+    "esbuild": "0.28.1"
+  },
+  "keywords": [
+    "screenshot",
+    "screenshot-api",
+    "html-to-image",
+    "html-to-png",
+    "html-to-webp",
+    "html",
+    "png",
+    "webp",
+    "image",
+    "image-generation",
+    "og-image",
+    "thumbnail",
+    "webkit",
+    "webcore",
+    "headless",
+    "headless-browser",
+    "puppeteer-alternative",
+    "playwright-alternative",
+    "renderer",
+    "server-side-rendering",
+    "prebuilt",
+    "cross-platform"
+  ],
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/sj817/shotkit.git",
+    "directory": "apps/node"
+  },
+  "homepage": "https://github.com/sj817/shotkit#readme",
+  "bugs": {
+    "url": "https://github.com/sj817/shotkit/issues"
+  },
+  "publishConfig": {
+    "access": "public",
+    "registry": "https://registry.npmjs.org"
+  }
+}

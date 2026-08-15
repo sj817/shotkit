@@ -9,13 +9,13 @@
 
 #include "include/gpu/ShaderErrorHandler.h"
 #include "include/gpu/graphite/TextureInfo.h"
+#include "include/private/SkLog.h"
 #include "src/core/SkSLTypeShared.h"
 #include "src/core/SkTraceEvent.h"
 #include "src/gpu/SkSLToBackend.h"
 #include "src/gpu/graphite/Attribute.h"
 #include "src/gpu/graphite/ContextUtils.h"
 #include "src/gpu/graphite/GraphicsPipelineDesc.h"
-#include "src/gpu/graphite/Log.h"
 #include "src/gpu/graphite/RenderPassDesc.h"
 #include "src/gpu/graphite/RendererProvider.h"
 #include "src/gpu/graphite/ResourceTypes.h"
@@ -477,7 +477,7 @@ static VkDescriptorSetLayout descriptor_data_to_layout(
     VkDescriptorSetLayout setLayout;
     DescriptorDataToVkDescSetLayout(sharedContext, descriptorData, &setLayout);
     if (setLayout == VK_NULL_HANDLE) {
-        SKGPU_LOG_E("Failed to create descriptor set layout; pipeline creation will fail.\n");
+        SKIA_LOG_E("Failed to create descriptor set layout; pipeline creation will fail.\n");
         return VK_NULL_HANDLE;
     }
     return setLayout;
@@ -513,11 +513,11 @@ static bool input_attachment_desc_set_layout(VkDescriptorSetLayout& outLayout,
 static bool uniform_desc_set_layout(VkDescriptorSetLayout& outLayout,
                                     const VulkanSharedContext* sharedContext,
                                     bool hasCombinedUniforms,
-                                    bool hasGradientBuffer) {
-    // Define a container with size reserved for up to kNumUniformBuffers descriptors. Only add
+                                    SkEnumBitMask<PipelineStageFlags> storageStageFlags) {
+    // Define a container with size reserved for up to kMaxNumUniformBuffers descriptors. Only add
     // DescriptorData for uniforms that actually are used and need to be included in the layout.
     skia_private::STArray<
-            VulkanGraphicsPipeline::kNumUniformBuffers, DescriptorData> uniformDescriptors;
+            VulkanGraphicsPipeline::kMaxNumUniformBuffers, DescriptorData> uniformDescriptors;
 
     DescriptorType uniformBufferType =
             sharedContext->caps()->storageBufferSupport() ? DescriptorType::kStorageBuffer
@@ -528,12 +528,13 @@ static bool uniform_desc_set_layout(VkDescriptorSetLayout& outLayout,
                 VulkanGraphicsPipeline::kCombinedUniformIndex,
                 PipelineStageFlags::kVertexShader | PipelineStageFlags::kFragmentShader});
     }
-    if (hasGradientBuffer) {
+
+    if (SkToBool(storageStageFlags)) {
         uniformDescriptors.push_back({
                 DescriptorType::kStorageBuffer,
                 /*count=*/1,
-                VulkanGraphicsPipeline::kGradientBufferIndex,
-                PipelineStageFlags::kFragmentShader});
+                VulkanGraphicsPipeline::kStorageBufferIndex,
+                storageStageFlags});
     }
 
     // If no uniforms are used, still request a mock VkDescriptorSetLayout handle by passing in the
@@ -576,7 +577,7 @@ static VkPipelineLayout setup_pipeline_layout(const VulkanSharedContext* sharedC
                                               uint32_t pushConstantSize,
                                               VkShaderStageFlagBits pushConstantPipelineStageFlags,
                                               bool hasCombinedUniforms,
-                                              bool hasGradientBuffer,
+                                              SkEnumBitMask<PipelineStageFlags> storageStageFlags,
                                               int numTextureSamplers,
                                               bool loadMsaaFromResolve,
                                               SkSpan<sk_sp<VulkanSampler>> immutableSamplers) {
@@ -602,7 +603,7 @@ static VkPipelineLayout setup_pipeline_layout(const VulkanSharedContext* sharedC
                 setLayouts[VulkanGraphicsPipeline::kUniformBufferDescSetIndex],
                 sharedContext,
                 hasCombinedUniforms,
-                hasGradientBuffer) ||
+                storageStageFlags) ||
         !texture_sampler_desc_set_layout(
                 setLayouts[VulkanGraphicsPipeline::kTextureBindDescSetIndex],
                 sharedContext,
@@ -692,7 +693,7 @@ static VkPipeline create_graphics_pipeline(VulkanSharedContext* sharedContext,
         }
     }
     if (result != VK_SUCCESS) {
-        SKGPU_LOG_E("Failed to create pipeline. Error: %d\n", result);
+        SKIA_LOG_E("Failed to create pipeline. Error: %d\n", result);
         return VK_NULL_HANDLE;
     }
 
@@ -854,7 +855,7 @@ sk_sp<VulkanGraphicsPipeline> VulkanGraphicsPipeline::Make(
 
     if (step->staticAttributes().size() + step->appendAttributes().size() >
         sharedContext->vulkanCaps().maxVertexAttributes()) {
-        SKGPU_LOG_W("Requested more than the supported number of vertex attributes");
+        SKIA_LOG_W("Requested more than the supported number of vertex attributes");
         return nullptr;
     }
 
@@ -953,7 +954,7 @@ sk_sp<VulkanGraphicsPipeline> VulkanGraphicsPipeline::Make(
                 VulkanResourceProvider::kIntrinsicConstantSize,
                 VulkanResourceProvider::kIntrinsicConstantStageFlags,
                 shaderInfo->hasCombinedUniforms(),
-                shaderInfo->hasGradientBuffer(),
+                shaderInfo->storageBufferStages(),
                 shaderInfo->numFragmentTexturesAndSamplers(),
                 /*loadMsaaFromResolve=*/false,
                 SkSpan<sk_sp<VulkanSampler>>(immutableSamplers)))) {
@@ -1096,7 +1097,7 @@ VkPipeline VulkanGraphicsPipeline::MakePipeline(
             threadSafeResourceProvider->findOrCreateRenderPass(renderPassDesc,
                                                                /*compatibleOnly=*/true);
     if (!compatibleRenderPass) {
-        SKGPU_LOG_E("Failed to create compatible renderpass for pipeline");
+        SKIA_LOG_E("Failed to create compatible renderpass for pipeline");
         return VK_NULL_HANDLE;
     }
     SkDEBUGCODE(int subpassCount = RenderPassDescWillLoadMSAAFromResolve(renderPassDesc) ? 2 : 1;)
@@ -1223,7 +1224,7 @@ std::unique_ptr<VulkanProgramInfo> VulkanGraphicsPipeline::CreateLoadMSAAProgram
                 /*pushConstantSize=*/32,
                 (VkShaderStageFlagBits)VK_SHADER_STAGE_VERTEX_BIT,
                 /*hasCombinedUniforms=*/false,
-                /*hasGradientBuffer=*/false,
+                /*storageStageFlags=*/{},
                 /*numTextureSamplers=*/0,
                 /*loadMsaaFromResolve=*/true,
                 /*immutableSamplers=*/{}))) {

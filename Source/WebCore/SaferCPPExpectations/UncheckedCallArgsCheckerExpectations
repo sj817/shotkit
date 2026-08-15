@@ -16,7 +16,6 @@ accessibility/AXObjectCache.cpp
 accessibility/AccessibilityListBoxOption.cpp
 accessibility/AccessibilityMathMLElement.cpp
 accessibility/AccessibilityMenuListOption.cpp
-accessibility/AccessibilityMenuListPopup.cpp
 accessibility/AccessibilityNodeObject.cpp
 accessibility/AccessibilityObject.cpp
 accessibility/AccessibilityObjectInlines.h
@@ -57,7 +56,6 @@ bindings/js/ScriptModuleLoader.cpp
 contentextensions/ContentExtensionsBackend.cpp
 css/CSSStyleProperties.cpp
 css/CSSStyleSheet.cpp
-css/CSSToLengthConversionData.cpp
 css/SelectorCheckerTestFunctions.h
 css/StyleAttributeMutationScope.h
 dom/Attr.cpp
@@ -151,8 +149,6 @@ inspector/agents/InspectorNetworkAgent.cpp
 inspector/agents/InspectorPageAgent.cpp
 inspector/agents/WebHeapAgent.cpp
 inspector/agents/frame/FrameCSSAgent.cpp
-inspector/agents/page/PageCanvasAgent.cpp
-inspector/agents/page/PageDOMDebuggerAgent.cpp
 inspector/agents/page/PageRuntimeAgent.cpp
 inspector/agents/worker/WorkerAuditAgent.cpp
 inspector/agents/worker/WorkerDebuggerAgent.cpp
@@ -164,7 +160,6 @@ layout/formattingContexts/block/BlockFormattingContext.cpp
 layout/formattingContexts/block/BlockFormattingQuirks.cpp
 layout/formattingContexts/block/PrecomputedBlockMarginCollapse.cpp
 layout/formattingContexts/block/tablewrapper/TableWrapperBlockFormattingContext.cpp
-layout/formattingContexts/flex/FlexLayout.cpp
 layout/formattingContexts/inline/AbstractLineBuilder.cpp
 layout/formattingContexts/inline/InlineContentAligner.cpp
 layout/formattingContexts/inline/InlineContentBreaker.cpp
@@ -266,6 +261,7 @@ platform/ScrollingEffectsController.cpp
 [ Mac ] platform/cocoa/DragImageCocoa.mm
 platform/cocoa/LowPowerModeNotifier.mm
 platform/cocoa/WebAVPlayerLayer.mm
+platform/graphics/ca/FrameProcessIndicators.cpp
 platform/graphics/ca/GraphicsLayerCA.cpp
 platform/graphics/ca/PlatformCALayer.mm
 platform/graphics/ca/TileController.cpp
@@ -329,7 +325,6 @@ rendering/RenderElement.h
 rendering/RenderElementStyleInlines.h
 rendering/RenderEmbeddedObject.cpp
 rendering/RenderFileUploadControl.cpp
-rendering/RenderFlexibleBox.cpp
 rendering/RenderFragmentContainer.cpp
 rendering/RenderFragmentContainerSet.cpp
 rendering/RenderFragmentedFlow.cpp
@@ -342,7 +337,6 @@ rendering/RenderImageResource.cpp
 rendering/RenderInline.cpp
 rendering/RenderIterator.h
 rendering/RenderLayer.cpp
-rendering/RenderLayer.h
 rendering/RenderLayerBacking.cpp
 rendering/RenderLayerBacking.h
 rendering/RenderLayerBackingSVGAdditions.cpp

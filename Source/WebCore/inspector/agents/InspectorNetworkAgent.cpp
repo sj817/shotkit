@@ -52,7 +52,6 @@
 #include "InspectorNetworkIntercept.h"
 #include "InspectorResourceType.h"
 #include "InspectorResourceUtilities.h"
-#include "InspectorThreadableLoaderClient.h"
 #include "InspectorTimelineAgent.h"
 #include "InstrumentingAgents.h"
 #include "JSDOMWindowCustom.h"
@@ -87,6 +86,8 @@
 #include <JavaScriptCore/ScriptCallStack.h>
 #include <JavaScriptCore/ScriptCallStackFactory.h>
 #include <WebCore/HTTPStatusCodes.h>
+#include <tuple>
+#include <wtf/Expected.h>
 #include <wtf/JSONValues.h>
 #include <wtf/Lock.h>
 #include <wtf/RefPtr.h>
@@ -114,7 +115,7 @@ Ref<Inspector::Protocol::Network::WebSocketFrame> buildWebSocketMessage(const We
     return Inspector::Protocol::Network::WebSocketFrame::create()
         .setOpcode(frame.opCode)
         .setMask(frame.masked)
-        .setPayloadData(frame.opCode == 1 ? String::fromUTF8WithLatin1Fallback(frame.payload) : base64EncodeToString(frame.payload))
+        .setPayloadData(frame.opCode == WebSocketFrame::OpCodeText ? String::fromUTF8WithLatin1Fallback(frame.payload) : base64EncodeToString(frame.payload))
         .setPayloadLength(frame.payload.size())
         .release();
 }
@@ -420,7 +421,7 @@ void InspectorNetworkAgent::willSendRequest(ResourceLoaderIdentifier identifier,
     RefPtr document = loader && loader->frame() ? loader->frame()->document() : nullptr;
     auto initiatorObject = buildInitiatorObject(document, &request);
 
-    String url = loader ? loader->url().string() : request.url().string();
+    auto& url = loader ? loader->url().string() : request.url().string();
     std::optional<Inspector::Protocol::Page::ResourceType> typePayload;
     if (type != ResourceType::Other)
         typePayload = protocolResourceType;
@@ -983,44 +984,32 @@ void InspectorNetworkAgent::loadResource(const Inspector::Protocol::Network::Fra
         return;
     }
 
-    URL url = context->encodingParseURL(urlString);
-    ResourceRequest request(WTF::move(url));
-    request.setHTTPMethod("GET"_s);
-    request.setHiddenFromInspector(true);
+    ResourceUtilities::loadResource(*context, urlString, [callback = WTF::move(callback)](Expected<std::tuple<String, String, int>, String>&& result) mutable {
+        if (result) {
+            auto& [content, mimeType, status] = result.value();
+            callback->sendSuccess(content, mimeType, status);
+        } else
+            callback->sendFailure(result.error());
+    });
+}
 
-    ThreadableLoaderOptions options;
-    options.sendLoadCallbacks = SendCallbackPolicy::SendCallbacks; // So we remove this from m_hiddenRequestIdentifiers on completion.
-    options.defersLoadingPolicy = DefersLoadingPolicy::DisallowDefersLoading; // So the request is never deferred.
-    options.mode = FetchOptions::Mode::NoCors;
-    options.credentials = FetchOptions::Credentials::SameOrigin;
-    options.contentSecurityPolicyEnforcement = ContentSecurityPolicyEnforcement::DoNotEnforce;
-
-    // InspectorThreadableLoaderClient deletes itself when the load completes or fails.
-    Ref inspectorThreadableLoaderClient = InspectorThreadableLoaderClient::create(callback.copyRef());
-    RefPtr loader = ThreadableLoader::create(*context, inspectorThreadableLoaderClient, WTF::move(request), options);
-    if (!loader) {
-        callback->sendFailure("Could not load requested resource."_s);
+void InspectorNetworkAgent::getSerializedCertificate(const Inspector::Protocol::Network::RequestId& requestId, Ref<GetSerializedCertificateCallback>&& callback)
+{
+    auto* resourceData = m_resourcesData->data(requestId);
+    if (!resourceData) {
+        callback->sendFailure("Missing resource for given requestId"_s);
         return;
     }
 
-    // If the load already completed, no need the set the client.
-    if (callback->isActive())
-        inspectorThreadableLoaderClient->setLoader(WTF::move(loader));
-}
-
-Inspector::Protocol::ErrorStringOr<String> InspectorNetworkAgent::getSerializedCertificate(const Inspector::Protocol::Network::RequestId& requestId)
-{
-    auto* resourceData = m_resourcesData->data(requestId);
-    if (!resourceData)
-        return makeUnexpected("Missing resource for given requestId"_s);
-
     auto& certificate = resourceData->certificateInfo();
-    if (!certificate || certificate.value().isEmpty())
-        return makeUnexpected("Missing certificate of resource for given requestId"_s);
+    if (!certificate || certificate.value().isEmpty()) {
+        callback->sendFailure("Missing certificate of resource for given requestId"_s);
+        return;
+    }
 
     WTF::Persistence::Encoder encoder;
     WTF::Persistence::Coder<WebCore::CertificateInfo>::encodeForPersistence(encoder, certificate.value());
-    return base64EncodeToString(encoder.span());
+    callback->sendSuccess(base64EncodeToString(encoder.span()));
 }
 
 RefPtr<WebSocket> InspectorNetworkAgent::webSocketForRequestId(const Inspector::Protocol::Network::RequestId& requestId)
@@ -1396,10 +1385,13 @@ static std::optional<String> textContentForResourceData(const NetworkResourcesDa
     return std::nullopt;
 }
 
-void InspectorNetworkAgent::searchOtherRequests(const JSC::Yarr::RegularExpression& regex, Ref<JSON::ArrayOf<Inspector::Protocol::Page::SearchResult>>& result)
+void InspectorNetworkAgent::searchOtherRequests(const JSC::Yarr::RegularExpression& regex, Ref<JSON::ArrayOf<Inspector::Protocol::Page::SearchResult>>& result, const HashSet<String>& alreadySearchedURLs)
 {
     Vector<NetworkResourcesData::ResourceData*> resources = m_resourcesData->resources();
     for (auto* resourceData : resources) {
+        // Skip resources already reported by the page agent's cached-resource search to avoid duplicate results.
+        if (alreadySearchedURLs.contains(resourceData->url()))
+            continue;
         if (auto textContent = textContentForResourceData(*resourceData)) {
             int matchesCount = ContentSearchUtilities::countRegularExpressionMatches(regex, *textContent);
             if (matchesCount)

@@ -36,6 +36,7 @@
 #include "Navigator.h"
 #include "PasteboardCustomData.h"
 #include "PasteboardItemInfo.h"
+#include "Settings.h"
 #include "SharedBuffer.h"
 
 namespace WebCore {
@@ -101,20 +102,21 @@ void ClipboardItem::getType(const String& type, Ref<DeferredPromise>&& promise)
     m_dataSource->getType(type, WTF::move(promise));
 }
 
-bool ClipboardItem::supports(const String& type)
+bool ClipboardItem::supports(ScriptExecutionContext& context, const String& type)
 {
+    if (type == textPlainContentTypeAtom())
+        return true;
+
+    if (!context.settingsValues().asyncClipboardRichContentEnabled)
+        return false;
+
     // FIXME: Custom format starts with `"web "`("web" followed by U+0020 SPACE) prefix
     // and suffix (after stripping out `"web "`) passes the parsing a MIME type check.
     // https://webkit.org/b/280664
-    // FIXME: add type == "image/svg+xml"_s when we have sanitized copy/paste for SVG data
-    // https://webkit.org/b/280726
-    if (type == textPlainContentTypeAtom()
-        || type == textHTMLContentTypeAtom()
+    return type == textHTMLContentTypeAtom()
         || type == "image/png"_s
-        || type == "text/uri-list"_s) {
-        return true;
-        }
-    return false;
+        || type == "text/uri-list"_s
+        || type == "image/svg+xml"_s;
 }
 
 void ClipboardItem::collectDataForWriting(Clipboard& destination, CompletionHandler<void(std::optional<PasteboardCustomData>)>&& completion)

@@ -109,6 +109,9 @@ public:
     bool supportsRewind() const;
     bool needsChromeMediaControlsPseudoElement() const;
     bool isMediaControlsMacInlineSizeSpecsEnabled() const;
+    bool spatialVideoRenderingEnabled() const;
+    String spatialVideoProjectionKind() const;
+    std::optional<int32_t> spatialVideoHorizontalFieldOfView() const;
     bool NODELETE isAVExperienceControllerFullscreenEnabled() const;
 
     void captionPreferencesChanged();
@@ -120,6 +123,7 @@ public:
     void requiresTextTrackRepresentationChanged();
 
     String externalDeviceDisplayName() const;
+    String externalDeviceRouteName() const;
 
     enum class DeviceType { None, Airplay, Tvout };
     DeviceType externalDeviceType() const;

@@ -23,7 +23,7 @@ it is built to be small, fast, and trivial to install.
 | **Install** | `npm install` | + browser download | + browser download |
 
 <sub>1280×800 full-page PNG, same machine (i9-14900KF, Windows), Puppeteer 25.3 / Playwright 1.61,
-fastest of 3 trials. Method and raw data: [`demo/browser-benchmark`](demo/browser-benchmark/).</sub>
+fastest of 3 trials. Method and raw data: [`apps/benchmark`](apps/benchmark/).</sub>
 
 So: **3× faster warm, 6× faster cold, and roughly a tenth of the memory** of headless Chrome — because
 ShotKit is not a browser. It is WebCore, WebKit's layout and painting engine, cut down to a
@@ -162,7 +162,7 @@ Options: `outputPath`, `format` (`png` | `webp` | `webp-lossless`), `quality`, `
 `scale`, `fullPage`, `timeoutMs`, `baseURL`, `userAgent`, `mimeType`, `allowFileURLs`.
 Result: `{ data: Buffer, bytes, durationMs, elapsedMs, outputPath? }`.
 
-Full SDK docs: [`bindings/node/README.md`](Source/WebKitShot/bindings/node/README.md).
+Full SDK docs: [`bindings/node/README.md`](apps/node/README.md).
 
 ## CLI
 
@@ -217,11 +217,11 @@ from stdin and writes one JSON result per line to stdout.
 ```
 
 Requests run sequentially on one render thread; start multiple processes for parallelism. Protocol
-details and a Python example: [language-bindings.md](Source/WebKitShot/docs/language-bindings.md).
+details and a Python example: [language-bindings.md](docs/language-bindings.md).
 
 ## C ABI
 
-[`Source/WebKitShot/capi/shot.h`](Source/WebKitShot/capi/shot.h) is the public header. `shot.dll`,
+[`shot/capi/shot.h`](shot/capi/shot.h) is the public header. `shot.dll`,
 `libshot.so`, and `libshot.dylib` each export exactly 10 `shot_*` symbols — small enough to bind
 from Python ctypes/cffi, Go cgo, Rust FFI, or C#.
 
@@ -263,7 +263,8 @@ PNG / WebP
 - bmalloc, WTF, JavaScriptCore, PAL, and WebCore link into one shared library as OBJECT libraries,
   with only the C ABI visible.
 
-Design notes, pruning rationale, and the size ledger live in [`AGENTS.md`](AGENTS.md).
+Design notes and the pruning rationale are in [`docs/architecture.md`](docs/architecture.md);
+the size ledger is in [`docs/size-ledger.md`](docs/size-ledger.md).
 
 ## Building from source
 
@@ -272,7 +273,7 @@ are attached to each [release](https://github.com/sj817/shotkit/releases) if you
 
 ```powershell
 # Windows: VS C++ Build Tools, LLVM/clang-cl, CMake, Ninja, Ruby, Perl, gperf, Bison/Flex, vcpkg
-pwsh Source/WebKitShot/build-shot.ps1 -Configure -Build
+pwsh scripts/build-shot.ps1 -Configure -Build
 ```
 
 ```bash
@@ -295,7 +296,7 @@ ninja -C WebKitBuild/shot-macos shotcli
 ```
 
 More detail, including archive layout and platform dependencies:
-[getting-started.md](Source/WebKitShot/docs/getting-started.md).
+[getting-started.md](docs/getting-started.md).
 
 ## Limitations and security boundary
 
@@ -324,16 +325,23 @@ More detail, including archive layout and platform dependencies:
 
 | Path | Contents |
 |---|---|
-| [`Source/WebKitShot/`](Source/WebKitShot/) | Kernel, C ABI, CLI, SDK, tests, release tooling |
-| [`Source/WebKitShot/bindings/node/`](Source/WebKitShot/bindings/node/) | `@shotkit/node` SDK |
+| [`shot/`](shot/) | Rendering kernel, C ABI, and CLI — the product's C++ source |
+| [`apps/node/`](apps/node/) | `@shotkit/node` SDK |
+| [`apps/benchmark/`](apps/benchmark/) | Cross-engine benchmark tooling and results |
+| [`scripts/`](scripts/) | Build, ICU slimming, distribution, and release tooling |
+| [`tests/`](tests/) | Fixture server, no-script-network check, leak harness |
+| [`docs/`](docs/) | Getting started, language bindings, design notes |
+| [`Source/`](Source/) | Upstream WebKit, plus the `PlatformShot.cmake` port hooks |
 | [`Source/cmake/OptionsShot.cmake`](Source/cmake/OptionsShot.cmake) | Shot port features and dependency matrix |
 | [`Source/WebCore/ShotPruning.cmake`](Source/WebCore/ShotPruning.cmake) | WebCore IDL/binding pruning |
-| [`demo/browser-benchmark/`](demo/browser-benchmark/) | Cross-engine benchmark tooling and results |
-| [`AGENTS.md`](AGENTS.md) | Architecture decisions, risks, size ledger, roadmap |
+| [`upstream-sync/`](upstream-sync/) | Upstream sync procedure, baseline commit, deviation ledger |
+| [`docs/`](docs/) | Architecture, build options, size ledger, changelog, conventions |
+| [`AGENTS.md`](AGENTS.md) | Entry point: current status, locked decisions, doc index |
 
-The repository keeps two lines: `main` is a squashed release snapshot carrying only the ShotKit
-build closure, and `shotkit` retains full WebKit history for upstream comparison. Day-to-day work,
-issues, and pull requests target `main`.
+`main` is a squashed release snapshot carrying only the ShotKit build closure — it shares no
+ancestry with upstream WebKit, so syncing is a path-scoped patch replay rather than a merge.
+The procedure, the baseline commit, and the ledger of every upstream edit live in
+[`upstream-sync/`](upstream-sync/).
 
 ## Contributing
 
@@ -342,7 +350,7 @@ screenshot capability, the measured size change of the shared library and the re
 which PNG/WebP, network, XML/XSLT, or multilingual regressions you ran.
 
 This is a snapshot fork of WebKit and does not aim to continuously rebase on upstream. Working
-conventions are in [`AGENTS.md`](AGENTS.md).
+conventions are in [`docs/conventions.md`](docs/conventions.md).
 
 ## License
 

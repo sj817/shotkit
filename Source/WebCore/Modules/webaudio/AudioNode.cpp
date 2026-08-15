@@ -112,12 +112,12 @@ auto AudioNode::toWeakOrStrongContext(BaseAudioContext& context, NodeType nodeTy
 }
 
 AudioNode::AudioNode(BaseAudioContext& context, NodeType type)
-    : m_nodeType(type)
-    , m_context(toWeakOrStrongContext(context, type))
+    : m_context(toWeakOrStrongContext(context, type))
 #if !RELEASE_LOG_DISABLED
     , m_logger(context.logger())
     , m_logIdentifier(context.nextAudioNodeLogIdentifier())
 #endif
+    , m_nodeType(type)
 {
     ALWAYS_LOG(LOGIDENTIFIER);
 
@@ -220,9 +220,8 @@ ExceptionOr<void> AudioNode::connect(AudioNode& destination, unsigned outputInde
 
 ExceptionOr<void> AudioNode::connect(AudioParam& param, unsigned outputIndex)
 {
-    Locker locker { context().graphLock() };
-
     ASSERT(isMainThread());
+    Locker locker { context().graphLock() };
 
     INFO_LOG(LOGIDENTIFIER, param.name(), ", output = ", outputIndex);
 
@@ -454,7 +453,7 @@ enum EventTargetInterfaceType AudioNode::eventTargetInterface() const
 
 ScriptExecutionContext* AudioNode::scriptExecutionContext() const
 {
-    return static_cast<ActiveDOMObject&>(const_cast<AudioNode*>(this)->context()).scriptExecutionContext();
+    return static_cast<const ActiveDOMObject&>(context()).scriptExecutionContext();
 }
 
 void AudioNode::processIfNecessary(size_t framesToProcess)

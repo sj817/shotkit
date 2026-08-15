@@ -82,6 +82,7 @@ std::optional<Exception> WorkerScriptLoader::loadSynchronously(ScriptExecutionCo
     m_destination = FetchOptions::Destination::Script;
     m_isCOEPEnabled = scriptExecutionContext->settingsValues().crossOriginEmbedderPolicyEnabled;
     m_advancedPrivacyProtections = scriptExecutionContext->advancedPrivacyProtections();
+    m_globalPrivacyControlEnabled = scriptExecutionContext->settingsValues().globalPrivacyControlEnabled;
 
     RefPtr serviceWorkerGlobalScope = dynamicDowncast<ServiceWorkerGlobalScope>(workerGlobalScope);
     if (serviceWorkerGlobalScope) {
@@ -138,6 +139,7 @@ void WorkerScriptLoader::loadAsynchronously(ScriptExecutionContext& scriptExecut
     m_isCOEPEnabled = scriptExecutionContext.settingsValues().crossOriginEmbedderPolicyEnabled;
     m_clientIdentifier = clientIdentifier;
     m_advancedPrivacyProtections = scriptExecutionContext.advancedPrivacyProtections();
+    m_globalPrivacyControlEnabled = scriptExecutionContext.settingsValues().globalPrivacyControlEnabled;
 
     ASSERT(scriptRequest.httpMethod() == "GET"_s);
 
@@ -146,7 +148,7 @@ void WorkerScriptLoader::loadAsynchronously(ScriptExecutionContext& scriptExecut
     ThreadableLoaderOptions options { WTF::move(fetchOptions) };
     options.sendLoadCallbacks = SendCallbackPolicy::SendCallbacks;
     options.contentSecurityPolicyEnforcement = contentSecurityPolicyEnforcement;
-    if (fetchOptions.destination == FetchOptions::Destination::Serviceworker)
+    if (options.destination == FetchOptions::Destination::Serviceworker)
         options.certificateInfoPolicy = CertificateInfoPolicy::IncludeCertificateInfo;
 
     // FIXME: We should drop the sameOriginDataURLFlag flag and implement the latest Fetch specification.
@@ -208,7 +210,9 @@ ResourceError WorkerScriptLoader::validateWorkerResponse(const ResourceResponse&
     if (!response.isSuccessful() && response.httpStatusCode())
         return { errorDomainWebKitInternal, 0, response.url(), "Response is not 2xx"_s, ResourceError::Type::General };
 
-    if (!isScriptAllowedByNosniff(response)) {
+    // https://fetch.spec.whatwg.org/#should-response-to-request-be-blocked-due-to-nosniff
+    // Only a script-like destination is blocked; a JSON or text module accepts any MIME type.
+    if (isScriptLikeDestination(destination) && !isScriptAllowedByNosniff(response)) {
         auto message = makeString("Refused to execute "_s, response.url().stringCenterEllipsizedToLength(), " as script because \"X-Content-Type-Options: nosniff\" was given and its Content-Type is not a script MIME type."_s);
         return { errorDomainWebKitInternal, 0, response.url(), WTF::move(message), ResourceError::Type::General };
     }
