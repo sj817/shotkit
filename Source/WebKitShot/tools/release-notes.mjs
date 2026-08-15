@@ -133,7 +133,8 @@ node -e "const {launch}=require('@shotkit/node');launch().then(async s=>{await s
 
 ## Prebuilt runtimes
 
-Standalone archives for the CLI, the C ABI, and non-Node languages. Extract completely before use.
+Standalone archives for the CLI, the C ABI, and non-Node languages. Extract completely before use —
+each one unpacks into a version-free \`shotkit-<os>-<arch>/\` directory.
 
 ${assetTable}
 
@@ -192,6 +193,7 @@ sk --html page.html --out page.png --full-page
 ### 预编译运行时
 
 上面的归档表供 CLI、C ABI 和非 Node 语言直接使用，**请完整解压后再运行**。
+每个归档解压出的目录都是不带版本号的 \`shotkit-<os>-<arch>/\`。
 布局按平台不同：Windows 是平铺的 \`shotcli.exe\`、\`shot.dll\`、\`include/shot.h\`，
 外加一份逐文件带 SHA-256 的 \`manifest.json\`；Linux 与 macOS 则是 \`bin/\`、\`lib/\`、
 \`include/\`，另有 \`DEPENDENCIES.txt\`。
