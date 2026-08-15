@@ -71,3 +71,30 @@
   （无手写 `JS*Custom*.cpp`、非 fetch/streams 核心）收录 22 个，会生成完整绑定的体积
   回涨就此堵住。
 - `ShotPruning.cmake` 的 18 处文件名引用全部仍能解析，未失配。
+
+**补丁应用后又跑了七轮 CI 才全绿**，这部分是本次同步真正的成本所在。七个问题里
+本地 Windows 全量构建**一个都碰不到**（它只走 `PlatformWin.cmake` 分支且是 x64）：
+
+| 轮 | 平台 | 问题 | 类别 |
+|---|---|---|---|
+| 1 | macOS | 上游把各模块 `PlatformMac.cmake` 整体改名为 `PlatformCocoa.cmake`，我们 5 个 `PlatformShot.cmake` 的 `include()` 全失效 | 第 4 类 |
+| 2 | macOS | 根 `CMakeLists.txt` 指向的 `swiftc-wrapper.sh` 上游改成 `.py`，而 `Tools/` 不在路径域内 → exit 127 | 第 5 类 |
+| 3 | Linux / macOS | `Pasteboard::writeCustomData` 上游加了参数、桩没跟上；`OptionsCocoa` 新增 `-explicit-module-build` 在公开 Xcode 上撞出 Swift 模块环 | 签名漂移 / 工具链 |
+| 4 | macOS / Linux | `WEBKIT_OPTION_OWNED_BY_PLATFORM_H` 注销 17 个 ApplePay 子特性；clang 18 对 C++23 的 `-Winvalid-constexpr` 仍按老规则报错 | 第 6、7 类 |
+| 5 | macOS | 上游新增的 AX 代码无门控调用 `ChromeClient::showWritingToolsAffordance()` | 第 8 类 |
+| 6 | **Windows arm64** | 上游新增无平台限制的 `-DHAVE_PRESERVE_MOST=1`，令 `preserve_most` 在 `aarch64-pc-windows-msvc` 上生效 → `shotcli` 出图 `0xC0000005` | 第 9 类 |
+| 7 | Windows | 体积回归 +8.08%（见 [docs/size-ledger.md](../docs/size-ledger.md)） | 体积对账 |
+
+（第 1–6 轮之外还被 community.chocolatey.org 连续 503/504 挂掉两轮，与同步无关；
+已把 `winflexbison3` 改成 choco 失败时回落到上游 Release，少一个故障域。）
+
+**三条可复用的结论**：
+
+1. **跨平台 fork 的上游同步，CI 不可替代。** 七个问题全部落在「我们的偏离面 ×
+   上游新代码」的交界处，且各自只在一个平台暴露。本地单平台构建从头绿到尾。
+2. **排查先做三方对照，再读 diff。** 第 6 轮的 `preserve_most` 是靠
+   「Windows x64 过 / **Linux arm64 过** / Windows arm64 崩」把嫌疑从「架构」和「LTO」
+   收敛到「OS/ABI」这一维之后才找到的。在 3188 个文件、7.3 万行的补丁里直接找是无界的。
+3. **`aarch64-pc-windows-msvc` 是本 fork 最没有上游兜底的一格**——WebKit 上游没有
+   Windows ARM64 端口，任何按 `__aarch64__` / `CPU(ARM64)` 门控的新代码，上游都只在
+   Darwin/Linux 的 aarch64 上验证过。
