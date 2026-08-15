@@ -15,3 +15,10 @@ Source/ThirdParty/ANGLE
 Source/cmake
 Source/CMakeLists.txt
 CMakeLists.txt
+
+# 排除项（git pathspec 语法）。本仓库已删除的文件必须排除，否则上游对它们的改动
+# 会生成永远无法应用的 hunk。
+#
+# Xcode 工程文件：本 fork 只用 CMake 构建，*.xcodeproj 已整体删除（27 个），
+# 其中 7 个落在上述路径域内（WebCore/WTF/JSC/bmalloc/PAL/ANGLE/dav1d）。
+:(exclude,glob)Source/**/*.xcodeproj/**
