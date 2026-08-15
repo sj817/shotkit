@@ -43,7 +43,12 @@ $shot, $cli | ForEach-Object { $queue.Enqueue($_) }
 # two ANGLE imports are retained only to satisfy WebCore's WinCairo link ABI;
 # broad PNG/WebP/network/XSLT/Node tests pass without either DLL. Ignore them
 # only when they occur in the PE delay-load table.
-$unusedDelayLoads = @('libegl.dll', 'libglesv2.dll')
+#
+# icuin<N>.dll 同理：shot.dll 对它只有一个导入符号 udat_close（IntlDateTimeFormat
+# 的 unique_ptr 析构器，被 JSCell 静态方法表钉住），Intl 日期格式化本体是死代码；
+# SHOT_NO_SCRIPT 下 JS 永不执行 ⇒ 该析构器永不运行。见 shot/CMakeLists.txt 的
+# /DELAYLOAD 注释。写成通配是为了 ICU 主版本号变化时不会静默失配。
+$unusedDelayLoads = @('libegl.dll', 'libglesv2.dll', 'icuin*.dll')
 
 while ($queue.Count) {
     $file = $queue.Dequeue()
@@ -61,7 +66,7 @@ while ($queue.Count) {
             continue
         }
         $dependency = $Matches[1].ToLowerInvariant()
-        if ($inDelayLoadTable -and $dependency -in $unusedDelayLoads) {
+        if ($inDelayLoadTable -and ($unusedDelayLoads | Where-Object { $dependency -like $_ })) {
             continue
         }
         if ($pool.ContainsKey($dependency) -and $need.Add($dependency)) {
