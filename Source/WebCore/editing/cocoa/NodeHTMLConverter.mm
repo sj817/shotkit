@@ -52,6 +52,7 @@
 #import "FontAttributes.h"
 #import "FontCascadeInlines.h"
 #import "FrameDestructionObserverInlines.h"
+#import "FrameIdentifier.h"
 #import "FrameLoader.h"
 #import "HTMLAttachmentElement.h"
 #import "HTMLConverter.h"
@@ -71,6 +72,7 @@
 #import "LocalFrame.h"
 #import "LocalizedStrings.h"
 #import "NodeName.h"
+#import "RemoteFrame.h"
 #import "RenderImage.h"
 #import "RenderText.h"
 #import "StyleComputedStyle+GettersInlines.h"
@@ -93,6 +95,7 @@
 #import <wtf/text/ParsingUtilities.h>
 #import <wtf/text/StringBuilder.h>
 #import <wtf/text/StringToIntegerConversion.h>
+#import <wtf/unicode/CharacterNames.h>
 
 #if ENABLE(DATA_DETECTION)
 #import "DataDetection.h"
@@ -175,7 +178,7 @@ WTF_MAKE_TZONE_ALLOCATED_IMPL(HTMLConverterCaches);
 
 class HTMLConverter {
 public:
-    explicit HTMLConverter(const SimpleRange&, IgnoreUserSelectNone);
+    explicit HTMLConverter(const SimpleRange&, IgnoreUserSelectNone, MarkRemoteFrameContentPositions);
     ~HTMLConverter();
 
     AttributedString convert();
@@ -184,6 +187,7 @@ private:
     Position m_start;
     Position m_end;
     SingleThreadWeakPtr<DocumentLoader> m_dataSource;
+    const MarkRemoteFrameContentPositions m_markRemoteFrameContentPositions;
 
     HashMap<Ref<Element>, RetainPtr<NSDictionary>> m_attributesForElements;
     HashMap<RetainPtr<CFTypeRef>, Ref<Element>> m_textTableFooters;
@@ -241,6 +245,7 @@ private:
     void _newLineForElement(Element&);
     void _newTabForElement(Element&);
     BOOL _addAttachmentForElement(Element&, NSURL *url, BOOL needsParagraph, BOOL usePlaceholder);
+    void _addRemoteFrameMarker(FrameIdentifier);
     void _addQuoteForElement(Element&, BOOL opening, NSInteger level);
     void _addValue(NSString *value, Element&);
     void _fillInBlock(NSTextBlock *block, Element&, PlatformColor *backgroundColor, CGFloat extraMargin, CGFloat extraPadding, BOOL isTable);
@@ -262,9 +267,10 @@ private:
     void _adjustTrailingNewline();
 };
 
-HTMLConverter::HTMLConverter(const SimpleRange& range, IgnoreUserSelectNone treatment)
+HTMLConverter::HTMLConverter(const SimpleRange& range, IgnoreUserSelectNone treatment, MarkRemoteFrameContentPositions markRemoteFrameContentPositions)
     : m_start(makeContainerOffsetPosition(range.start))
     , m_end(makeContainerOffsetPosition(range.end))
+    , m_markRemoteFrameContentPositions(markRemoteFrameContentPositions)
     , m_userSelectNoneStateCache(ComposedTree)
     , m_ignoreUserSelectNoneContent(treatment == IgnoreUserSelectNone::Yes && !protect(range.start.document())->quirks().needsToCopyUserSelectNoneQuirk())
 {
@@ -650,7 +656,7 @@ String HTMLConverterCaches::propertyValueForNode(Node& node, CSSPropertyID prope
 static inline bool floatValueFromPrimitiveValue(CSSPrimitiveValue& primitiveValue, float& result)
 {
     if (primitiveValue.isFontIndependentLength()) {
-        result = WebCore::Style::deprecatedToStyleFromCSSValue<WebCore::Style::Length<CSS::All, float>>(primitiveValue)->resolveZoom(WebCore::Style::ZoomNeeded { });
+        result = WebCore::Style::deprecatedToStyleFromCSSValue<WebCore::Style::Length<CSS::All, float>>(primitiveValue)->resolveZoom(WebCore::Style::ZoomFactor::none());
         return true;
     }
     return false;
@@ -1216,6 +1222,21 @@ BOOL HTMLConverter::_addMultiRepresentationHEICAttachmentForImageElement(HTMLIma
     return YES;
 }
 #endif // ENABLE(MULTI_REPRESENTATION_HEIC)
+
+void HTMLConverter::_addRemoteFrameMarker(FrameIdentifier frameIdentifier)
+{
+    RetainPtr string = adoptNS([[NSString alloc] initWithFormat:@"%C", static_cast<unichar>(objectReplacementCharacter)]);
+    NSRange rangeToReplace = NSMakeRange([_attrStr length], 0);
+
+    [_attrStr replaceCharactersInRange:rangeToReplace withString:string];
+    rangeToReplace.length = [string length];
+    if (rangeToReplace.location < _domRangeStartIndex)
+        _domRangeStartIndex += rangeToReplace.length;
+
+    [_attrStr addAttribute:remoteFrameIdentifierAttributeName() value:makeString(frameIdentifier.toUInt64()).createNSString() range:rangeToReplace];
+
+    _flags.isSoft = NO;
+}
 
 BOOL HTMLConverter::_addAttachmentForElement(Element& element, NSURL *url, BOOL needsParagraph, BOOL usePlaceholder)
 {
@@ -1824,6 +1845,10 @@ BOOL HTMLConverter::_processElement(Element& element, NSInteger depth)
         if (RefPtr contentDocument = frameElement->contentDocument()) {
             _traverseNode(*contentDocument, depth + 1, true /* embedded */);
             retval = NO;
+        } else if (RefPtr remoteFrame = dynamicDowncast<RemoteFrame>(frameElement->contentFrame())) {
+            if (m_markRemoteFrameContentPositions == MarkRemoteFrameContentPositions::Yes)
+                _addRemoteFrameMarker(remoteFrame->frameID());
+            retval = NO;
         }
     } else if (element.hasTagName(brTag)) {
         RefPtr blockElement = _blockLevelElementForNode(protect(element.parentInComposedTree()));
@@ -2300,9 +2325,31 @@ Node* HTMLConverterCaches::cacheAncestorsOfStartToBeConverted(const Position& st
 namespace WebCore {
 
 // This function supports more HTML features than the editing variant below, such as tables.
-AttributedString attributedString(const SimpleRange& range, IgnoreUserSelectNone treatment)
+NSString *remoteFrameIdentifierAttributeName()
 {
-    return HTMLConverter { range, treatment }.convert();
+    return @"WebKitRemoteFrameIdentifier";
+}
+
+#if ASSERT_ENABLED
+
+bool containsRemoteFrameContentMarkers(NSAttributedString *string)
+{
+    __block bool foundMarker = false;
+    [string enumerateAttribute:remoteFrameIdentifierAttributeName() inRange:NSMakeRange(0, string.length) options:0 usingBlock:^(id value, NSRange, BOOL *stop) {
+        if (!value)
+            return;
+
+        foundMarker = true;
+        *stop = YES;
+    }];
+    return foundMarker;
+}
+
+#endif // ASSERT_ENABLED
+
+AttributedString attributedString(const SimpleRange& range, IgnoreUserSelectNone treatment, MarkRemoteFrameContentPositions markRemoteFrameContentPositions)
+{
+    return HTMLConverter { range, treatment, markRemoteFrameContentPositions }.convert();
 }
 
 }

@@ -620,13 +620,16 @@ static void overrideDefaults()
     Options::worklistFTLLoadWeight() = 20;
 #endif
 
-#if OS(LINUX) && CPU(ARM)
-    Options::maximumFunctionForCallInlineCandidateBytecodeCostForDFG() = 77;
-    Options::maximumOptimizationCandidateBytecodeCost() = 42403;
-    Options::maximumFunctionForClosureCallInlineCandidateBytecodeCostForDFG() = 68;
-    Options::maximumInliningCallerBytecodeCost() = 9912;
-    Options::maximumInliningDepth() = 8;
-    Options::maximumInliningRecursion() = 3;
+#if PLATFORM(MAC) && CPU(ARM64)
+    // JIT compilation can contribute to thermal load on low P-core count Apple silicon Macs.
+    constexpr int32_t maxP0CoresForThresholdScaling = 2;
+    if (hwNumberOfP0Cores() <= maxP0CoresForThresholdScaling) {
+        Options::thresholdForOptimizeAfterWarmUp() *= Options::dfgThresholdScaleForLowP0Cores();
+        Options::thresholdForOptimizeAfterLongWarmUp() *= Options::dfgThresholdScaleForLowP0Cores();
+        Options::thresholdForOptimizeSoon() *= Options::dfgThresholdScaleForLowP0Cores();
+        Options::thresholdForFTLOptimizeAfterWarmUp() *= Options::ftlThresholdScaleForLowP0Cores();
+        Options::thresholdForFTLOptimizeSoon() *= Options::ftlThresholdScaleForLowP0Cores();
+    }
 #endif
 
 #if USE(MEMORY_FOOTPRINT_API)
@@ -826,9 +829,7 @@ void Options::notifyOptionsChanged()
     Options::forceUnlinkedDFG() = false;
     Options::useWasmSIMD() = false;
     Options::useWasmIPInt() = false;
-#if !CPU(ARM_THUMB2)
     Options::useBBQJIT() = false;
-#endif
 #endif
 
 #if !CPU(ARM64)
@@ -849,12 +850,6 @@ void Options::notifyOptionsChanged()
 
     if (!Options::useWasmIPInt())
         Options::thresholdForBBQOptimizeAfterWarmUp() = 0; // Trigger immediate BBQ tier up.
-
-#if CPU(ARM_THUMB2)
-    // WasmIPInt is not supported on ARM32, so disable wasm if BBQJIT is disabled.
-    if (Options::useWasm() && !Options::useBBQJIT())
-        Options::useWasm() = false;
-#endif
 
 #if ENABLE(WEBASSEMBLY)
 #if CPU(ARM64)

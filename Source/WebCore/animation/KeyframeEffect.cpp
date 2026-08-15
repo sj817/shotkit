@@ -63,6 +63,8 @@
 #include "RenderBox.h"
 #include "RenderBoxModelObject.h"
 #include "RenderElement.h"
+#include "RenderLayer.h"
+#include "RenderLayerScrollableArea.h"
 #include "RenderObjectInlines.h"
 #include "ScrollTimeline.h"
 #include "Settings.h"
@@ -187,7 +189,7 @@ static bool isTimelineRangeOffsetValid(const TimelineRangeOffset& timelineRangeO
     if (Style::convertRangeStringToSingleTimelineRangeName(timelineRangeOffset.rangeName) == Style::SingleAnimationRangeName::Normal)
         return false;
     RefPtr offsetUnitValue = dynamicDowncast<CSSUnitValue>(timelineRangeOffset.offset);
-    return offsetUnitValue && offsetUnitValue->unitEnum() == CSSUnitType::CSS_PERCENTAGE;
+    return offsetUnitValue && offsetUnitValue->unitEnum() == CSSUnitType::Percentage;
 }
 
 static std::optional<Variant<double, TimelineRangeOffset>> doubleOrTimelineRangeOffsetFromString(const String& offsetString, const Document& document)
@@ -256,7 +258,7 @@ static double computedOffset(Style::SingleAnimationRangeName rangeName, Style::P
     if (!animation)
         return computedOffsetWithinNamedRange;
 
-    auto attachmentRange = Ref { *animation }->range();
+    auto attachmentRange = protect(animation)->range();
     if (attachmentRange.isDefault())
         return computedOffsetWithinNamedRange;
 
@@ -283,7 +285,7 @@ static inline void computeMissingKeyframeOffsets(Vector<KeyframeEffect::ParsedKe
         if (auto* timelineRangeOffset = std::get_if<TimelineRangeOffset>(&offset)) {
             auto rangeName = Style::convertRangeStringToSingleTimelineRangeName(timelineRangeOffset->rangeName);
             RefPtr offsetUnitValue = dynamicDowncast<CSSUnitValue>(timelineRangeOffset->offset);
-            ASSERT(offsetUnitValue && offsetUnitValue->unitEnum() == CSSUnitType::CSS_PERCENTAGE);
+            ASSERT(offsetUnitValue && offsetUnitValue->unitEnum() == CSSUnitType::Percentage);
             keyframe.computedOffset = computedOffset(rangeName, Style::Percentage<> { offsetUnitValue->value() }, scrollTimeline, animation);
         } else {
             keyframesWithDoubleOrNullOffset.append(&keyframe);
@@ -1223,7 +1225,7 @@ static BlendingKeyframe::Offset specifiedOffsetForParsedKeyframe(const KeyframeE
     if (auto* timelineRangeOffset = std::get_if<TimelineRangeOffset>(&keyframe.offset)) {
         auto rangeName = Style::convertRangeStringToSingleTimelineRangeName(timelineRangeOffset->rangeName);
         RefPtr offsetUnitValue = dynamicDowncast<CSSUnitValue>(timelineRangeOffset->offset);
-        ASSERT(offsetUnitValue && offsetUnitValue->unitEnum() == CSSUnitType::CSS_PERCENTAGE);
+        ASSERT(offsetUnitValue && offsetUnitValue->unitEnum() == CSSUnitType::Percentage);
         return { rangeName, Style::Percentage<> { offsetUnitValue->value() } };
     }
 
@@ -2184,6 +2186,22 @@ void KeyframeEffect::animationDidFinish()
     if (canHaveAcceleratedRepresentation() && !m_isAssociatedWithProgressBasedTimeline)
         updateAcceleratedAnimationIfNecessary();
 #endif
+
+    // An accelerated transform animation runs on the compositor without triggering layout, so a transform that extends
+    // its scroll container's scrollable overflow leaves the container over-scrolled once the animation settles. Recompute
+    // overflow at completion so the scroll offset is re-clamped -- but only when the enclosing scroll container is actually
+    // scrolled, since otherwise there is nothing to re-clamp and forcing layout would needlessly repaint every composited
+    // transform animation on completion. webkit.org/b/318289.
+    if (animatablePropertiesContainTransformRelatedProperty(animatedProperties())) {
+        if (CheckedPtr renderer = this->renderer()) {
+            if (CheckedPtr scrollContainer = renderer->enclosingScrollableContainer()) {
+                CheckedPtr layer = scrollContainer->layer();
+                CheckedPtr scrollableArea = layer ? layer->scrollableArea() : nullptr;
+                if (scrollableArea && !scrollableArea->scrollOffset().isZero())
+                    renderer->setNeedsLayoutForOverflowChange();
+            }
+        }
+    }
 }
 
 void KeyframeEffect::animationPlaybackRateDidChange()
@@ -3336,7 +3354,7 @@ RefPtr<const ScrollTimeline> KeyframeEffect::activeScrollTimeline() const
     return nullptr;
 }
 
-void KeyframeEffect::animationProgressBasedTimelineSourceDidChangeMetrics(const Style::SingleAnimationRange& animationAttachmentRange)
+void KeyframeEffect::animationProgressBasedTimelineSourceDidChangeMetrics(const ResolvableTimelineRange& animationAttachmentRange)
 {
     AnimationEffect::animationProgressBasedTimelineSourceDidChangeMetrics(animationAttachmentRange);
     m_needsComputedKeyframeOffsetsUpdate = true;

@@ -355,11 +355,7 @@ public:
         static constexpr uintptr_t addressMask = (1ULL << OS_CONSTANT(EFFECTIVE_ADDRESS_WIDTH)) - 1;
         JSString* fiber1() const
         {
-#if CPU(LITTLE_ENDIAN)
             return std::bit_cast<JSString*>(WTF::unalignedLoad<uintptr_t>(&m_fiber1Lower) & addressMask);
-#else
-            return std::bit_cast<JSString*>(static_cast<uintptr_t>(m_fiber1Lower) | (static_cast<uintptr_t>(m_fiber1Upper) << 32));
-#endif
         }
 
         void initializeFiber1(JSString* fiber)
@@ -371,11 +367,7 @@ public:
 
         JSString* fiber2() const
         {
-#if CPU(LITTLE_ENDIAN)
             return std::bit_cast<JSString*>(WTF::unalignedLoad<uintptr_t>(&m_fiber1Upper) >> 16);
-#else
-            return std::bit_cast<JSString*>(static_cast<uintptr_t>(m_fiber2Lower) | (static_cast<uintptr_t>(m_fiber2Upper) << 16));
-#endif
         }
         void initializeFiber2(JSString* fiber)
         {
@@ -944,6 +936,13 @@ inline JSString* JSString::getIndex(JSGlobalObject* globalObject, unsigned i)
     auto view = this->view(globalObject);
     RETURN_IF_EXCEPTION(scope, nullptr);
     return jsSingleCharacterString(vm, view[i]);
+}
+
+// (1) Cost of making JSString    : sizeof(JSString) (for new string) + sizeof(StringImpl header) + totalLength
+// (2) Cost of making JSRopeString: sizeof(JSRopeString) + newFiberCount * sizeof(JSString) (for fibers not already wrapped in a JSString)
+ALWAYS_INLINE bool shouldMakeRope(size_t totalLength, unsigned newFiberCount)
+{
+    return StringImpl::headerSize<Latin1Character>() + totalLength >= sizeof(JSRopeString) + (newFiberCount - 1) * sizeof(JSString);
 }
 
 inline JSString* jsString(VM& vm, const String& s)

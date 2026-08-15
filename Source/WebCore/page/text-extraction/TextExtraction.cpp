@@ -53,6 +53,7 @@
 #include "HTMLButtonElement.h"
 #include "HTMLCanvasElement.h"
 #include "HTMLFrameOwnerElement.h"
+#include "HTMLHeadingElement.h"
 #include "HTMLIFrameElement.h"
 #include "HTMLImageElement.h"
 #include "HTMLInputElement.h"
@@ -107,6 +108,7 @@
 #include <wtf/Scope.h>
 #include <wtf/text/MakeString.h>
 #include <wtf/text/StringBuilder.h>
+#include <wtf/unicode/CharacterNames.h>
 
 #if ENABLE(DATA_DETECTION)
 #include "DataDetection.h"
@@ -225,7 +227,7 @@ static String NODELETE stringOnlyIfHumanReadable(const String& string)
     return { };
 }
 
-static String shortenedURLString(const URL& url)
+String shortenedURLString(const URL& url)
 {
     auto shortenedURL = StringEntropyHelpers::removeHighEntropyComponents(url);
     if (shortenedURL.protocolIsFile()) {
@@ -292,6 +294,7 @@ struct TraversalContext {
     const ClientNodeAttributesMap clientNodeAttributes;
     const TextAndSelectedRangeMap visibleText;
     const HashSet<Ref<Node>> nodesToSkip;
+    const RefPtr<Node> contextMenuTargetNode;
     const std::optional<FloatRect> rectInRootView;
     const FrameIdentifier frameIdentifier;
     Vector<WeakPtr<Node, WeakPtrImplWithEventTargetData>> enclosingBlocks;
@@ -551,12 +554,19 @@ static bool isInDisabledFormControl(Node& node)
     return control && control->isDisabledFormControl();
 }
 
-static String normalizedLabelText(const Element& element)
+enum class IncludeAssociatedLabels : bool { No, Yes };
+
+static String normalizedLabelText(Element& element, IncludeAssociatedLabels includeAssociatedLabels = IncludeAssociatedLabels::No)
 {
     for (auto attribute : { HTMLNames::aria_labelAttr.get(), HTMLNames::labelAttr.get() }) {
         auto text = normalizeText(element.attributeWithoutSynchronization(attribute));
         if (!text.isEmpty())
             return text;
+    }
+
+    if (includeAssociatedLabels == IncludeAssociatedLabels::Yes) {
+        if (RefPtr htmlElement = dynamicDowncast<HTMLElement>(element))
+            return normalizeText(labelText(*htmlElement));
     }
 
     return { };
@@ -586,6 +596,9 @@ static inline Variant<SkipExtraction, ItemData, URL, Editable> extractItemData(N
         return { SkipExtraction::Self };
 
     if (!renderer)
+        return { SkipExtraction::SelfAndSubtree };
+
+    if (renderer->isRenderOrLegacyRenderSVGHiddenContainer())
         return { SkipExtraction::SelfAndSubtree };
 
     if (context.skipNearlyTransparentContent && renderer->style().opacity() < minOpacityToConsiderVisible) {
@@ -870,7 +883,7 @@ static inline bool shouldIncludeNodeIdentifier(NodeIdentifierInclusion inclusion
     case None:
         return false;
     case AllContainers:
-        return !std::holds_alternative<TextItemData>(data);
+        return !std::holds_alternative<TextItemData>(data) && !std::holds_alternative<FormData>(data);
     default:
         break;
     }
@@ -912,6 +925,9 @@ static inline bool shouldIncludeNodeIdentifier(NodeIdentifierInclusion inclusion
         [](const SelectData&) {
             return true;
         },
+        [](const FormData&) {
+            return false;
+        },
         [inclusion](const ScrollableItemData& scrollableData) {
             if (scrollableData.isRoot)
                 return false;
@@ -943,14 +959,104 @@ static bool isVisuallyDistinctContainer(const Style::ComputedStyle& style, const
     return rect.width() >= minimumWidth && rect.height() >= minimumHeight;
 }
 
+static bool containsInteractiveDescendant(const Element& element)
+{
+    for (Ref descendant : descendantsOfType<Element>(element)) {
+        if (descendant->isLink())
+            return true;
+
+        if (is<HTMLButtonElement>(descendant) || is<HTMLTextFormControlElement>(descendant) || is<HTMLSelectElement>(descendant))
+            return true;
+
+        auto role = descendant->attributeWithoutSynchronization(HTMLNames::roleAttr);
+        if (equalLettersIgnoringASCIICase(role, "button"_s) || equalLettersIgnoringASCIICase(role, "link"_s))
+            return true;
+    }
+    return false;
+}
+
+static bool isProbablyNotInteractiveBasedOnTagName(const Element& element)
+{
+    return is<HTMLHeadingElement>(element)
+        || element.hasTagName(HTMLNames::addressTag)
+        || element.hasTagName(HTMLNames::blockquoteTag)
+        || element.hasTagName(HTMLNames::captionTag)
+        || element.hasTagName(HTMLNames::figcaptionTag)
+        || element.hasTagName(HTMLNames::legendTag)
+        || element.hasTagName(HTMLNames::preTag)
+        || element.hasTagName(HTMLNames::sampTag);
+}
+
+static bool isProbablyNotInteractiveBasedOnRole(const Element& element)
+{
+    auto role = element.attributeWithoutSynchronization(HTMLNames::roleAttr);
+    if (role.isEmpty())
+        return false;
+
+    switch (AccessibilityObject::ariaRoleToWebCoreRole(role)) {
+    case AccessibilityRole::ApplicationAlert:
+    case AccessibilityRole::ApplicationLog:
+    case AccessibilityRole::ApplicationMarquee:
+    case AccessibilityRole::ApplicationStatus:
+    case AccessibilityRole::ApplicationTimer:
+    case AccessibilityRole::Caption:
+    case AccessibilityRole::Definition:
+    case AccessibilityRole::DocumentNote:
+    case AccessibilityRole::Footnote:
+    case AccessibilityRole::Heading:
+    case AccessibilityRole::Paragraph:
+    case AccessibilityRole::Term:
+    case AccessibilityRole::UserInterfaceTooltip:
+        return true;
+    default:
+        return false;
+    }
+}
+
+static bool looksLikeButton(const RenderObject& renderer)
+{
+    CheckedRef style = renderer.style();
+    if (!hasVisuallyDistinctStyling(protect(style)))
+        return false;
+
+    CheckedPtr box = dynamicDowncast<RenderBox>(renderer);
+    if (!box)
+        return false;
+
+    static constexpr auto minButtonHeight = 16;
+    static constexpr auto maxButtonHeight = 64;
+    auto height = box->borderBoxHeight().toFloat();
+    if (height < minButtonHeight || height > maxButtonHeight)
+        return false;
+
+    RefPtr element = dynamicDowncast<Element>(renderer.node());
+    if (!element)
+        return false;
+
+    Ref protectedElement = *element;
+    if (isProbablyNotInteractiveBasedOnTagName(protectedElement))
+        return false;
+
+    if (isProbablyNotInteractiveBasedOnRole(protectedElement))
+        return false;
+
+    static constexpr auto maxButtonLabelLength = 64;
+    auto text = protectedElement->textContent();
+    if (text.isEmpty() || text.length() > maxButtonLabelLength || text.containsOnly<isASCIIWhitespace>())
+        return false;
+
+    return !containsInteractiveDescendant(protectedElement);
+}
+
 static bool looksVisuallyClickable(const RenderObject& renderer)
 {
     CheckedRef style = renderer.style();
-    if (style->cursorType() != CursorType::Pointer)
-        return false;
 
     if (style->pointerEvents() == PointerEvents::None)
         return false;
+
+    if (style->cursorType() != CursorType::Pointer)
+        return looksLikeButton(renderer);
 
     if (!hasVisuallyDistinctStyling(protect(style)) && !renderer.isRenderReplaced())
         return false;
@@ -1083,7 +1189,19 @@ static inline void extractRecursive(Node& node, Item& parentItem, TraversalConte
 
         if (!role.isEmpty()) {
             auto shouldSuppressRole = [&] {
-                static constexpr auto ignoredRoles = WTF::toArray({ "presentation"_s, "none"_s, "generic"_s, "group"_s, "rowgroup"_s, "directory"_s, "complementary"_s, "contentinfo"_s });
+                static constexpr auto ignoredRoles = WTF::toArray({
+                    "presentation"_s,
+                    "none"_s,
+                    "generic"_s,
+                    "group"_s,
+                    "rowgroup"_s,
+                    "directory"_s,
+                    "complementary"_s,
+                    "contentinfo"_s,
+                    "tree"_s,
+                    "treeitem"_s
+                });
+
                 for (auto ignoredRole : ignoredRoles) {
                     if (equalLettersIgnoringASCIICase(role, ignoredRole))
                         return true;
@@ -1152,6 +1270,15 @@ static inline void extractRecursive(Node& node, Item& parentItem, TraversalConte
         if (shouldIdentifyClickableElement)
             return FallbackPolicy::Extract;
 
+        // With tag names requested, also extract a generic block that renders its own inline content like
+        // a paragraph, heading, caption, etc so its tag prefixes that text. Semantic containers are already
+        // extracted above; a generic structural wrapper (block-level children) still collapses.
+        if (context.originalRequest.includeTagName && isBlock) {
+            CheckedPtr renderer = node.renderer();
+            if (renderer->childrenInline())
+                return FallbackPolicy::Extract;
+        }
+
         return FallbackPolicy::Skip;
     }();
 
@@ -1196,7 +1323,7 @@ static inline void extractRecursive(Node& node, Item& parentItem, TraversalConte
             isScrollable = std::holds_alternative<ScrollableItemData>(result);
 
             std::optional<NodeIdentifier> nodeIdentifier;
-            if (shouldIdentifyClickableElement || shouldIncludeNodeIdentifier(context.nodeIdentifierInclusion, eventListeners, AccessibilityObject::ariaRoleToWebCoreRole(role), result))
+            if (shouldIdentifyClickableElement || context.contextMenuTargetNode == &node || shouldIncludeNodeIdentifier(context.nodeIdentifierInclusion, eventListeners, AccessibilityObject::ariaRoleToWebCoreRole(role), result))
                 nodeIdentifier = node.nodeIdentifier();
 
             item = { {
@@ -1263,7 +1390,7 @@ static inline void extractRecursive(Node& node, Item& parentItem, TraversalConte
         if (RefPtr iframe = dynamicDowncast<HTMLIFrameElement>(node); iframe && item) {
             if (RefPtr frame = dynamicDowncast<LocalFrame>(iframe->contentFrame())) {
                 if (RefPtr document = frame->document(); document && areSameOrigin(*document, protect(node.document()))) {
-                    auto [rootItem, textLength, pdfContent] = extractItem([&] {
+                    auto [rootItem, textLength] = extractItem([&] {
                         auto request = context.originalRequest;
                         request.targetNodeHandleIdentifier = { };
                         return request;
@@ -1355,6 +1482,42 @@ static void pruneEmptyContainersRecursive(Item& item)
         }
         return true;
     });
+}
+
+static bool isRedundantFormWrapper(const Item& item)
+{
+    if (!std::holds_alternative<FormData>(item.data))
+        return false;
+
+    if (!std::get<FormData>(item.data).name.isEmpty())
+        return false;
+
+    if (!item.eventListeners.isEmpty() || !item.ariaAttributes.isEmpty() || !item.clientAttributes.isEmpty())
+        return false;
+
+    if (!item.accessibilityRole.isEmpty() || !item.title.isEmpty())
+        return false;
+
+    if (item.children.size() != 1)
+        return false;
+
+    auto& child = item.children.first();
+    if (!std::holds_alternative<ContainerType>(child.data))
+        return false;
+
+    return std::get<ContainerType>(child.data) == ContainerType::Button;
+}
+
+static void collapseRedundantFormWrappersRecursive(Item& item)
+{
+    for (auto& child : item.children) {
+        collapseRedundantFormWrappersRecursive(child);
+        if (!isRedundantFormWrapper(child))
+            continue;
+
+        auto button = WTF::move(child.children.first());
+        child = WTF::move(button);
+    }
 }
 
 static Node* NODELETE nodeFromJSHandle(JSHandleIdentifier identifier)
@@ -1451,7 +1614,7 @@ Result extractItem(Request&& request, LocalFrame& frame)
 
     RefPtr document = frame.document();
     if (!document)
-        return { root, 0, { } };
+        return { root, 0 };
 
     RefPtr bodyOrDocumentElement = [&] -> RefPtr<Element> {
         if (RefPtr bodyElement = document->body())
@@ -1461,7 +1624,7 @@ Result extractItem(Request&& request, LocalFrame& frame)
     }();
 
     if (!bodyOrDocumentElement)
-        return { root, 0, { } };
+        return { root, 0 };
 
     document->updateLayoutIgnorePendingStylesheets();
 
@@ -1484,11 +1647,11 @@ Result extractItem(Request&& request, LocalFrame& frame)
         addBoxShadowIfNeeded(*extractionRootNode, extractingWithDataDetectors ? "#0088FF"_s : "#ff8d28"_s);
 
     if (!extractionRootNode)
-        return { root, 0, { } };
+        return { root, 0 };
 
     RefPtr view = frame.view();
     if (!view)
-        return { root, 0, { } };
+        return { root, 0 };
 
     root.data = { ScrollableItemData {
         .contentSize = view->contentsSize(),
@@ -1499,7 +1662,7 @@ Result extractItem(Request&& request, LocalFrame& frame)
 
     root.rectInRootView = view->contentsToRootView(IntRect { IntPoint::zero(), view->contentsSize() });
     if (root.rectInRootView.isEmpty())
-        return { root, 0, { } };
+        return { root, 0 };
 
     unsigned visibleTextLength = 0;
     {
@@ -1523,6 +1686,10 @@ Result extractItem(Request&& request, LocalFrame& frame)
             if (RefPtr node = nodeFromJSHandle(identifier))
                 nodesToSkip.add(node.releaseNonNull());
         }
+
+        RefPtr<Node> contextMenuTargetNode;
+        if (request.contextMenuTargetNodeIdentifier)
+            contextMenuTargetNode = Node::fromIdentifier(*request.contextMenuTargetNodeIdentifier);
 
         HashSet<Ref<Node>> additionalContainersToCollect;
         RefPtr extractionRoot = dynamicDowncast<ContainerNode>(*extractionRootNode);
@@ -1554,6 +1721,7 @@ Result extractItem(Request&& request, LocalFrame& frame)
             .clientNodeAttributes = WTF::move(clientNodeAttributes),
             .visibleText = collectText(*extractionRootNode, includeTextInAutoFilledControls),
             .nodesToSkip = WTF::move(nodesToSkip),
+            .contextMenuTargetNode = WTF::move(contextMenuTargetNode),
             .rectInRootView = request.collectionRectInRootView,
             .frameIdentifier = WTF::move(frameID),
             .enclosingBlocks = { },
@@ -1579,8 +1747,9 @@ Result extractItem(Request&& request, LocalFrame& frame)
 
     pruneWhitespaceRecursive(root);
     pruneEmptyContainersRecursive(root);
+    collapseRedundantFormWrappersRecursive(root);
 
-    return { WTF::move(root), visibleTextLength, { } };
+    return { WTF::move(root), visibleTextLength };
 }
 
 using Token = Variant<String, IntSize>;
@@ -1921,6 +2090,52 @@ static String searchTextNotFoundDescription(const String& searchText)
     return makeString('\'', searchText, "' not found inside the target node"_s);
 }
 
+static String alternativeTextForFallbackTextSearch(const Element& element)
+{
+    if (RefPtr image = dynamicDowncast<HTMLImageElement>(element))
+        return image->altText();
+
+    if (RefPtr input = dynamicDowncast<HTMLInputElement>(element)) {
+        if (input->isImageButton())
+            return input->altText();
+
+        if (shouldTreatAsPasswordField(input.get()))
+            return { };
+
+        return input->valueWithDefault();
+    }
+
+    return { };
+}
+
+static bool searchTextMatchesElementLabelOrRenderedText(Element& element, const String& searchText)
+{
+    auto withoutWhitespace = [](const String& string) {
+        return normalizeText(string).removeCharacters([](char16_t character) {
+            return isUnicodeWhitespace(character);
+        });
+    };
+
+    auto strippedSearchText = withoutWhitespace(searchText);
+    if (strippedSearchText.isEmpty()) {
+        // Err on the side of allowing the interaction.
+        return true;
+    }
+
+    if (withoutWhitespace(normalizedLabelText(element)).containsIgnoringASCIICase(strippedSearchText))
+        return true;
+
+    if (withoutWhitespace(alternativeTextForFallbackTextSearch(element)).containsIgnoringASCIICase(strippedSearchText))
+        return true;
+
+    auto range = makeRangeSelectingNodeContents(element);
+    if (withoutWhitespace(plainText(range, behaviorsForTextExtraction)).containsIgnoringASCIICase(strippedSearchText))
+        return true;
+
+    RefPtr input = dynamicDowncast<HTMLInputElement>(element);
+    return input && withoutWhitespace(input->placeholder()).containsIgnoringASCIICase(strippedSearchText);
+}
+
 static constexpr auto nullFrameDescription = "Browsing context has been detached"_s;
 static constexpr auto interactedWithSelectElementDescription = "Successfully updated option in select element"_s;
 
@@ -1960,6 +2175,30 @@ static Node* findNodeAtRootViewLocation(const LocalFrameView& view, Document& do
 
     HitTestResult result { view.rootViewToContents(roundedIntPoint(locationInRootView)) };
     return document.hitTest(defaultHitTestOptions, result) ? result.innerNode() : nullptr;
+}
+
+static RefPtr<Element> frontmostHitTestedElementInSubtree(const LocalFrameView& view, Document& document, FloatPoint locationInRootView, const Element& target)
+{
+    static constexpr OptionSet listBasedHitTestOptions {
+        HitTestRequest::Type::ReadOnly,
+        HitTestRequest::Type::DisallowUserAgentShadowContent,
+        HitTestRequest::Type::CollectMultipleElements,
+        HitTestRequest::Type::IncludeAllElementsUnderPoint,
+    };
+
+    HitTestResult result { view.rootViewToContents(roundedIntPoint(locationInRootView)) };
+    document.hitTest(listBasedHitTestOptions, result);
+
+    for (auto& node : result.listBasedTestResult()) {
+        RefPtr element = dynamicDowncast<Element>(node.get());
+        if (!element)
+            element = node->parentElementInComposedTree();
+
+        if (element && (element == &target || element->isShadowIncludingDescendantOf(target)))
+            return element;
+    }
+
+    return nullptr;
 }
 
 struct ResolvedMouseTarget {
@@ -2006,8 +2245,12 @@ static Expected<ResolvedMouseTarget, String> resolveMouseTarget(Node& targetNode
     std::optional<SimpleRange> foundRange;
     if (!searchText.isEmpty()) {
         foundRange = searchForClickTarget(*element, searchText);
-        if (!foundRange)
-            return makeUnexpected(searchTextNotFoundDescription(searchText));
+        if (!foundRange) {
+            bool targetIsWholePage = element == document->body() || element.get() == document->documentElement();
+            bool matched = targetIsWholePage ? normalizedLabelText(*element).containsIgnoringASCIICase(normalizeText(searchText)) : searchTextMatchesElementLabelOrRenderedText(*element, searchText);
+            if (!matched)
+                return makeUnexpected(searchTextNotFoundDescription(searchText));
+        }
     }
 
     if (scrollTargetIntoView == ScrollTargetIntoView::Yes) {
@@ -2053,8 +2296,11 @@ static void dispatchSimulatedClick(Node& targetNode, const String& searchText, C
 
     UserGestureIndicator indicator { IsProcessingUserGesture::Yes, document.ptr() };
 
-    // Fall back to dispatching a programmatic click.
-    if (protect(element)->dispatchSimulatedClick(nullptr, SendMouseUpDownEvents))
+    Ref clickTarget = element;
+    if (RefPtr descendant = frontmostHitTestedElementInSubtree(view, document, centerInRootView, element))
+        clickTarget = descendant.releaseNonNull();
+
+    if (protect(clickTarget)->dispatchSimulatedClick(nullptr, SendMouseUpDownEvents))
         completion(true, { });
     else
         completion(false, "Failed to click (tried falling back to dispatching programmatic click since target could not be hit-tested)"_s);
@@ -2196,6 +2442,20 @@ static String wrapWithDoubleQuotes(StringView text)
     return makeString(u"“", text, u"”");
 }
 
+static String shortenedHREFAttributeForDescription(const String& hrefAttribute)
+{
+    static constexpr unsigned maximumLength = 80;
+
+    auto result = hrefAttribute;
+    if (auto queryIndex = result.find('?'); queryIndex != notFound)
+        result = makeString(StringView(result).left(queryIndex + 1), horizontalEllipsis);
+
+    if (result.length() > maximumLength)
+        result = makeString(StringView(result).left(maximumLength - 1), horizontalEllipsis);
+
+    return result;
+}
+
 struct ScrollableContainer {
     RefPtr<Element> element;
     WeakPtr<ScrollableArea> scrollableArea;
@@ -2265,7 +2525,7 @@ static String precedingRenderedTextLabel(const Element& element)
     return joined;
 }
 
-static String textDescription(const Element& element, Vector<String>& stringsToValidate, bool isTargetElement = true)
+static String textDescription(Element& element, Vector<String>& stringsToValidate, bool isTargetElement = true)
 {
     StringBuilder description;
 
@@ -2283,8 +2543,9 @@ static String textDescription(const Element& element, Vector<String>& stringsToV
 
     if (element.isLink()) {
         if (auto text = normalizeText(element.attributeWithoutSynchronization(HTMLNames::hrefAttr)); !text.isEmpty()) {
-            description.append(makeString(" with href "_s, wrapWithDoubleQuotes(WTF::move(text))));
-            stringsToValidate.append(WTF::move(text));
+            auto shortenedHREF = shortenedHREFAttributeForDescription(text);
+            description.append(makeString(" with href "_s, wrapWithDoubleQuotes(shortenedHREF)));
+            stringsToValidate.append(WTF::move(shortenedHREF));
             needsParentContext = false;
             hasAccessibleName = true;
         }
@@ -2296,7 +2557,7 @@ static String textDescription(const Element& element, Vector<String>& stringsToV
         hasAccessibleName = true;
     }
 
-    if (auto text = normalizedLabelText(element); !text.isEmpty()) {
+    if (auto text = normalizedLabelText(element, IncludeAssociatedLabels::Yes); !text.isEmpty()) {
         description.append(makeString(" labeled "_s, wrapWithDoubleQuotes(WTF::move(text))));
         stringsToValidate.append(WTF::move(text));
         needsParentContext = false;
@@ -2400,7 +2661,7 @@ static String textDescription(const Element& element, Vector<String>& stringsToV
     return parentDescription;
 }
 
-static String textDescription(const Element& element)
+static String textDescription(Element& element)
 {
     Vector<String> ignoredStringsToValidate;
     return textDescription(element, ignoredStringsToValidate);
@@ -2469,16 +2730,19 @@ static String textDescription(LocalFrame& frame, std::optional<NodeIdentifier> i
     auto searchTextPrefix = emptyString();
     if (!searchText.isEmpty()) {
         auto range = action == Action::Click ? searchForClickTarget(*target, searchText) : searchForText(*target, searchText);
-        if (!range)
-            return { };
+        if (range) {
+            target = commonInclusiveAncestor<ComposedTree>(*range);
+            if (!target)
+                return { };
 
-        target = commonInclusiveAncestor<ComposedTree>(*range);
-        if (!target)
-            return { };
-
-        auto escapedSearchText = normalizeText(searchText);
-        stringsToValidate.append(escapedSearchText);
-        searchTextPrefix = makeString(wrapWithDoubleQuotes(escapedSearchText), " in "_s);
+            auto escapedSearchText = normalizeText(searchText);
+            stringsToValidate.append(escapedSearchText);
+            searchTextPrefix = makeString(wrapWithDoubleQuotes(escapedSearchText), " in "_s);
+        } else {
+            RefPtr element = dynamicDowncast<Element>(target.get());
+            if (!identifier || !element || !searchTextMatchesElementLabelOrRenderedText(*element, searchText))
+                return { };
+        }
     }
 
     return makeString(WTF::move(searchTextPrefix), textDescription(target.get(), stringsToValidate));
@@ -3018,6 +3282,19 @@ InteractionDescription interactionDescription(const Interaction& interaction, Lo
     }
 
     return { description.toString(), WTF::move(stringsToValidate), didFindTargetNode };
+}
+
+std::optional<FrameIdentifier> contentFrameIdentifierForNode(NodeIdentifier identifier)
+{
+    RefPtr frameOwner = dynamicDowncast<HTMLFrameOwnerElement>(Node::fromIdentifier(identifier));
+    if (!frameOwner)
+        return { };
+
+    RefPtr contentFrame = frameOwner->contentFrame();
+    if (!contentFrame)
+        return { };
+
+    return contentFrame->frameID();
 }
 
 RefPtr<Element> elementForExtractedText(const LocalFrame& frame, ExtractedText&& extractedText)

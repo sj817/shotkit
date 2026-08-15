@@ -148,7 +148,6 @@ bool doesGC(Graph& graph, Node* node)
     case IsCallable:
     case IsConstructor:
     case IsCellWithType:
-    case IsTypedArrayView:
     case TypeOf:
     case ToBoolean:
     case LogicalNot:
@@ -264,7 +263,6 @@ bool doesGC(Graph& graph, Node* node)
     case FilterSetPrivateBrandStatus:
     case DateGetInt32OrNaN:
     case DateGetTime:
-    case DataViewGetInt:
     case DataViewGetFloat:
     case DataViewSet:
     case PutByOffset:
@@ -400,6 +398,7 @@ bool doesGC(Graph& graph, Node* node)
     case ToNumber:
     case ToNumeric:
     case ToObject:
+    case OpenAsyncFromSyncIterator:
     case ToPrimitive:
     case ToPropertyKey:
     case ToPropertyKeyOrNumber:
@@ -461,6 +460,7 @@ bool doesGC(Graph& graph, Node* node)
     case MaterializeNewInternalFieldObject:
     case MaterializeCreateActivation:
     case SetFunctionName:
+    case EnqueueAsyncGeneratorDriver:
     case StrCat:
     case StringReplace:
     case StringReplaceAll:
@@ -535,6 +535,9 @@ bool doesGC(Graph& graph, Node* node)
     case GlobalIsNaN:
         return node->child1().useKind() == UntypedUse;
 
+    case DataViewGetInt:
+        return node->dataViewData().byteSize == 8;
+
     case CallNumberConstructor:
         switch (node->child1().useKind()) {
         case BigInt32Use:
@@ -567,9 +570,7 @@ bool doesGC(Graph& graph, Node* node)
     case CompareGreater:
     case CompareGreaterEq:
         if (node->isBinaryUseKind(Int32Use)
-#if USE(JSVALUE64)
             || node->isBinaryUseKind(Int52RepUse)
-#endif
             || node->isBinaryUseKind(DoubleRepUse)
             || node->isBinaryUseKind(BigInt32Use)
             || node->isBinaryUseKind(HeapBigIntUse)
@@ -589,9 +590,7 @@ bool doesGC(Graph& graph, Node* node)
         if (node->isBinaryUseKind(BooleanUse)
             || node->isSymmetricBinaryUseKind(BooleanUse, UntypedUse)
             || node->isBinaryUseKind(Int32Use)
-#if USE(JSVALUE64)
             || node->isBinaryUseKind(Int52RepUse)
-#endif
             || node->isBinaryUseKind(DoubleRepUse)
             || node->isBinaryUseKind(SymbolUse)
             || node->isSymmetricBinaryUseKind(SymbolUse, UntypedUse)

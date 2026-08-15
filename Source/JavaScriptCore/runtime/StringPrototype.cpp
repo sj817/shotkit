@@ -361,27 +361,10 @@ JSString* replaceUsingRegExpSearch(VM& vm, JSGlobalObject* globalObject, JSStrin
     }
 
     if (callData.type == CallData::Type::None) {
-        switch (regExp->specificPattern()) {
-        case Yarr::SpecificPattern::TrailingSpacesPlus:
-        case Yarr::SpecificPattern::LeadingSpacesPlus:
-        case Yarr::SpecificPattern::TrailingSpacesStar:
-        case Yarr::SpecificPattern::LeadingSpacesStar: {
-            if (!replacementString.isEmpty())
-                break;
-
-            if (auto* result = tryTrimSpaces(vm, globalObject, source, string, regExp))
-                return result;
-
-            break;
+        if (global) {
+            JSString* replacementVal = replaceValue.isString() ? asString(replaceValue) : nullptr;
+            RELEASE_AND_RETURN(scope, replaceAllWithStringUsingRegExpSearch(vm, globalObject, string, source, regExp, replacementVal, replacementString));
         }
-        case Yarr::SpecificPattern::Atom:
-        case Yarr::SpecificPattern::Newlines:
-        case Yarr::SpecificPattern::None:
-            break;
-        }
-
-        if (global)
-            RELEASE_AND_RETURN(scope, replaceAllWithStringUsingRegExpSearch(vm, globalObject, string, source, regExp, replacementString));
         RELEASE_AND_RETURN(scope, replaceOneWithStringUsingRegExpSearch(vm, globalObject, string, source, regExp, replacementString));
     }
 
@@ -1053,11 +1036,6 @@ static ALWAYS_INLINE bool splitStringByOneCharacterImpl(Indice& result, StringIm
     return false;
 }
 
-static bool NODELETE isASCIIIdentifierStart(char16_t ch)
-{
-    return isASCIIAlpha(ch) || ch == '_' || ch == '$';
-}
-
 JSCell* stringSplitFast(JSGlobalObject* globalObject, JSString* thisString, JSString* separatorString, unsigned limit)
 {
     VM& vm = globalObject->vm();
@@ -1076,7 +1054,8 @@ JSCell* stringSplitFast(JSGlobalObject* globalObject, JSString* thisString, JSSt
         RELEASE_AND_RETURN(scope, constructEmptyArray(globalObject, nullptr));
 
     if (limit == 0xFFFFFFFFu && !globalObject->isHavingABadTime()) [[likely]] {
-        if (auto* immutableButterfly = vm.stringSplitCache.get(input, separator)) {
+        auto* cache = vm.stringSplitCache();
+        if (auto* immutableButterfly = cache ? cache->getForString(input, separator) : nullptr) {
             Structure* arrayStructure = globalObject->originalArrayStructureForIndexingType(CopyOnWriteArrayWithContiguous);
             return JSArray::createWithButterfly(vm, nullptr, arrayStructure, immutableButterfly->toButterfly());
         }
@@ -1085,6 +1064,7 @@ JSCell* stringSplitFast(JSGlobalObject* globalObject, JSString* thisString, JSSt
     auto& result = vm.stringSplitIndice;
     result.shrink(0);
     constexpr unsigned atomStringsArrayLimit = 100;
+    const bool subjectIsAtom = input->impl()->isAtom();
 
     auto cacheAndCreateArray = [&]() -> JSArray* {
         if (result.isEmpty())
@@ -1092,7 +1072,7 @@ JSCell* stringSplitFast(JSGlobalObject* globalObject, JSString* thisString, JSSt
 
         unsigned resultSize = result.size();
         if (limit == 0xFFFFFFFFu && !globalObject->isHavingABadTime() && resultSize < MIN_SPARSE_ARRAY_INDEX) [[likely]] {
-            bool makeAtomStringsArray = resultSize < atomStringsArrayLimit;
+            bool makeAtomStringsArray = subjectIsAtom && resultSize < atomStringsArrayLimit;
             Structure* cellButterflyStructure = makeAtomStringsArray ? vm.cellButterflyOnlyAtomStringsStructure.get() : vm.cellButterflyStructure(CopyOnWriteArrayWithContiguous);
 
             auto* newButterfly = JSCellButterfly::tryCreate(vm, cellButterflyStructure, resultSize);
@@ -1130,7 +1110,8 @@ JSCell* stringSplitFast(JSGlobalObject* globalObject, JSString* thisString, JSSt
                 Structure* replacementStructure = vm.cellButterflyStructure(CopyOnWriteArrayWithContiguous);
                 newButterfly->setStructure(vm, replacementStructure);
             }
-            vm.stringSplitCache.set(input, separator, newButterfly);
+            if (subjectIsAtom)
+                vm.ensureStringSplitCache().setForString(input, separator, newButterfly);
             Structure* arrayStructure = globalObject->originalArrayStructureForIndexingType(CopyOnWriteArrayWithContiguous);
             return JSArray::createWithButterfly(vm, nullptr, arrayStructure, newButterfly->toButterfly());
         }
@@ -1168,7 +1149,7 @@ JSCell* stringSplitFast(JSGlobalObject* globalObject, JSString* thisString, JSSt
         ASSERT(resultSize);
 
         if (limit == 0xFFFFFFFFu && !globalObject->isHavingABadTime() && resultSize < MIN_SPARSE_ARRAY_INDEX) [[likely]] {
-            bool makeAtomStringsArray = resultSize < atomStringsArrayLimit;
+            bool makeAtomStringsArray = subjectIsAtom && resultSize < atomStringsArrayLimit;
             Structure* cellButterflyStructure = makeAtomStringsArray ? vm.cellButterflyOnlyAtomStringsStructure.get() : vm.cellButterflyStructure(CopyOnWriteArrayWithContiguous);
 
             auto* newButterfly = JSCellButterfly::tryCreate(vm, cellButterflyStructure, resultSize);
@@ -1190,7 +1171,8 @@ JSCell* stringSplitFast(JSGlobalObject* globalObject, JSString* thisString, JSSt
                 }
                 newButterfly->setIndex(vm, i, string);
             }
-            vm.stringSplitCache.set(input, separator, newButterfly);
+            if (subjectIsAtom)
+                vm.ensureStringSplitCache().setForString(input, separator, newButterfly);
             Structure* arrayStructure = globalObject->originalArrayStructureForIndexingType(CopyOnWriteArrayWithContiguous);
             return JSArray::createWithButterfly(vm, nullptr, arrayStructure, newButterfly->toButterfly());
         }
@@ -1547,8 +1529,8 @@ JSC_DEFINE_HOST_FUNCTION(stringProtoFuncMatchAll, (JSGlobalObject* globalObject,
                 bool global = regExp->global(); // This means that we may end up having a case that global = false if toString user function recompiles RegExp without "g" flag.
                 bool fullUnicode = regExp->eitherUnicode();
 
-                double lastIndexDouble = regExpObject->getLastIndex().asNumber();
-                size_t lastIndex = lastIndexDouble > 0 ? static_cast<size_t>(std::min(lastIndexDouble, maxSafeInteger())) : 0;
+                uint64_t lastIndex = regExpObject->getLastIndex().toLength(globalObject);
+                RETURN_IF_EXCEPTION(scope, { });
 
                 Structure* structure = globalObject->regExpStructure();
                 RegExpObject* matcher = RegExpObject::create(vm, structure, regExp);
@@ -1793,6 +1775,8 @@ JSC_DEFINE_HOST_FUNCTION(stringProtoFuncLocaleCompare, (JSGlobalObject* globalOb
     IntlCollator* collator = nullptr;
     if (locales.isUndefined() && options.isUndefined())
         collator = globalObject->defaultCollator();
+    else if (locales.isString() && options.isUndefined())
+        collator = globalObject->cachedLocaleCompareCollator(asString(locales));
     else {
         collator = IntlCollator::create(vm, globalObject->collatorStructure());
         collator->initializeCollator(globalObject, locales, options);

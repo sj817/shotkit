@@ -34,16 +34,23 @@
 #include "FontCascadeInlines.h"
 #include "FontCascadeDescription.h"
 #include "GraphicsContext.h"
+#include "InlineIteratorBoxInlines.h"
 #include "PaintInfoInlines.h"
+#include "RenderBlockFlow.h"
 #include "RenderBlockInlines.h"
 #include "RenderBoxInlines.h"
 #include "RenderLayer.h"
 #include "RenderListItem.h"
+#include "RenderMenuList.h"
 #include "RenderMultiColumnFlow.h"
 #include "RenderMultiColumnSpannerPlaceholder.h"
 #include "RenderObjectInlines.h"
+#include "RenderTable.h"
 #include "RenderView.h"
+#include "Settings.h"
+#include "StyleComputedStyle+GettersInlines.h"
 #include "StyleComputedStyle+SettersInlines.h"
+#include "StyleContent.h"
 #include "StyleListStyleType.h"
 #include "StyleScope.h"
 #include "TextUtil.h"
@@ -109,7 +116,21 @@ void RenderListMarker::styleDidChange(Style::Difference diff, const Style::Compu
 
 bool RenderListMarker::isImage() const
 {
-    return m_image && !protect(m_image)->errorOccurred();
+    // `content` supersedes list-style-image (css-lists-3 §3.3), so a marker with generated content
+    // is never treated as an image marker (affects inline margins, baseline, and layout attributes).
+    return m_image && !protect(m_image)->errorOccurred() && !hasContent();
+}
+
+bool RenderListMarker::hasContent() const
+{
+    return document().settings().cssMarkerContentEnabled() && style().content().isData();
+}
+
+RenderBlockFlow* RenderListMarker::contentContainer() const
+{
+    // When the marker has generated content, its sole child is the anonymous
+    // inline-block box holding that content (created by RenderTreeBuilder::List).
+    return dynamicDowncast<RenderBlockFlow>(firstChild());
 }
 
 LayoutRect RenderListMarker::localSelectionRect()
@@ -176,9 +197,6 @@ void RenderListMarker::paintDisclosureMarker(GraphicsContext& context, const Flo
 
 void RenderListMarker::paint(PaintInfo& paintInfo, const LayoutPoint& paintOffset)
 {
-    if (paintInfo.phase != PaintPhase::Foreground && paintInfo.phase != PaintPhase::Accessibility)
-        return;
-
     if (style().usedVisibility() != Visibility::Visible)
         return;
 
@@ -186,6 +204,28 @@ void RenderListMarker::paint(PaintInfo& paintInfo, const LayoutPoint& paintOffse
     LayoutRect overflowRect(visualOverflowRect());
     overflowRect.moveBy(boxOrigin);
     if (!paintInfo.rect.intersects(overflowRect))
+        return;
+
+    if (CheckedPtr container = contentContainer()) {
+        if (paintInfo.phase == PaintPhase::Accessibility) {
+            paintInfo.accessibilityRegionContext()->takeBounds(*this, LayoutRect(boxOrigin, borderBoxSize()));
+            return;
+        }
+
+        if (paintInfo.phase == PaintPhase::Foreground && selectionState() != HighlightState::None) {
+            LayoutRect selectionRect = localSelectionRect();
+            selectionRect.moveBy(boxOrigin);
+            paintInfo.context().fillRect(snappedIntRect(selectionRect), m_listItem->selectionBackgroundColor());
+        }
+
+        // Paint the generated-content subtree as an atomic inline: paintAsInlineBlock fans out all
+        // sub-phases for Foreground and forwards Selection/EventRegion/TextClip to the child's paint().
+        container->paintAsInlineBlock(paintInfo, boxOrigin);
+        return;
+    }
+
+    // The bespoke bullet/text/image painting below only applies to the foreground and accessibility phases.
+    if (paintInfo.phase != PaintPhase::Foreground && paintInfo.phase != PaintPhase::Accessibility)
         return;
 
     LayoutRect box(boxOrigin, borderBoxSize());
@@ -259,6 +299,15 @@ void RenderListMarker::paint(PaintInfo& paintInfo, const LayoutPoint& paintOffse
         return;
     }
 
+    if (writingMode().isHorizontal()) {
+        // This is required because RenderListMarker hand-draws the text, instead of running inline
+        // layout and paint on its (RenderText) subtree (LayoutUnit vs. float precision)
+        // FIXME: The vertical path mispositions the marker line box separately (it ignores fallback-font
+        // metrics), so this is limited to horizontal writing modes for now. See webkit.org/b/319618.
+        if (auto markerInlineBox = InlineIterator::boxFor(*this))
+            markerRect.setY(paintOffset.y() + markerInlineBox->visualRectIgnoringBlockDirection().y());
+    }
+
     auto textOrigin = FloatPoint { markerRect.x(), markerRect.y() + style().fontCascade().metricsOfPrimaryFont().ascent() };
     textOrigin = roundPointToDevicePixels(LayoutPoint(textOrigin), protect(document())->deviceScaleFactor(), writingMode().isLogicalLeftInlineStart());
     context.drawText(style().fontCascade(), textRunForContent(m_textContent, style()), textOrigin);
@@ -286,7 +335,10 @@ void RenderListMarker::layout()
     m_lineLogicalOffsetForListItem = m_listItem->logicalLeftOffsetForLine(blockOffset);
     m_lineOffsetForListItem = writingMode().isLogicalLeftInlineStart() ? m_lineLogicalOffsetForListItem : m_listItem->logicalRightOffsetForLine(blockOffset);
 
-    if (isImage()) {
+    if (CheckedPtr container = contentContainer()) {
+        updateInlineMarginsAndContent();
+        layoutContentContainer(*container);
+    } else if (isImage()) {
         updateInlineMarginsAndContent();
         RefPtr image = m_image;
         setBorderBoxWidth(image->imageSize(this, style().usedZoom()).width());
@@ -307,6 +359,41 @@ void RenderListMarker::layout()
         setMarginEnd(LayoutUnit(fixedEndMargin->resolveZoom(style().usedZoomForLength())));
 
     clearNeedsLayout();
+}
+
+void RenderListMarker::layoutContentContainer(RenderBlockFlow& container)
+{
+    // The marker participates in its list item's line as a single atomic inline. Lay its
+    // generated-content subtree out at its max-content (shrink-to-fit) width, like an
+    // inline-block, then adopt the resulting size and baseline.
+    auto contentLogicalWidth = container.maxContentLogicalWidthContribution();
+    container.setOverridingBorderBoxLogicalWidth(contentLogicalWidth);
+    container.setNeedsLayout(MarkingBehavior::MarkOnlyThis);
+    container.layoutIfNeeded();
+    container.clearOverridingBorderBoxLogicalWidth();
+
+    setLogicalWidth(container.logicalWidth());
+    setLogicalHeight(container.logicalHeight());
+
+    // The inline formatting context aligns the marker box on the marker's primary-font baseline
+    // (like a text marker; see InlineLineBoxBuilder), then we paint the content box at the marker
+    // box origin. Offset the content box along the block axis so its own first-line baseline lands
+    // on that font baseline — otherwise the content's line-box half-leading shifts it off the list
+    // item's baseline. Logical setters keep this correct in vertical writing modes.
+    auto markerAscent = LayoutUnit { style().metricsOfPrimaryFont().ascent() };
+    auto contentBaseline = container.firstLineBaseline().value_or(container.logicalHeight());
+    container.setLogicalTop(markerAscent - contentBaseline);
+
+    m_layoutBounds = { contentBaseline, container.logicalHeight() - contentBaseline };
+
+    // The content box can extend outside the marker's border box (its baseline offset may be
+    // negative, or the content taller than the marker font), so record its overflow. The marker
+    // overrides layout() and otherwise reports no overflow, which would clip/mis-repaint the content.
+    clearOverflow();
+    addLayoutOverflow({ container.location(), container.borderBoxSize() });
+    auto contentVisualOverflow = container.visualOverflowRect();
+    contentVisualOverflow.moveBy(container.location());
+    addVisualOverflow(contentVisualOverflow);
 }
 
 void RenderListMarker::imageChanged(WrappedImagePtr o, const IntRect* rect)
@@ -333,6 +420,13 @@ void RenderListMarker::updateInlineMarginsAndContent()
 
 void RenderListMarker::updateContent()
 {
+    if (hasContent()) {
+        // css-lists-3 §3.3: `content` (not normal) supersedes list-style-image/type. The generated
+        // content lives in the anonymous inline-block contentContainer(); the marker has no text/image.
+        m_textContent = { };
+        return;
+    }
+
     if (isImage()) {
         // FIXME: This is a somewhat arbitrary width.
         LayoutUnit bulletWidth = style().metricsOfPrimaryFont().intAscent() / 2_lu;
@@ -393,6 +487,17 @@ void RenderListMarker::computeIntrinsicLogicalWidthContributions()
     ASSERT(hasInvalidContentLogicalWidths());
     updateContent();
 
+    if (CheckedPtr container = contentContainer()) {
+        // The marker is non-wrapping, so its min- and max-content widths are both the
+        // content's max-content width.
+        auto logicalWidth = container->maxContentLogicalWidthContribution();
+        m_minContentLogicalWidthContribution = logicalWidth;
+        m_maxContentLogicalWidthContribution = logicalWidth;
+        clearContentLogicalWidthsInvalidation();
+        updateInlineMargins();
+        return;
+    }
+
     if (isImage()) {
         LayoutSize imageSize = LayoutSize(protect(m_image)->imageSize(this, style().usedZoom()));
         m_maxContentLogicalWidthContribution = writingMode().isHorizontal() ? imageSize.width() : imageSize.height();
@@ -446,7 +551,7 @@ void RenderListMarker::updateInlineMargins()
         if (widthUsesMetricsOfPrimaryFont())
             return { -offset - markerPadding - 1, offset + markerPadding + 1 - minContentLogicalWidthContribution() };
 
-        if (m_textContent.isEmpty())
+        if (m_textContent.isEmpty() && !contentContainer())
             return { };
 
         return { -minContentLogicalWidthContribution(), 0 };
@@ -455,8 +560,23 @@ void RenderListMarker::updateInlineMargins()
     auto [marginStart, marginEnd] = isInside() ? marginsForInsideMarker() : marginsForOutsideMarker();
     auto zoom = style().usedZoomForLength().value;
 
-    mutableStyle().setMarginStart(Style::MarginEdge::Fixed { marginStart / zoom });
-    mutableStyle().setMarginEnd(Style::MarginEdge::Fixed { marginEnd / zoom });
+    // Which side of the list item these hang the marker off follows the list item's directionality
+    // rather than the marker's own: with marker-side: match-self (its initial value) css-lists-3
+    // positions the marker box using the directionality of the ::marker's originating element.
+    // Write the edges of the parent's inline axis, which is where
+    // BoxGeometryUpdater::horizontalLogicalMargin reads them back from.
+    auto listItemWritingMode = m_listItem->writingMode();
+    auto startEdge = Style::MarginEdge::Fixed { marginStart / zoom };
+    auto endEdge = Style::MarginEdge::Fixed { marginEnd / zoom };
+    if (listItemWritingMode.isHorizontal()) {
+        auto startIsLeft = listItemWritingMode.isInlineLeftToRight();
+        mutableStyle().setMarginLeft(startIsLeft ? startEdge : endEdge);
+        mutableStyle().setMarginRight(startIsLeft ? endEdge : startEdge);
+        return;
+    }
+    auto startIsTop = listItemWritingMode.isInlineTopToBottom();
+    mutableStyle().setMarginTop(startIsTop ? startEdge : endEdge);
+    mutableStyle().setMarginBottom(startIsTop ? endEdge : startEdge);
 }
 
 bool RenderListMarker::isInside() const
@@ -474,9 +594,31 @@ bool RenderListMarker::isDisclosureMarker() const
         || system == CSSCounterStyleDescriptors::System::DisclosureOpen;
 }
 
-const RenderListItem* RenderListMarker::listItem() const
+RenderListItem* RenderListMarker::listItem() const
 {
     return m_listItem.get();
+}
+
+void RenderListMarker::setExcludedPosition(ExcludedPosition excludedPosition)
+{
+    ASSERT(excludedPosition.firstFormattedLineRoot);
+
+    m_excludedPosition = excludedPosition;
+}
+
+void RenderListMarker::invalidateExcludedMarkerContainer()
+{
+    ASSERT(m_excludedPosition);
+
+    if (!m_excludedPosition || !m_excludedPosition->firstFormattedLineRoot) {
+        m_excludedPosition = { };
+        return;
+    }
+
+    if (m_excludedPosition->firstFormattedLineRoot->isDescendantOf(m_listItem.get()))
+        return m_excludedPosition->firstFormattedLineRoot->setNeedsLayout();
+
+    m_excludedPosition = { };
 }
 
 Node* RenderListMarker::nodeForHitTest() const
@@ -539,6 +681,9 @@ RefPtr<CSSRegisteredCounterStyle> RenderListMarker::counterStyle() const
 
 bool RenderListMarker::widthUsesMetricsOfPrimaryFont() const
 {
+    // `content` supersedes list-style-type, so a content marker never draws a bullet glyph.
+    if (hasContent())
+        return false;
     auto& listType = style().listStyleType();
     return listType.isCircle() || listType.isDisc() || listType.isSquare();
 }

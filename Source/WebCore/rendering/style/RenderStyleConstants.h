@@ -26,6 +26,7 @@
 
 #pragma once
 
+#include <WebCore/BoxSides.h>
 #include <initializer_list>
 #include <limits>
 #include <optional>
@@ -108,6 +109,14 @@ constexpr auto allPublicPseudoElementTypes = EnumSet {
     PseudoElementType::ViewTransitionImagePair,
     PseudoElementType::ViewTransitionOld,
     PseudoElementType::ViewTransitionNew
+};
+
+constexpr auto allHighlightPseudoElementTypes = EnumSet {
+    PseudoElementType::GrammarError,
+    PseudoElementType::Highlight,
+    PseudoElementType::Selection,
+    PseudoElementType::SpellingError,
+    PseudoElementType::TargetText
 };
 
 constexpr auto allInternalPseudoElementTypes = EnumSet {
@@ -278,6 +287,16 @@ enum class TableLayoutType : bool {
     Fixed
 };
 
+enum class SpatialType : bool {
+    None,
+    Portal
+};
+
+enum class PortalActionType : bool {
+    None,
+    Orbit
+};
+
 enum class TextCombine : bool {
     None,
     All
@@ -400,6 +419,9 @@ enum class FlexWrap : uint8_t {
     Reverse
 };
 
+inline AxisDirection toAxisDirection(FlexDirection direction) { return static_cast<AxisDirection>(direction == FlexDirection::RowReverse || direction == FlexDirection::ColumnReverse); }
+inline AxisDirection toAxisDirection(FlexWrap wrap) { return static_cast<AxisDirection>(wrap == FlexWrap::Reverse); }
+
 enum class ItemPosition : uint8_t {
     Legacy,
     Auto,
@@ -485,7 +507,8 @@ enum class UserDrag : uint8_t {
 enum class UserSelect : uint8_t {
     None,
     Text,
-    All
+    All,
+    Auto
 };
 
 // CSS3 Image Values
@@ -806,6 +829,11 @@ enum class TextWrapStyle : uint8_t {
     Stable
 };
 
+enum class WrapInside : bool {
+    Auto,
+    Avoid
+};
+
 enum class ImageRendering : uint8_t {
     Auto = 0,
     OptimizeSpeed,
@@ -857,7 +885,7 @@ enum class RubyAlign : uint8_t {
 
 enum class RubyOverhang : bool {
     Auto,
-    None
+    Spaces
 };
 
 enum class ColorScheme : uint8_t {
@@ -1018,6 +1046,12 @@ enum class BlockStepRound : uint8_t {
 enum class FieldSizing : bool {
     Fixed,
     Content
+};
+
+enum class BaselineSource : uint8_t {
+    Auto,
+    First,
+    Last
 };
 
 enum class NinePieceImageRule : uint8_t {
@@ -1193,6 +1227,7 @@ WTF::TextStream& operator<<(WTF::TextStream&, WebCore::Overflow);
 WTF::TextStream& operator<<(WTF::TextStream&, OverflowAlignment);
 WTF::TextStream& operator<<(WTF::TextStream&, OverflowWrap);
 WTF::TextStream& operator<<(WTF::TextStream&, PointerEvents);
+WTF::TextStream& operator<<(WTF::TextStream&, PortalActionType);
 WTF::TextStream& operator<<(WTF::TextStream&, PositionType);
 WTF::TextStream& operator<<(WTF::TextStream&, PrintColorAdjust);
 WTF::TextStream& operator<<(WTF::TextStream&, PseudoElementType);
@@ -1206,6 +1241,7 @@ WTF::TextStream& operator<<(WTF::TextStream&, ScrollSnapAxisAlignType);
 WTF::TextStream& operator<<(WTF::TextStream&, ScrollSnapStop);
 WTF::TextStream& operator<<(WTF::TextStream&, ScrollSnapStrictness);
 WTF::TextStream& operator<<(WTF::TextStream&, Scroller);
+WTF::TextStream& operator<<(WTF::TextStream&, SpatialType);
 WTF::TextStream& operator<<(WTF::TextStream&, TableLayoutType);
 WTF::TextStream& operator<<(WTF::TextStream&, TextCombine);
 WTF::TextStream& operator<<(WTF::TextStream&, TextDecorationSkipInk);
@@ -1218,6 +1254,7 @@ WTF::TextStream& operator<<(WTF::TextStream&, TextOverflow);
 WTF::TextStream& operator<<(WTF::TextStream&, TextSecurity);
 WTF::TextStream& operator<<(WTF::TextStream&, TextWrapMode);
 WTF::TextStream& operator<<(WTF::TextStream&, TextWrapStyle);
+WTF::TextStream& operator<<(WTF::TextStream&, WrapInside);
 WTF::TextStream& operator<<(WTF::TextStream&, TextBoxTrim);
 WTF::TextStream& operator<<(WTF::TextStream&, TextEdgeOver);
 WTF::TextStream& operator<<(WTF::TextStream&, TextEdgeUnder);
@@ -1236,6 +1273,7 @@ WTF::TextStream& operator<<(WTF::TextStream&, MathShift);
 WTF::TextStream& operator<<(WTF::TextStream&, MathStyle);
 WTF::TextStream& operator<<(WTF::TextStream&, ContainIntrinsicSizeType);
 WTF::TextStream& operator<<(WTF::TextStream&, FieldSizing);
+WTF::TextStream& operator<<(WTF::TextStream&, BaselineSource);
 WTF::TextStream& operator<<(WTF::TextStream&, OverflowContinue);
 
 WTF::TextStream& operator<<(WTF::TextStream&, AlignmentBaseline);

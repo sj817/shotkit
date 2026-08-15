@@ -20,6 +20,7 @@
 
 #pragma once
 
+#include "Path.h"
 #include "RenderSVGResourceContainer.h"
 #include "SVGUnitTypes.h"
 
@@ -60,6 +61,16 @@ private:
     ASCIILiteral renderName() const final { return "RenderSVGResourceClipper"_s; }
 
     void styleDidChange(Style::Difference, const Style::ComputedStyle* oldStyle) final;
+
+    void repaintAllClients() const final;
+    void clearCacheBeforeLayout() final;
+
+    mutable std::optional<Path> m_cachedPathClip;
+    mutable SingleThreadWeakPtr<RenderSVGModelObject> m_cachedPathClipRenderer;
+
+    // Cached shouldApplyPathClipping() result, flushed from repaintAllClients(). Held weakly so it
+    // never keeps a replaced clip child alive. The std::optional records whether it has been computed.
+    mutable std::optional<WeakPtr<SVGGraphicsElement, WeakPtrImplWithEventTargetData>> m_cachedShouldApplyPathClippingResult;
 };
 
 }

@@ -7,16 +7,32 @@
 
 #include "src/gpu/graphite/PipelineManager.h"
 
+#include "include/private/SkLog.h"
 #include "src/core/SkTaskGroup.h"
 #include "src/gpu/graphite/GraphicsPipelineDesc.h"
 #include "src/gpu/graphite/GraphicsPipelineHandle.h"
-#include "src/gpu/graphite/Log.h"
 #include "src/gpu/graphite/PipelineCreationTask.h"
 #include "src/gpu/graphite/RenderPassDesc.h"
 #include "src/gpu/graphite/RuntimeEffectDictionary.h"
 #include "src/gpu/graphite/SharedContext.h"
 
 namespace skgpu::graphite {
+
+// Directly accessing the two variants is thread safe because a given GraphicsPipelineHandle
+// does not switch between a task or pipeline when the task completes. The 'fCompleted' check
+// is atomic and, if the task is completed, the 'fPipeline' access is thread safe. There is,
+// obviously, an inherent race wrt the 'fCompleted' access. Callers must either ensure that
+// the Handle has already been resolved or accept some raciness in the response.
+sk_sp<GraphicsPipeline> GraphicsPipelineHandle::pipelineOrNull() const {
+    if (std::holds_alternative<sk_sp<GraphicsPipeline>>(fTaskOrPipeline)) {
+        return std::get<sk_sp<GraphicsPipeline>>(fTaskOrPipeline);
+    }
+    sk_sp<PipelineCreationTask> task = std::get<sk_sp<PipelineCreationTask>>(fTaskOrPipeline);
+    if (!task->fCompleted) {
+        return nullptr;
+    }
+    return task->fPipeline;
+}
 
 GraphicsPipelineHandle::GraphicsPipelineHandle(sk_sp<PipelineCreationTask> task)
     : fTaskOrPipeline(std::move(task)) {}
@@ -83,7 +99,7 @@ void PipelineManager::startPipelineCreationTask(SharedContext* sharedContext,
             task->fPipelineCreationFlags);
 
     if (!pipeline) {
-        SKGPU_LOG_W("Failed to create GraphicsPipeline!");
+        SKIA_LOG_W("Failed to create GraphicsPipeline!");
     }
 
     if (!task->fCompleted.exchange(true)) {

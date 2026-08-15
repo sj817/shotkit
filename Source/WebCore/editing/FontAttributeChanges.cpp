@@ -80,10 +80,10 @@ Ref<MutableStyleProperties> FontChanges::createStyleProperties() const
         style->setProperty(CSSPropertyFontWeight, *m_bold ? CSSValueBold : CSSValueNormal);
 
     if (m_fontSize)
-        style->setProperty(CSSPropertyFontSize, CSSPrimitiveValue::create(*m_fontSize, CSSUnitType::CSS_PX));
+        style->setProperty(CSSPropertyFontSize, CSSPrimitiveValue::create(*m_fontSize, CSSUnitType::Px));
 
     if (m_fontSizeDelta)
-        style->setProperty(CSSPropertyWebkitFontSizeDelta, CSSPrimitiveValue::create(*m_fontSizeDelta, CSSUnitType::CSS_PX));
+        style->setProperty(CSSPropertyWebkitFontSizeDelta, CSSPrimitiveValue::create(*m_fontSizeDelta, CSSUnitType::Px));
 
     return style;
 }
@@ -94,9 +94,9 @@ static RefPtr<CSSValue> cssValueForTextShadow(const FontShadow& shadow)
         return nullptr;
 
     auto color = CSS::Color { CSS::ResolvedColor { shadow.color } };
-    auto width = CSS::Length<CSS::AllUnzoomed> { CSS::LengthUnit::Px, shadow.offset.width() };
-    auto height = CSS::Length<CSS::AllUnzoomed> { CSS::LengthUnit::Px, shadow.offset.height() };
-    auto blur = CSS::Length<CSS::NonnegativeUnzoomed> { CSS::LengthUnit::Px, shadow.blurRadius };
+    auto width = CSS::Length<> { CSS::LengthUnit::Px, shadow.offset.width() };
+    auto height = CSS::Length<> { CSS::LengthUnit::Px, shadow.offset.height() };
+    auto blur = CSS::Length<CSS::Nonnegative> { CSS::LengthUnit::Px, shadow.blurRadius };
 
     CSS::TextShadowProperty::List list {
         CSS::TextShadow {

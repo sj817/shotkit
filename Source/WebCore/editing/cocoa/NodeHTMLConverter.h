@@ -30,6 +30,15 @@ namespace WebCore {
 
 enum class IgnoreUserSelectNone : bool;
 
-WEBCORE_EXPORT AttributedString attributedString(const SimpleRange&, IgnoreUserSelectNone);
+// Marks a placeholder for the contents of a remote frame.
+WEBCORE_EXPORT NSString *remoteFrameIdentifierAttributeName();
+
+enum class MarkRemoteFrameContentPositions : bool { No, Yes };
+
+#if ASSERT_ENABLED
+WEBCORE_EXPORT bool containsRemoteFrameContentMarkers(NSAttributedString *);
+#endif
+
+WEBCORE_EXPORT AttributedString attributedString(const SimpleRange&, IgnoreUserSelectNone, MarkRemoteFrameContentPositions = MarkRemoteFrameContentPositions::No);
 
 } // namespace WebCore

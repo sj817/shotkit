@@ -43,6 +43,7 @@
 #include "CSSPropertyParserConsumer+Primitives.h"
 #include "CSSPropertyParserState.h"
 #include "CSSPropertyParsing.h"
+#include "CSSRandomKeyParser.h"
 #include "CSSSerializationContext.h"
 #include "CSSUnits.h"
 #include "Logging.h"
@@ -655,113 +656,9 @@ static std::optional<TypedChild> consumeRound(CSSParserTokenRange& tokens, int d
     return std::nullopt;
 }
 
-static std::optional<Random::SharingFixed> consumeOptionalRandomSharingFixed(CSSParserTokenRange& tokens, ParserState& state)
-{
-    // <random-value-sharing-fixed> = fixed <number [0,1]>
-
-    ASSERT(tokens.peek().id() == CSSValueFixed);
-
-    CSSParserTokenRangeGuard guard { tokens };
-
-    tokens.consumeIncludingWhitespace();
-
-    // Use a non-property parsing state for the fixed number value to disconnect it from the current parse.
-    // FIXME: Add a mechanism to pass along the depth count when doing this so that we can limit stack usage.
-    // FIXME: This should probably maintain the `cssRandomFunctionCount` state from the current state to allow for random() functions nested in the <number> or should document why this is not necessary.
-    auto numberParsingState = CSS::PropertyParserState {
-        .context = state.propertyParserState.context,
-        .pool = state.propertyParserState.pool,
-        .absoluteLengthUnitsOnly = state.propertyParserState.absoluteLengthUnitsOnly
-    };
-
-    auto number = CSSPropertyParserHelpers::MetaConsumer<CSS::Number<CSS::ClosedUnitRange>>::consume(tokens, numberParsingState);
-    if (!number)
-        return { };
-
-    guard.commit();
-
-    return Random::SharingFixed {
-        .value = WTF::move(*number)
-    };
-}
-
-static Random::SharingOptions::Auto NODELETE makeRandomSharingAuto(ParserState& state)
-{
-    return {
-        .property = state.propertyParserState.currentProperty,
-        .index = state.propertyParserState.cssRandomFunctionCount
-    };
-}
-
-static std::optional<Random::SharingOptions> consumeOptionalRandomSharingOptions(CSSParserTokenRange& tokens, ParserState& state)
-{
-    // <random-value-sharing> = [ auto | <dashed-ident> ] || element-scoped | fixed <number [0,1]>
-
-    std::optional<Variant<Random::SharingOptions::Auto, CSS::CustomIdent>> identifier;
-    std::optional<CSS::Keyword::ElementScoped> elementScoped;
-
-    CSSParserTokenRangeGuard guard { tokens };
-
-    auto consumeIdentifier = [&] -> bool {
-        if (identifier)
-            return false;
-        if (tokens.peek().id() == CSSValueAuto) {
-            tokens.consumeIncludingWhitespace();
-            identifier = makeRandomSharingAuto(state);
-            return true;
-        }
-        if (auto dashedIdent = CSSPropertyParserHelpers::consumeUnresolvedDashedIdent(tokens, state.propertyParserState)) {
-            identifier = WTF::move(*dashedIdent);
-            return true;
-        }
-        return false;
-    };
-    auto consumeElementScoped = [&] -> bool {
-        if (elementScoped)
-            return false;
-        if (tokens.peek().id() == CSSValueElementScoped) {
-            tokens.consumeIncludingWhitespace();
-            elementScoped = CSS::Keyword::ElementScoped { };
-            return true;
-        }
-        return false;
-    };
-
-    for (unsigned i = 0; i < 2; ++i) {
-        if (consumeIdentifier() || consumeElementScoped())
-            continue;
-        break;
-    }
-
-    if (!identifier && !elementScoped)
-        return { };
-
-    guard.commit();
-
-    return Random::SharingOptions {
-        .identifier = identifier.value_or(CSS::CustomIdent { nullAtom() }),
-        .elementScoped = elementScoped
-    };
-}
-
-static std::optional<Random::Sharing> consumeOptionalRandomSharing(CSSParserTokenRange& tokens, ParserState& state)
-{
-    // <random-value-sharing> = [ auto | <dashed-ident> ] || element-scoped | fixed <number [0,1]>
-
-    if (tokens.peek().id() == CSSValueFixed) {
-        if (auto fixed = consumeOptionalRandomSharingFixed(tokens, state))
-            return Random::Sharing { WTF::move(*fixed) };
-        return { };
-    } else {
-        if (auto options = consumeOptionalRandomSharingOptions(tokens, state))
-            return Random::Sharing { WTF::move(*options) };
-        return { };
-    }
-}
-
 static std::optional<TypedChild> consumeRandom(CSSParserTokenRange& tokens, int depth, ParserState& state)
 {
-    // <random()> = random( <random-value-sharing>? , <calc-sum>, <calc-sum>, <calc-sum>? )
+    // <random()> = random( <random-key>? , <calc-sum>, <calc-sum>, <calc-sum>? )
 
     if (!state.propertyParserState.context.cssRandomFunctionEnabled)
         return { };
@@ -771,26 +668,28 @@ static std::optional<TypedChild> consumeRandom(CSSParserTokenRange& tokens, int 
     if (state.propertyParserState.currentProperty == CSSPropertyInvalid)
         return { };
 
-    // FIXME: Add support for custom properties by including the custom property name in CSS::PropertyParserState for registered properties.
-    if (state.propertyParserState.currentProperty == CSSPropertyCustom)
+    if (state.propertyParserState.randomFunctionsDisallowed)
         return { };
 
     using Op = Random;
 
+    auto keySource = CSSPropertyParserHelpers::RandomKeySource {
+        .property = { state.propertyParserState.currentProperty, state.propertyParserState.currentCustomPropertyName },
+        .autoElementScoped = CSS::Keyword::ElementScoped { }
+    };
+
     std::optional<Random::Sharing> sharing;
-    if (auto optionalSharing = consumeOptionalRandomSharing(tokens, state)) {
+    if (auto optionalSharing = CSSPropertyParserHelpers::consumeUnresolvedRandomKey(tokens, state.propertyParserState, keySource, [&] {
+        return state.propertyParserState.cssRandomFunctionCount;
+    })) {
         if (!CSSPropertyParserHelpers::consumeCommaIncludingWhitespace(tokens)) {
-            LOG_WITH_STREAM(Calc, stream << "Failed '" << nameLiteralForSerialization(Op::id) << "' function - missing comma after <random-value-sharing>");
+            LOG_WITH_STREAM(Calc, stream << "Failed '" << nameLiteralForSerialization(Op::id) << "' function - missing comma after <random-key>");
             return { };
         }
 
         sharing = WTF::move(optionalSharing);
-    } else {
-        sharing = Random::SharingOptions {
-            .identifier = makeRandomSharingAuto(state),
-            .elementScoped = CSS::Keyword::ElementScoped { },
-        };
-    }
+    } else
+        sharing = CSSPropertyParserHelpers::randomSharingAuto(keySource, state.propertyParserState.cssRandomFunctionCount);
 
     // Increment the random function count early, but after processing the the sharing production to
     // ensure that any nested random() functions in the <calc-sum> productions have an incremented value.
@@ -1129,7 +1028,7 @@ static std::optional<TypedChild> consumeAnchorFallback(CSSParserTokenRange& toke
         if (!number || number->value)
             return { };
 
-        return TypedChild { makeNumeric(0, CSSUnitType::CSS_PX), Type::makeLength() };
+        return TypedChild { makeNumeric(0, CSSUnitType::Px), Type::makeLength() };
     }
 
     default:
@@ -1142,9 +1041,6 @@ static std::optional<TypedChild> consumeAnchor(CSSParserTokenRange& tokens, int 
     // <anchor()> = anchor( <anchor-element>? && <anchor-side>, <length-percentage>? )
 
     if (state.parserOptions.propertyOptions.anchorPolicy != AnchorPolicy::Allow)
-        return { };
-
-    if (!state.propertyParserState.context.propertySettings.cssAnchorPositioningEnabled)
         return { };
 
     auto anchorElement = CSSPropertyParserHelpers::consumeUnresolvedDashedIdent(tokens, state.propertyParserState);
@@ -1238,9 +1134,6 @@ static std::optional<TypedChild> consumeAnchorSize(CSSParserTokenRange& tokens, 
     // <anchor-size> = width | height | block | inline | self-block | self-inline
 
     if (state.parserOptions.propertyOptions.anchorSizePolicy != AnchorSizePolicy::Allow)
-        return { };
-
-    if (!state.propertyParserState.context.propertySettings.cssAnchorPositioningEnabled)
         return { };
 
     // parse <anchor-element>
@@ -1428,7 +1321,7 @@ std::optional<TypedChild> parseCalcFunction(CSSParserTokenRange& tokens, CSSValu
         return consumeExactlyOneArgument<Sign>(tokens, depth, state);
 
     case CSSValueRandom:
-        // <random()> = random( <random-value-sharing>? , <calc-sum>, <calc-sum>, <calc-sum>? )
+        // <random()> = random( <random-key>? , <calc-sum>, <calc-sum>, <calc-sum>? )
         //     - INPUT: "same" <number>, <dimension>, or <percentage>
         //     - OUTPUT: same type
         return consumeRandom(tokens, depth, state);
@@ -1729,7 +1622,7 @@ std::optional<TypedChild> parseCalcPercentage(const CSSParserToken& token, Parse
 
 std::optional<TypedChild> parseCalcDimension(const CSSParserToken& token, ParserState& state)
 {
-    if (token.unitType() == CSSUnitType::CSS_UNKNOWN)
+    if (token.unitType() == CSSUnitType::Unknown)
         return std::nullopt;
 
     auto child = makeNumeric(token.numericValue(), token.unitType());

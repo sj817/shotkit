@@ -29,18 +29,9 @@
 #include "config.h"
 #include "ImageDataArray.h"
 
-#include <JavaScriptCore/Float16Array.h>
 #include <JavaScriptCore/GenericTypedArrayViewInlines.h>
-#include <JavaScriptCore/Uint8ClampedArray.h>
+#include <WebCore/ArrayPixelBuffer.h>
 #include <wtf/StdLibExtras.h>
-
-// Needed for `downcast` below.
-SPECIALIZE_TYPE_TRAITS_BEGIN(JSC::Uint8ClampedArray)
-    static bool NODELETE isType(const JSC::ArrayBufferView& arrayBufferView) { return arrayBufferView.getType() == JSC::TypeUint8Clamped; }
-SPECIALIZE_TYPE_TRAITS_END()
-SPECIALIZE_TYPE_TRAITS_BEGIN(JSC::Float16Array)
-    static bool NODELETE isType(const JSC::ArrayBufferView& arrayBufferView) { return arrayBufferView.getType() == JSC::TypeFloat16; }
-SPECIALIZE_TYPE_TRAITS_END()
 
 namespace WebCore {
 
@@ -60,14 +51,6 @@ ImageDataArray::ImageDataArray(Ref<JSC::ArrayBufferView>&& arrayBufferView)
 {
     ASSERT(isSupported(m_arrayBufferView.get()));
 }
-
-ImageDataArray::ImageDataArray(Ref<JSC::Uint8ClampedArray>&& data)
-    : ImageDataArray(Ref<JSC::ArrayBufferView>(WTF::move(data)))
-{ }
-
-ImageDataArray::ImageDataArray(Ref<JSC::Float16Array>&& data)
-    : ImageDataArray(Ref<JSC::ArrayBufferView>(WTF::move(data)))
-{ }
 
 ImageDataArray::ImageDataArray(ImageDataArray&& original, std::optional<ImageDataPixelFormat> overridingPixelFormat)
     : m_arrayBufferView(WTF::move(original).extractBufferViewWithPixelFormat(overridingPixelFormat))
@@ -93,12 +76,14 @@ std::optional<ImageDataArray> ImageDataArray::tryCreate(size_t length, ImageData
             array.emplace(typedArray.releaseNonNull());
         }
         break;
+#if ENABLE(PIXEL_FORMAT_RGBA16F)
     case ImageDataPixelFormat::RgbaFloat16:
         if (RefPtr typedArray = JSC::Float16Array::tryCreateUninitialized(length)) {
             fillTypedArray(*typedArray, optionalBytes);
             array.emplace(typedArray.releaseNonNull());
         }
         break;
+#endif
     }
     return array;
 }
@@ -197,8 +182,10 @@ Ref<ArrayBufferView> ImageDataArray::extractBufferViewWithPixelFormat(std::optio
 
     switch (*overridingPixelFormat) {
     case ImageDataPixelFormat::RgbaUnorm8: return asUint8ClampedArray();
+#if ENABLE(PIXEL_FORMAT_RGBA16F)
     case ImageDataPixelFormat::RgbaFloat16: return asFloat16Array();
-    }
+#endif
+}
     RELEASE_ASSERT_NOT_REACHED("Unexpected ImageDataPixelFormat value");
 }
 

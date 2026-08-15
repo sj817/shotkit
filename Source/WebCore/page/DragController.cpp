@@ -1417,6 +1417,7 @@ void DragController::doSystemDrag(DragImage image, const IntPoint& dragLoc, cons
     auto eventPositionInRootViewCoordinates = frameView->contentsToRootView(eventPos);
     auto dragLocationInRootViewCoordinates = frameView->contentsToRootView(dragLoc);
     item.eventPositionInContentCoordinates = mainFrameView->rootViewToContents(eventPositionInRootViewCoordinates);
+    item.eventPositionInRootViewCoordinates = eventPositionInRootViewCoordinates;
     item.dragLocationInContentCoordinates = mainFrameView->rootViewToContents(dragLocationInRootViewCoordinates);
     item.dragLocationInWindowCoordinates = mainFrameView->contentsToWindow(item.dragLocationInContentCoordinates);
 
@@ -1534,7 +1535,7 @@ void DragController::insertDroppedImagePlaceholdersAtCaret(const Vector<IntSize>
         Ref image = HTMLImageElement::create(*document);
         image->setAttributeWithoutSynchronization(HTMLNames::widthAttr, AtomString::number(size.width()));
         image->setAttributeWithoutSynchronization(HTMLNames::heightAttr, AtomString::number(size.height()));
-        image->setInlineStyleProperty(CSSPropertyMaxWidth, 100, CSSUnitType::CSS_PERCENTAGE);
+        image->setInlineStyleProperty(CSSPropertyMaxWidth, 100, CSSUnitType::Percentage);
         image->setInlineStyleProperty(CSSPropertyBackgroundColor, serializationForCSS(Color { Color::black.colorWithAlphaByte(13) }));
         image->setIsDroppedImagePlaceholder();
         fragment->appendChild(WTF::move(image));

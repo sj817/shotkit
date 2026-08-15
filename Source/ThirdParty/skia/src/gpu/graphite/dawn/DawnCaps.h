@@ -9,10 +9,11 @@
 #define skgpu_graphite_DawnCaps_DEFINED
 
 #include "src/gpu/graphite/Caps.h"
-
-#include <array>
+#include "src/gpu/graphite/TextureFormat.h"
 
 #include "webgpu/webgpu_cpp.h"  // NO_G3_REWRITE
+
+#include <array>
 
 namespace skgpu::graphite {
 struct ContextOptions;
@@ -34,6 +35,11 @@ public:
     }
     bool supportsPartialLoadResolve() const { return fSupportsPartialLoadResolve; }
     bool supportsRenderPassRenderArea() const { return fSupportsRenderPassRenderArea; }
+
+    // The equivalent Dawn LoadOp to Discard.
+    wgpu::LoadOp discardLoadOp() const { return fDiscardLoadOp; }
+    // The equivalent Dawn StoreOp to Discard.
+    wgpu::StoreOp discardStoreOp() const { return fDiscardStoreOp; }
 
     SkISize getDepthAttachmentDimensions(const TextureInfo&,
                                          const SkISize colorAttachmentDimensions) const override;
@@ -75,53 +81,12 @@ private:
                                         Mipmapped,
                                         Protected,
                                         Discardable) const override;
-    std::pair<SkEnumBitMask<TextureUsage>, SkEnumBitMask<SampleCount>> getTextureSupport(
-            TextureFormat format, Tiling) const override;
     std::pair<SkEnumBitMask<TextureUsage>, Tiling> getTextureUsage(
             const TextureInfo&) const override;
 
     void initCaps(const DawnBackendContext&, const ContextOptions&);
     void initShaderCaps(const wgpu::Device&);
     void initFormatTable(const wgpu::Device&);
-
-    struct FormatInfo {
-        uint32_t colorTypeFlags(SkColorType colorType) const {
-            for (int i = 0; i < fColorTypeInfoCount; ++i) {
-                if (fColorTypeInfos[i].fColorType == colorType) {
-                    return fColorTypeInfos[i].fFlags;
-                }
-            }
-            return 0;
-        }
-
-        enum {
-            kTexturable_Flag  = 0x01,
-            kRenderable_Flag  = 0x02, // Render attachment (color or depth/stencil)
-            kMSAA_Flag        = 0x04,
-            kResolve_Flag     = 0x08,
-            kStorage_Flag     = 0x10,
-        };
-        static const uint16_t kAllFlags =
-                kTexturable_Flag | kRenderable_Flag | kMSAA_Flag | kResolve_Flag | kStorage_Flag;
-
-        uint16_t fFlags = 0;
-
-        std::unique_ptr<ColorTypeInfo[]> fColorTypeInfos;
-        int fColorTypeInfoCount = 0;
-    };
-    // Size here must be at least the size of kFormats in DawnCaps.cpp.
-    static constexpr int kFormatCount = 31;
-    std::array<FormatInfo, kFormatCount> fFormatTable;
-
-    static size_t GetFormatIndex(wgpu::TextureFormat format);
-    const FormatInfo& getFormatInfo(wgpu::TextureFormat format) const {
-        static const FormatInfo kInvalid;
-        if (format == wgpu::TextureFormat::Undefined) {
-            return kInvalid;
-        }
-        size_t index = GetFormatIndex(format);
-        return fFormatTable[index];
-    }
 
     // When supported, this value will hold the TransientAttachment usage symbol that is only
     // defined in Dawn native builds and not EMSCRIPTEN but this avoids having to #define guard it.
@@ -133,6 +98,9 @@ private:
     // region.
     bool fSupportsPartialLoadResolve = false;
     bool fSupportsRenderPassRenderArea = false;
+
+    wgpu::LoadOp fDiscardLoadOp = wgpu::LoadOp::Clear;
+    wgpu::StoreOp fDiscardStoreOp = wgpu::StoreOp::Discard;
 
     bool fEmulateLoadStoreResolve = false;
 

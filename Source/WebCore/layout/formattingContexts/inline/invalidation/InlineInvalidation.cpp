@@ -75,6 +75,10 @@ bool InlineInvalidation::rootStyleWillChange(const ElementBox& formattingContext
         if (oldStyle->writingMode().bidiDirection() != newStyle.writingMode().bidiDirection() || oldStyle->unicodeBidi() != newStyle.unicodeBidi() || oldStyle->tabSize() != newStyle.tabSize() || oldStyle->textSecurity() != newStyle.textSecurity())
             return true;
 
+        // 'white-space-trim' changes which collapsible white space items are generated for this formatting context.
+        if (oldStyle->whiteSpaceTrim() != newStyle.whiteSpaceTrim())
+            return true;
+
         return false;
     };
 
@@ -106,6 +110,11 @@ bool InlineInvalidation::styleWillChange(const Box& layoutBox, const Style::Comp
             || (oldStyle->floating() != Float::None) != (newStyle.floating() != Float::None)
             || oldStyle->display() != newStyle.display();
         if (hasInlineItemTypeChanged)
+            return true;
+
+        // 'white-space-trim' changes which collapsible white space items are generated around its carrier
+        // (an inline box or an inline-block), so the inline item list must be rebuilt.
+        if (oldStyle->whiteSpaceTrim() != newStyle.whiteSpaceTrim())
             return true;
 
         if (!layoutBox.isInlineBox())
@@ -432,6 +441,18 @@ bool InlineInvalidation::updateInlineDamage(const InvalidatedLine& invalidatedLi
     };
     if (!isValidDamage()) {
         ASSERT_NOT_REACHED();
+        m_inlineDamage.resetLayoutPosition();
+        return false;
+    }
+
+    auto precedingLineHasBlockLevelBox = [&] {
+        for (size_t index = 0; index < invalidatedLine.index; ++index) {
+            if (m_displayContent.lines[index].hasBlockLevelBox())
+                return true;
+        }
+        return false;
+    };
+    if (precedingLineHasBlockLevelBox()) {
         m_inlineDamage.resetLayoutPosition();
         return false;
     }

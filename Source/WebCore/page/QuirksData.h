@@ -133,7 +133,6 @@ struct QuirksData {
         NeedsSeekingSupportDisabledQuirk,
         NeedsSuppressPostLayoutBoundaryEventsQuirk,
         NeedsTikTokOverflowingContentQuirk,
-        NeedsVP9FullRangeFlagQuirk,
         NeedsVideoShouldMaintainAspectRatioQuirk,
         NeedsWebKitMediaTextTrackDisplayQuirk,
 #if PLATFORM(COCOA)
@@ -188,13 +187,12 @@ struct QuirksData {
         ShouldAllowMediaStreamTrackSerializationQuirk,
 #endif
         ShouldDisableLazyIframeLoadingQuirk,
+        ShouldDisableMediaLayerTeardownOnPageVisibilityChangeQuirk,
 #if PLATFORM(IOS_FAMILY)
         ShouldDisablePointerEventsQuirk,
 #endif
         ShouldDisablePushStateFilePathRestrictions,
-#if PLATFORM(IOS_FAMILY)
         ShouldDisableScrollAnchoringQuirk,
-#endif
 #if ENABLE(THREADED_ANIMATIONS)
         ShouldDisableThreadedAnimationsQuirk,
 #endif
@@ -279,7 +277,6 @@ struct QuirksData {
         ShouldAllowNotificationPermissionWithoutUserGesture,
         NeedsInstagramResizingReelsQuirk,
         NeedsYahooVolumeSliderQuirk,
-        NeedsZillowFloorplanMarginQuirk,
 #if PLATFORM(IOS_FAMILY)
         NeedsChromeOSNavigatorUserAgentQuirk,
         ShouldSendFakeTouchForceChangeEvent,
@@ -288,6 +285,7 @@ struct QuirksData {
         ShouldDeferIntersectionObserversDuringResize,
         ShouldSuppressHLSSubtitles,
         ShouldSuppressMediaSessionPauseActionOnInterruption,
+        ShouldBlockAudiblePlaybackWhileAudioIsPlaying,
 
         NumberOfQuirks
     };

@@ -466,6 +466,11 @@ void RenderGrid::layoutGrid(RelayoutChildren relayoutChildren)
 
         resetLogicalHeightBeforeLayoutIfNeeded();
 
+        // We are committed to a full grid layout; invalidate the resolved track list now so that a
+        // stale read asserts if this layout (either the grid formatting context path below or the
+        // legacy path) fails to repopulate it.
+        m_resolvedTrackList.invalidate();
+
         if (layoutUsingGridFormattingContext()) {
             endAndCommitUpdateScrollInfoAfterLayoutTransaction();
             return;
@@ -543,6 +548,8 @@ void RenderGrid::layoutGrid(RelayoutChildren relayoutChildren)
 
         layoutGridItems(gridLayoutState);
 
+        updateResolvedTrackListsAfterLayout();
+
         endAndCommitUpdateScrollInfoAfterLayoutTransaction();
 
         updateInFlowDescendantTransformsAfterLayout();
@@ -594,6 +601,10 @@ void RenderGrid::layoutMasonry(RelayoutChildren relayoutChildren)
         RenderGridLayoutState gridLayoutState;
 
         clearGridItemOverridingSizesBeforeLayout(*this);
+
+        // We are committed to a full masonry layout; invalidate the resolved track list now so that a
+        // stale read asserts if we fail to repopulate it below (see updateResolvedTrackListsAfterLayout).
+        m_resolvedTrackList.invalidate();
 
         preparePaginationBeforeBlockLayout(relayoutChildren);
         beginUpdateScrollInfoAfterLayoutTransaction();
@@ -691,6 +702,8 @@ void RenderGrid::layoutMasonry(RelayoutChildren relayoutChildren)
         }
 
         layoutMasonryItems(gridLayoutState);
+
+        updateResolvedTrackListsAfterLayout();
 
         endAndCommitUpdateScrollInfoAfterLayoutTransaction();
 
@@ -869,7 +882,7 @@ std::pair<LayoutUnit, LayoutUnit> RenderGrid::computeTrackSizesForIndefiniteSize
     algorithm.run(direction, numTracks(direction), SizingOperation::IntrinsicSizeComputation, std::nullopt, gridLayoutState);
 
     size_t numberOfTracks = algorithm.tracks(direction).size();
-    auto totalGuttersSize = direction == Style::GridTrackSizingDirection::Columns && explicitIntrinsicInnerLogicalSize(direction).has_value() ? 0_lu : guttersSize(direction, 0, numberOfTracks, std::nullopt);
+    auto totalGuttersSize = (direction == Style::GridTrackSizingDirection::Columns && explicitIntrinsicInnerLogicalSize(direction).has_value()) || isSubgrid(direction) ? 0_lu : guttersSize(direction, 0, numberOfTracks, std::nullopt);
 
     ASSERT(algorithm.tracksAreWiderThanMinTrackBreadth());
     return { algorithm.minContentSize() + totalGuttersSize, algorithm.maxContentSize() + totalGuttersSize };
@@ -984,6 +997,7 @@ unsigned RenderGrid::computeAutoRepeatTracksCount(Style::GridTrackSizingDirectio
             availableSize = std::max(availableMinSize, availableMaxSize);
     }
 
+    auto usedZoomForLength = style().usedZoomForLength();
     LayoutUnit autoRepeatTracksSize;
     for (auto& autoTrackSize : autoRepeatTracks) {
         ASSERT(autoTrackSize.minTrackBreadth().isLength());
@@ -996,8 +1010,8 @@ unsigned RenderGrid::computeAutoRepeatTracksCount(Style::GridTrackSizingDirectio
 
         auto contributingTrackSize = [&] {
             if (hasDefiniteMaxTrackSizingFunction && hasDefiniteMinTrackSizingFunction)
-                return std::max(Style::evaluate<LayoutUnit>(minTrackSizingFunction.length(), *availableSize, Style::ZoomNeeded { }), Style::evaluate<LayoutUnit>(maxTrackSizingFunction.length(), *availableSize, Style::ZoomNeeded { }));
-            return hasDefiniteMaxTrackSizingFunction ? Style::evaluate<LayoutUnit>(maxTrackSizingFunction.length(), *availableSize, Style::ZoomNeeded { }) : Style::evaluate<LayoutUnit>(minTrackSizingFunction.length(), *availableSize, Style::ZoomNeeded { });
+                return std::max(Style::evaluate<LayoutUnit>(minTrackSizingFunction.length(), *availableSize, usedZoomForLength), Style::evaluate<LayoutUnit>(maxTrackSizingFunction.length(), *availableSize, usedZoomForLength));
+            return hasDefiniteMaxTrackSizingFunction ? Style::evaluate<LayoutUnit>(maxTrackSizingFunction.length(), *availableSize, usedZoomForLength) : Style::evaluate<LayoutUnit>(minTrackSizingFunction.length(), *availableSize, usedZoomForLength);
         };
         autoRepeatTracksSize += contributingTrackSize();
     }
@@ -1012,7 +1026,7 @@ unsigned RenderGrid::computeAutoRepeatTracksCount(Style::GridTrackSizingDirectio
     for (const auto& track : trackSizes) {
         bool hasDefiniteMaxTrackBreadth = track.maxTrackBreadth().isLength() && !track.maxTrackBreadth().isContentSized();
         ASSERT(hasDefiniteMaxTrackBreadth || (track.minTrackBreadth().isLength() && !track.minTrackBreadth().isContentSized()));
-        tracksSize += Style::evaluate<LayoutUnit>(hasDefiniteMaxTrackBreadth ? track.maxTrackBreadth().length() : track.minTrackBreadth().length(), availableSize.value(), Style::ZoomNeeded { });
+        tracksSize += Style::evaluate<LayoutUnit>(hasDefiniteMaxTrackBreadth ? track.maxTrackBreadth().length() : track.minTrackBreadth().length(), availableSize.value(), usedZoomForLength);
     }
 
     // Add gutters as if auto repeat tracks were only repeated once. Gaps between different repetitions will be added later when
@@ -1478,7 +1492,7 @@ void RenderGrid::setNeedsItemPlacement(SubgridDidChange subgridDidChange)
     }
 }
 
-Vector<LayoutUnit> RenderGrid::trackSizesForComputedStyle(Style::GridTrackSizingDirection direction) const
+Vector<LayoutUnit> RenderGrid::computeResolvedTrackList(Style::GridTrackSizingDirection direction) const
 {
     const auto& positions = this->positions(direction);
     auto numPositions = positions.size();
@@ -1516,6 +1530,27 @@ Vector<LayoutUnit> RenderGrid::trackSizesForComputedStyle(Style::GridTrackSizing
     }
 
     return tracks;
+}
+
+const Vector<LayoutUnit>& RenderGrid::trackSizesForComputedStyle(Style::GridTrackSizingDirection direction) const
+{
+    ASSERT(m_resolvedTrackList.isValid);
+    return m_resolvedTrackList.sizes(direction);
+}
+
+void RenderGrid::updateResolvedTrackListsAfterLayout()
+{
+    m_resolvedTrackList.sizes(Style::GridTrackSizingDirection::Columns) = computeResolvedTrackList(Style::GridTrackSizingDirection::Columns);
+    m_resolvedTrackList.sizes(Style::GridTrackSizingDirection::Rows) = computeResolvedTrackList(Style::GridTrackSizingDirection::Rows);
+    m_resolvedTrackList.isValid = true;
+}
+
+void RenderGrid::setResolvedTrackSizes(Vector<LayoutUnit>&& columnSizes, Vector<LayoutUnit>&& rowSizes)
+{
+    ASSERT(!m_resolvedTrackList.isValid);
+    m_resolvedTrackList.columnSizes = WTF::move(columnSizes);
+    m_resolvedTrackList.rowSizes = WTF::move(rowSizes);
+    m_resolvedTrackList.isValid = true;
 }
 
 static const StyleContentAlignmentData& NODELETE contentAlignmentNormalBehaviorGrid()
@@ -1685,8 +1720,10 @@ LayoutUnit RenderGrid::gridAreaBreadthForGridItemIncludingAlignmentOffsets(const
     auto initialTrackPosition = positions[span.startLine()];
     auto finalTrackPosition = positions[span.endLine() - 1];
 
-    // Track Positions vector stores the 'start' grid line of each track, so we have to add last track's baseSize.
-    return finalTrackPosition - initialTrackPosition + tracks[span.endLine() - 1]->baseSize();
+    // Track Positions vector stores the 'start' grid line of each track, so we have to add last track's
+    // unclamped base size, matching populateGridPositionsForDirection() (a subgrid track's base size can
+    // be negative; clamping it here would overstate the breadth).
+    return finalTrackPosition - initialTrackPosition + tracks[span.endLine() - 1]->unclampedBaseSize();
 }
 
 void RenderGrid::populateGridPositionsForDirection(const GridTrackSizingAlgorithm& algorithm, Style::GridTrackSizingDirection direction)
@@ -1862,25 +1899,6 @@ void RenderGrid::applySubgridStretchAlignmentToGridItemIfNeeded(RenderBox& gridI
         auto stretchedLogicalWidth = GridLayoutFunctions::availableAlignmentSpaceForGridItemBeforeStretching(*this, overridingContainingBlockContentSizeForGridItem->value(), gridItem, Style::GridTrackSizingDirection::Columns);
         gridItem.setOverridingBorderBoxLogicalWidth(stretchedLogicalWidth);
     }
-}
-
-bool RenderGrid::isChildEligibleForMarginTrim(Style::MarginTrimSide marginTrimSide, const RenderBox& gridItem) const
-{
-    ASSERT(style().marginTrim().contains(marginTrimSide));
-
-    auto isTrimmingBlockDirection = marginTrimSide == Style::MarginTrimSide::BlockStart || marginTrimSide == Style::MarginTrimSide::BlockEnd;
-    auto itemGridSpan = isTrimmingBlockDirection ? currentGrid().gridItemSpanIgnoringCollapsedTracks(gridItem, Style::GridTrackSizingDirection::Rows) : currentGrid().gridItemSpanIgnoringCollapsedTracks(gridItem, Style::GridTrackSizingDirection::Columns);
-    switch (marginTrimSide) {
-    case Style::MarginTrimSide::BlockStart:
-    case Style::MarginTrimSide::InlineStart:
-        return !itemGridSpan.startLine();
-    case Style::MarginTrimSide::BlockEnd:
-        return itemGridSpan.endLine() == currentGrid().numTracks(Style::GridTrackSizingDirection::Rows);
-    case Style::MarginTrimSide::InlineEnd:
-        return itemGridSpan.endLine() == currentGrid().numTracks(Style::GridTrackSizingDirection::Columns);
-    }
-    ASSERT_NOT_REACHED();
-    return false;
 }
 
 bool RenderGrid::isBaselineAlignmentForGridItem(const RenderBox& gridItem) const

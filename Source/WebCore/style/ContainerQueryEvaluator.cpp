@@ -53,28 +53,35 @@ ContainerQueryEvaluator::ContainerQueryEvaluator(const Element& element, Selecti
 
 bool ContainerQueryEvaluator::evaluate(const CQ::ContainerQuery& containerQuery) const
 {
-    auto context = featureEvaluationContextForQuery(containerQuery);
-    if (!context)
-        return false;
+    for (const auto& condition : containerQuery) {
+        auto context = featureEvaluationContextForCondition(condition);
+        if (!context)
+            continue;
 
-    if (containerQuery.condition.queries.isEmpty() && !containerQuery.name.isEmpty())
-        return true;
+        if (condition.condition.queries.isEmpty() && !condition.name.isEmpty())
+            return true;
 
-    return evaluateCondition(containerQuery.condition, *context) == MQ::EvaluationResult::True;
+        if (evaluateCondition(condition.condition, *context) == MQ::EvaluationResult::True)
+            return true;
+    };
+
+    return false;
 }
 
-static const Style::ComputedStyle* styleForContainer(const Element& container, CQ::ContainerRequirements requirements, const ContainerQueryEvaluationState* evaluationState)
+static CheckedPtr<const ComputedStyle> styleForContainer(const Element& container, CQ::ContainerRequirements requirements, const ContainerQueryEvaluationState* evaluationState)
 {
     // Queries that don't need a size container (style and scroll-state queries) resolve
     // against the container's style, which may not be committed to the render tree yet.
     // Look it up from the currently computed style update instead.
-    if (!requirements.needsSizeContainer() && evaluationState && evaluationState->styleUpdate)
-        return evaluationState->styleUpdate->elementStyle(container);
+    if (!requirements.needsSizeContainer() && evaluationState && evaluationState->newStyleDuringResolutionMap) {
+        if (CheckedPtr newContainerStyle = evaluationState->newStyleDuringResolutionMap->get(container))
+            return newContainerStyle;
+    }
 
     return container.existingComputedStyle();
 }
 
-auto ContainerQueryEvaluator::featureEvaluationContextForQuery(const CQ::ContainerQuery& containerQuery) const -> std::optional<MQ::FeatureEvaluationContext>
+auto ContainerQueryEvaluator::featureEvaluationContextForCondition(const CQ::ContainerCondition& condition) const -> std::optional<MQ::FeatureEvaluationContext>
 {
     // "For each element, the query container to be queried is selected from among the element’s
     // ancestor query containers that have a valid container-type for all the container features
@@ -83,28 +90,41 @@ auto ContainerQueryEvaluator::featureEvaluationContextForQuery(const CQ::Contain
     // https://drafts.csswg.org/css-contain-3/#container-rule
 
     // "If the <container-query> contains unknown or unsupported container features, no query container will be selected."
-    if (containerQuery.containsUnknownFeature == CQ::ContainsUnknownFeature::Yes)
+    if (condition.containsUnknownFeature == CQ::ContainsUnknownFeature::Yes)
         return { };
 
     Ref element = m_element;
-    RefPtr container = selectContainer(containerQuery.requirements, containerQuery.name, element.get(), m_selectionMode, m_scopeOrdinal, m_evaluationState);
+    RefPtr container = selectContainer(condition.requirements, condition.name, element.get(), m_selectionMode, m_scopeOrdinal, m_evaluationState);
     if (!container)
         return { };
 
-    CheckedPtr containerStyle = styleForContainer(*container.get(), containerQuery.requirements, m_evaluationState);
+    CheckedPtr containerStyle = styleForContainer(*container.get(), condition.requirements, m_evaluationState);
     if (!containerStyle)
         return { };
 
     RefPtr containerParent = container->parentElementInComposedTree();
-    CheckedPtr containerParentStyle = containerParent ? CheckedPtr { styleForContainer(*containerParent, containerQuery.requirements, m_evaluationState) } : containerStyle;
+    CheckedPtr containerParentStyle = containerParent ? CheckedPtr { styleForContainer(*containerParent, condition.requirements, m_evaluationState) } : containerStyle;
 
     Ref document = element->document();
-    CheckedPtr rootStyle = document->documentElement()->renderStyle();
+
+    auto rootStyle = [&] () -> CheckedPtr<const Style::ComputedStyle> {
+        RefPtr rootElement = document->documentElement();
+        if (!rootElement)
+            return nullptr;
+
+        return styleForContainer(*rootElement, condition.requirements, m_evaluationState);
+    }();
 
     return MQ::FeatureEvaluationContext {
-        document.get(),
-        CSSToLengthConversionData { *containerStyle, rootStyle.get(), containerParentStyle.get(), document->renderView(), container.get() },
-        container->renderer()
+        .document = document.get(),
+        .conversionData = CSSToLengthConversionData {
+            *containerStyle,
+            rootStyle.get(),
+            containerParentStyle.get(),
+            document->renderView(),
+            container.get()
+        },
+        .renderer = container->renderer(),
     };
 }
 
@@ -172,7 +192,7 @@ RefPtr<const Element> ContainerQueryEvaluator::selectContainer(CQ::ContainerRequ
 
         // ::part() selectors query the composed tree
         if (selectionMode == SelectionMode::PartPseudoElement)
-            return element.assignedSlot();
+            return element;
 
         // ::slotted() selectors can query containers inside the shadow tree, including the slot itself.
         if (scopeOrdinal >= ScopeOrdinal::FirstSlot && scopeOrdinal <= ScopeOrdinal::SlotLimit)

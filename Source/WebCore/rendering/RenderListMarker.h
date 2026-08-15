@@ -27,6 +27,7 @@
 namespace WebCore {
 
 class CSSRegisteredCounterStyle;
+class RenderBlockFlow;
 class RenderListItem;
 class StyleRuleCounterStyle;
 
@@ -69,10 +70,26 @@ public:
 
     bool isImage() const final;
 
+    // True when the ::marker's `content` property generates the marker box contents
+    // (css-lists-3 §3.3). In that case the contents live in an anonymous inline-block
+    // child (contentContainer()) that this marker lays out and paints itself.
+    bool hasContent() const;
+    RenderBlockFlow* contentContainer() const;
+
     LayoutUnit lineLogicalOffsetForListItem() const { return m_lineLogicalOffsetForListItem; }
-    const RenderListItem* NODELETE listItem() const;
+    RenderListItem* NODELETE listItem() const;
 
     std::pair<float, float> layoutBounds() const { return m_layoutBounds; }
+
+    struct ExcludedPosition {
+        SingleThreadWeakPtr<RenderBlockFlow> firstFormattedLineRoot;
+        FloatPoint topLeft;
+        float lineStartInset { 0 };
+    };
+    void setExcludedPosition(ExcludedPosition);
+    std::optional<ExcludedPosition> excludedPosition() const { return m_excludedPosition; }
+
+    void invalidateExcludedMarkerContainer();
 
     bool shouldCollapseAnonymousBlockParent() const { return m_shouldCollapseAnonymousBlockParent; }
     void setShouldCollapseAnonymousBlockParent(bool value)
@@ -89,7 +106,7 @@ private:
     void willBeDestroyed() final;
     ASCIILiteral renderName() const final { return "RenderListMarker"_s; }
     void computeIntrinsicLogicalWidthContributions() final;
-    bool canHaveChildren() const final { return false; }
+    bool canHaveChildren() const final { return hasContent(); }
     void paint(PaintInfo&, const LayoutPoint&) final;
     void layout() final;
     void imageChanged(WrappedImagePtr, const IntRect*) final;
@@ -106,6 +123,8 @@ private:
     void updateInlineMargins();
     void updateContent();
     RenderBox* parentBox(RenderBox&);
+    void layoutContentContainer(RenderBlockFlow&);
+
     FloatRect relativeMarkerRect();
     LayoutRect NODELETE localSelectionRect();
     void paintDisclosureMarker(GraphicsContext&, const FloatRect& markerRect);
@@ -121,6 +140,7 @@ private:
     LayoutUnit m_lineOffsetForListItem;
     LayoutUnit m_lineLogicalOffsetForListItem;
     std::pair<float, float> m_layoutBounds;
+    std::optional<ExcludedPosition> m_excludedPosition;
     bool m_shouldCollapseAnonymousBlockParent { false };
 };
 

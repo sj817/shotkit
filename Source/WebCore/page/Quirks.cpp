@@ -932,15 +932,6 @@ bool Quirks::needsGeforcenowWarningDisplayNoneQuirk() const
     return m_quirksData.quirkIsEnabled(QuirksData::SiteSpecificQuirk::NeedsGeforcenowWarningDisplayNoneQuirk);
 }
 
-// zillow.com rdar://171279940
-// FIXME: Remove after rdar://172303198 is implemented.
-bool Quirks::needsZillowFloorplanMarginQuirk() const
-{
-    QUIRKS_EARLY_RETURN_IF_DISABLED_WITH_VALUE(false);
-
-    return m_quirksData.quirkIsEnabled(QuirksData::SiteSpecificQuirk::NeedsZillowFloorplanMarginQuirk);
-}
-
 // yahoo.com rdar://170502516
 bool Quirks::needsYahooVolumeSliderQuirk() const
 {
@@ -1625,14 +1616,6 @@ Quirks::StorageAccessResult Quirks::triggerOptionalStorageAccessQuirk(Element& e
     return Quirks::StorageAccessResult::ShouldNotCancelEvent;
 }
 
-// youtube.com rdar://66242343
-bool Quirks::needsVP9FullRangeFlagQuirk() const
-{
-    QUIRKS_EARLY_RETURN_IF_DISABLED_WITH_VALUE(false);
-
-    return m_quirksData.quirkIsEnabled(QuirksData::SiteSpecificQuirk::NeedsVP9FullRangeFlagQuirk);
-}
-
 // facebook.com: rdar://67273166
 // forbes.com:
 // reddit.com: rdar://80550715
@@ -1821,24 +1804,37 @@ bool Quirks::shouldDisableLazyIframeLoadingQuirk() const
     return m_quirksData.quirkIsEnabled(QuirksData::SiteSpecificQuirk::ShouldDisableLazyIframeLoadingQuirk);
 }
 
-// reddit.com with Sink It extension (rdar://176377447).
+// Moon Player app (rdar://162452658): the app hides its WKWebView while continuing to display
+// the video layer it hosts, so page visibility does not indicate whether the video is on screen.
+// Tearing the layer down when the page becomes hidden leaves the app displaying a black frame.
+bool Quirks::shouldDisableMediaLayerTeardownOnPageVisibilityChangeQuirk() const
+{
+    QUIRKS_EARLY_RETURN_IF_DISABLED_WITH_VALUE(false);
+
+    return m_quirksData.quirkIsEnabled(QuirksData::SiteSpecificQuirk::ShouldDisableMediaLayerTeardownOnPageVisibilityChangeQuirk);
+}
+
+// reddit.com with Sink It extension (rdar://176377447) and apple.com/retail (rdar://181007316).
 bool Quirks::shouldDisableScrollAnchoringQuirk() const
 {
-#if PLATFORM(IOS_FAMILY)
     QUIRKS_EARLY_RETURN_IF_DISABLED_WITH_VALUE(false);
 
     if (!m_quirksData.quirkIsEnabled(QuirksData::SiteSpecificQuirk::ShouldDisableScrollAnchoringQuirk))
         return false;
 
-    RefPtr document = m_document.get();
-    if (!document)
-        return false;
+#if PLATFORM(IOS_FAMILY)
+    // reddit.com only disables scroll anchoring while the Sink It extension's element is present.
+    if (isDomain("reddit.com"_s)) {
+        RefPtr document = m_document.get();
+        if (!document)
+            return false;
 
-    static MainThreadNeverDestroyed<const AtomString> sinkItBackToTopID("sink-it-back-to-top"_s);
-    return !!document->getElementById(sinkItBackToTopID.get());
-#else
-    return false;
+        static MainThreadNeverDestroyed<const AtomString> sinkItBackToTopID("sink-it-back-to-top"_s);
+        return !!document->getElementById(sinkItBackToTopID.get());
+    }
 #endif
+
+    return true;
 }
 
 // Breaks express checkout on victoriassecret.com (rdar://104818312).
@@ -2062,6 +2058,15 @@ std::optional<String> Quirks::needsCustomUserAgentOverride(const URL& url, const
         auto baseUA = currentUserAgent.isEmpty() ? standardUserAgentWithApplicationName(applicationNameForUserAgent) : currentUserAgent;
         return makeStringByReplacingAll(baseUA, "like Gecko"_s, "like Gecko, like Chrome/149."_s);
     }
+
+    // FIXME(https://bugs.webkit.org/show_bug.cgi?id=319011 or rdar://181825035):
+    // github.com serves Safari some JS that tries to adjust the scroll position
+    // which interferes with WebKit's scroll to fragment implementation.
+    // Presenting a Chrome-like UA takes the working code path.
+    if (domainString == "github.com"_s) {
+        auto baseUA = currentUserAgent.isEmpty() ? standardUserAgentWithApplicationName(applicationNameForUserAgent) : currentUserAgent;
+        return makeStringByReplacingAll(baseUA, "like Gecko"_s, "like Gecko, like Chrome/151."_s);
+    }
 #else
     UNUSED_PARAM(applicationNameForUserAgent);
     UNUSED_PARAM(currentUserAgent);
@@ -2091,20 +2096,6 @@ bool Quirks::shouldIgnorePlaysInlineRequirementQuirk() const
 #else
     return false;
 #endif
-}
-
-bool Quirks::shouldUseEphemeralPartitionedStorageForDOMCookies(const URL& url) const
-{
-    QUIRKS_EARLY_RETURN_IF_DISABLED_WITH_VALUE(false);
-
-    auto firstPartyDomain = RegistrableDomain(m_document->firstPartyForCookies()).string();
-    auto domain = RegistrableDomain(url).string();
-
-    // rdar://113830141
-    if (firstPartyDomain == "cagreatamerica.com"_s && domain == "queue-it.net"_s)
-        return true;
-
-    return false;
 }
 
 #if PLATFORM(IOS_FAMILY)
@@ -2450,6 +2441,14 @@ bool Quirks::shouldSuppressHLSSubtitles() const
     QUIRKS_EARLY_RETURN_IF_DISABLED_WITH_VALUE(false);
 
     return m_quirksData.quirkIsEnabled(QuirksData::SiteSpecificQuirk::ShouldSuppressHLSSubtitles);
+}
+
+// spotify.com: block additive audible playback (e.g. Home-page track previews) while another
+// audible media element is already playing in the document.
+bool Quirks::shouldBlockAudiblePlaybackWhileAudioIsPlaying() const
+{
+    QUIRKS_EARLY_RETURN_IF_DISABLED_WITH_VALUE(false);
+    return m_quirksData.quirkIsEnabled(QuirksData::SiteSpecificQuirk::ShouldBlockAudiblePlaybackWhileAudioIsPlaying);
 }
 
 bool Quirks::shouldSuppressMediaSessionPauseActionOnInterruption() const
@@ -2966,6 +2965,10 @@ static void handleCNNQuirks(QuirksData& quirksData, const URL& /* quirksURL */, 
     quirksData.enableQuirk(QuirksData::SiteSpecificQuirk::NeedsFullscreenObjectFitQuirk);
 #if PLATFORM(COCOA)
     quirksData.enableQuirk(QuirksData::SiteSpecificQuirk::NeedsCNNCaptionQuirk);
+#endif
+    // cnn.com rdar://176539646
+#if ENABLE(THREADED_ANIMATIONS)
+    quirksData.enableQuirk(QuirksData::SiteSpecificQuirk::ShouldDisableThreadedAnimationsQuirk);
 #endif
 }
 
@@ -3808,8 +3811,13 @@ static void handlePinterestQuirks(QuirksData& quirksData, const URL& /* quirksUR
     quirksData.enableQuirk(QuirksData::SiteSpecificQuirk::ShouldAllowNotificationPermissionWithoutUserGesture);
 }
 
-static void handleAppleQuirks(QuirksData& quirksData, const URL& /* quirksURL */, const String& quirksDomainString, const URL&  /* documentURL */)
+static void handleAppleQuirks(QuirksData& quirksData, const URL& quirksURL, const String& quirksDomainString, const URL&  /* documentURL */)
 {
+    // Quirk added for rdar://181007316, remove when rdar://182134549 is fixed.
+    if (quirksURL.path().contains("/retail"_s))
+        quirksData.enableQuirk(QuirksData::SiteSpecificQuirk::ShouldDisableScrollAnchoringQuirk);
+
+    // FIXME: Maybe EnsureCaptionVisibilityInFullscreenAndPictureInPicture should apply to apple.com.cn too?
     QUIRKS_EARLY_RETURN_IF_NOT_DOMAIN("apple.com"_s);
 
     // apple.com rdar://154434137
@@ -3873,6 +3881,7 @@ static void handleSpotifyQuirks(QuirksData& quirksData, const URL& quirksURL, co
         QuirksData::SiteSpecificQuirk::ShouldLimitHLSPlaybackRate,
         QuirksData::SiteSpecificQuirk::NeedsWebKitMediaTextTrackDisplayQuirk,
         QuirksData::SiteSpecificQuirk::ShouldDeferIntersectionObserversDuringResize,
+        QuirksData::SiteSpecificQuirk::ShouldBlockAudiblePlaybackWhileAudioIsPlaying,
     });
 }
 
@@ -4007,8 +4016,6 @@ static void handleYouTubeQuirks(QuirksData& quirksData, const URL& quirksURL, co
         QuirksData::SiteSpecificQuirk::HasBrokenEncryptedMediaAPISupportQuirk,
         // youtube.com rdar://135886305
         QuirksData::SiteSpecificQuirk::NeedsScrollbarWidthThinDisabledQuirk,
-        // youtube.com rdar://66242343
-        QuirksData::SiteSpecificQuirk::NeedsVP9FullRangeFlagQuirk,
 #if PLATFORM(COCOA)
         QuirksData::SiteSpecificQuirk::NeedsYouTubeCaptionQuirk,
 #endif
@@ -4062,7 +4069,6 @@ static void handleZillowQuirks(QuirksData& quirksData, const URL& quirksURL, con
     // zillow.com rdar://53103732
     bool topDocumentHostIsZillow = quirksURL.host() == "www.zillow.com"_s;
     quirksData.setQuirkState(QuirksData::SiteSpecificQuirk::ShouldAvoidScrollingWhenFocusedContentIsVisibleQuirk, topDocumentHostIsZillow);
-    quirksData.enableQuirk(QuirksData::SiteSpecificQuirk::NeedsZillowFloorplanMarginQuirk);
 #if PLATFORM(IOS) || PLATFORM(VISION)
     // rdar://110097836
     quirksData.enableQuirk(QuirksData::SiteSpecificQuirk::ShouldSilenceResizeObservers);
@@ -4117,11 +4123,15 @@ void Quirks::determineRelevantQuirks()
 #if PLATFORM(IOS_FAMILY)
     static const bool shouldDisableLazyIframeLoadingQuirk = !linkedOnOrAfterSDKWithBehavior(SDKAlignedBehavior::NoUNIQLOLazyIframeLoadingQuirk) && WTF::IOSApplication::isUNIQLOApp();
     static const bool needsResettingTransitionCancelsRunningTransitionQuirk = !linkedOnOrAfterSDKWithBehavior(SDKAlignedBehavior::ResettingTransitionCancelsRunningTransitionQuirk) && WTF::IOSApplication::isDOFUSTouch();
+    static const bool shouldDisableMediaLayerTeardownOnPageVisibilityChangeQuirk = !linkedOnOrAfterSDKWithBehavior(SDKAlignedBehavior::NoMediaLayerTeardownOnPageVisibilityChangeQuirk) && WTF::IOSApplication::isMoonPlayer();
 
     m_quirksData.setQuirkState(QuirksData::SiteSpecificQuirk::ShouldDisableLazyIframeLoadingQuirk, shouldDisableLazyIframeLoadingQuirk);
 
     // DOFUS Touch app (rdar://112679186)
     m_quirksData.setQuirkState(QuirksData::SiteSpecificQuirk::NeedsResettingTransitionCancelsRunningTransitionQuirk, needsResettingTransitionCancelsRunningTransitionQuirk);
+
+    // Moon Player app (rdar://162452658)
+    m_quirksData.setQuirkState(QuirksData::SiteSpecificQuirk::ShouldDisableMediaLayerTeardownOnPageVisibilityChangeQuirk, shouldDisableMediaLayerTeardownOnPageVisibilityChangeQuirk);
 #endif
 
 #if PLATFORM(MAC)

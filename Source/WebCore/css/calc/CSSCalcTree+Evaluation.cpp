@@ -235,6 +235,35 @@ std::optional<double> evaluate(const IndirectNode<Tan>& root, const EvaluationOp
     return evaluateTrig(root, options);
 }
 
+std::optional<double> resolveRandomBaseValue(const Random::Sharing& sharing, Style::BuilderState& builderState)
+{
+    return WTF::switchOn(sharing,
+        [&](const Random::SharingAuto& sharingAuto) -> std::optional<double> {
+            if (sharingAuto.elementScoped && !builderState.element())
+                return { };
+
+            RandomCachingKey::Key key {
+                .name = std::nullopt,
+                .propertyScoped = Random::Key::PropertyIndexScoped { sharingAuto.property, sharingAuto.index }
+            };
+            return builderState.lookupCSSRandomBaseValue(RandomCachingKey { WTF::move(key) }, sharingAuto.elementScoped);
+        },
+        [&](const Random::Key& sharingKey) -> std::optional<double> {
+            if (sharingKey.elementScoped && !builderState.element())
+                return { };
+
+            RandomCachingKey::Key key;
+            if (sharingKey.name)
+                key.name = Style::toStyle(*sharingKey.name, builderState);
+            key.propertyScoped = sharingKey.propertyScoped;
+            return builderState.lookupCSSRandomBaseValue(RandomCachingKey { WTF::move(key) }, sharingKey.elementScoped);
+        },
+        [&](const Random::SharingFixed& sharingFixed) -> std::optional<double> {
+            return Style::toStyle(sharingFixed.value, builderState).value;
+        }
+    );
+}
+
 std::optional<double> evaluate(const IndirectNode<Random>& root, const EvaluationOptions& options)
 {
     if (!options.conversionData || !options.conversionData->styleBuilderState())
@@ -254,30 +283,7 @@ std::optional<double> evaluate(const IndirectNode<Random>& root, const Evaluatio
 
     CheckedPtr builderState = options.conversionData->styleBuilderState();
 
-    auto randomBaseValue = WTF::switchOn(root->sharing,
-        [&](const Random::SharingOptions& sharingOptions) -> std::optional<double> {
-            if (sharingOptions.elementScoped.has_value() && !builderState->element())
-                return { };
-
-            return WTF::switchOn(sharingOptions.identifier,
-                [&](const Random::SharingOptions::Auto& autoValue) {
-                    return builderState->lookupCSSRandomBaseValue(
-                        autoValue,
-                        sharingOptions.elementScoped
-                    );
-                },
-                [&](const CSS::CustomIdent& customIdent) {
-                    return builderState->lookupCSSRandomBaseValue(
-                        Style::toStyle(customIdent, *builderState),
-                        sharingOptions.elementScoped
-                    );
-                }
-            );
-        },
-        [&](const Random::SharingFixed& sharingFixed) -> std::optional<double> {
-            return Style::toStyle(sharingFixed.value, *builderState).value;
-        }
-    );
+    auto randomBaseValue = resolveRandomBaseValue(root->sharing, *builderState);
     if (!randomBaseValue)
         return { };
 

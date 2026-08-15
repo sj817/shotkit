@@ -25,7 +25,8 @@
 
 #pragma once
 
-#include <WebCore/DatagramsReadableMode.h>
+#include <WebCore/FetchHeaders.h>
+#include <WebCore/ReadableStreamType.h>
 #include <WebCore/WebTransportCongestionControl.h>
 #include <WebCore/WebTransportHash.h>
 
@@ -39,7 +40,8 @@ struct WebTransportOptions {
     std::optional<uint16_t> anticipatedConcurrentIncomingUnidirectionalStreams;
     std::optional<uint16_t> anticipatedConcurrentIncomingBidirectionalStreams;
     Vector<String> protocols { };
-    std::optional<DatagramsReadableMode> datagramsReadableMode;
+    std::optional<ReadableStreamType> datagramsReadableType;
+    std::optional<FetchHeaders::Init> headersInit { };
 };
 
 }

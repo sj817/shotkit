@@ -32,6 +32,7 @@
 #include "DisplayListRecorderImpl.h"
 #include "FloatConversion.h"
 #include "FloatRect.h"
+#include "FrameProcessIndicators.h"
 #include "GraphicsLayerAnimation.h"
 #include "GraphicsLayerAnimationValue.h"
 #include "GraphicsLayerAsyncContentsDisplayDelegateCocoa.h"
@@ -477,6 +478,8 @@ GraphicsLayerCA::~GraphicsLayerCA()
 
     if (m_backdropClippingLayer)
         protect(m_backdropClippingLayer)->setOwner(nullptr);
+
+    m_frameProcessIndicators = nullptr;
 
     removeCloneLayers();
 
@@ -1408,7 +1411,11 @@ std::optional<PlatformLayerIdentifier> GraphicsLayerCA::contentsLayerIDForModel(
 
 void GraphicsLayerCA::setContentsToPlatformLayer(PlatformLayer* platformLayer, ContentsLayerPurpose purpose)
 {
-    if (m_contentsLayer && platformLayer == protect(m_contentsLayer)->platformLayer())
+    // When platformLayer is non-null, skip if the same layer is already set.
+    // When platformLayer is null, always proceed: a PlatformCALayerRemote also
+    // returns null from platformLayer(), so the naive check would incorrectly
+    // treat a clear request as a no-op, leaving the hardware video sublayer alive.
+    if (platformLayer && m_contentsLayer && platformLayer == protect(m_contentsLayer)->platformLayer())
         return;
 
     // FIXME: The passed in layer might be a raw layer or an externally created
@@ -1459,7 +1466,7 @@ void GraphicsLayerCA::setContentsToModelContext(Ref<ModelContext> modelContext, 
 }
 #endif
 
-#if ENABLE(MODEL_ELEMENT_IMMERSIVE)
+#if ENABLE(MODEL_ELEMENT_IMMERSIVE) || ENABLE(SPATIAL_PORTAL)
 void GraphicsLayerCA::removeModelContents()
 {
     if (!m_contentsLayer)
@@ -2456,9 +2463,9 @@ void GraphicsLayerCA::updateSublayerList(bool maxLayerDepthReached)
 #ifdef VISIBLE_TILE_WASH
         if (m_visibleTileWashLayer)
             list.append(m_visibleTileWashLayer);
-#else
-        UNUSED_PARAM(list);
 #endif
+        if (m_frameProcessIndicators)
+            m_frameProcessIndicators->appendLayers(list);
     };
 
     auto buildChildLayerList = [&](PlatformCALayerList& list) {
@@ -2548,6 +2555,9 @@ void GraphicsLayerCA::updateGeometry(float pageScaleFactor, const FloatPoint& po
     FloatRect adjustedBounds = FloatRect(FloatPoint(m_boundsOrigin - pixelAlignmentOffset), m_size);
     layer->setBounds(adjustedBounds);
     layer->setAnchorPoint(scaledAnchorPoint);
+
+    if (m_frameProcessIndicators)
+        m_frameProcessIndicators->updateGeometry(adjustedBounds);
 
     if (m_layerClones) {
         for (auto& clone : m_layerClones->primaryLayerClones) {
@@ -3096,12 +3106,23 @@ static Color cloneLayerDebugBorderColor(bool showingBorders)
     return showingBorders ? SRGBA<uint8_t> { 255, 122, 251 } : Color { };
 }
 
+void GraphicsLayerCA::updateFrameProcessIndicators()
+{
+    if (isShowingFrameProcessBorders() && !m_frameProcessIndicators)
+        m_frameProcessIndicators = makeUnique<FrameProcessIndicators>(*this);
+    else if (!isShowingFrameProcessBorders() && m_frameProcessIndicators)
+        m_frameProcessIndicators = nullptr;
+    noteSublayersChanged(DontScheduleFlush);
+}
+
 void GraphicsLayerCA::updateDebugIndicators()
 {
+    updateFrameProcessIndicators();
+
     Color borderColor;
     float width = 0;
 
-    bool showDebugBorders = isShowingDebugBorder() || isShowingFrameProcessBorders();
+    bool showDebugBorders = isShowingDebugBorder();
     if (showDebugBorders)
         getDebugBorderInfo(borderColor, width);
 
@@ -4427,6 +4448,9 @@ void GraphicsLayerCA::updateContentsScale(float pageScaleFactor)
     if (auto customScale = client().customContentsScale(*this))
         contentsScale = *customScale;
 
+    if (m_frameProcessIndicators)
+        m_frameProcessIndicators->updateContentsScale(contentsScale);
+
     RefPtr layer = m_layer;
     if (contentsScale == layer->contentsScale())
         return;
@@ -4468,12 +4492,12 @@ void GraphicsLayerCA::setShowRepaintCounter(bool showCounter)
     noteLayerPropertyChanged(DebugIndicatorsChanged);
 }
 
-void GraphicsLayerCA::setShowFrameProcessBorders(bool showBorders)
+void GraphicsLayerCA::setShowFrameProcessBorders(bool showBorders, unsigned frameDepth)
 {
-    if (showBorders == m_showFrameProcessBorders)
+    if (showBorders == m_showFrameProcessBorders && frameDepth == m_frameProcessIndicatorDepth)
         return;
 
-    GraphicsLayer::setShowFrameProcessBorders(showBorders);
+    GraphicsLayer::setShowFrameProcessBorders(showBorders, frameDepth);
     noteLayerPropertyChanged(DebugIndicatorsChanged);
 }
 

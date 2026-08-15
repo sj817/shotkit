@@ -269,6 +269,7 @@ public:
     void setAutofillVisibility(AutofillVisibility);
     bool autofillSpellcheck() const { return !m_isSpellcheckDisabledExceptTextReplacement; }
     void setAutofillSpellcheck(bool value) { m_isSpellcheckDisabledExceptTextReplacement = !value; }
+    void didCompleteAutofill();
 
 #if ENABLE(DRAG_SUPPORT)
     // Returns true if the given DragData has more than one dropped file.
@@ -285,6 +286,7 @@ public:
     void addSearchResult();
 
     bool willRespondToMouseClickEventsWithEditability(Editability) const final;
+    bool hasActivationBehavior() const final;
 
     WEBCORE_EXPORT bool isFocusingWithDataListDropdown() const;
     bool hasDataList() const;
@@ -304,7 +306,7 @@ public:
 
     bool NODELETE hasCustomFocusLogic() const final;
 
-    void cacheSelectionInResponseToSetValue(int caretOffset) { cacheSelection(caretOffset, caretOffset, SelectionHasNoDirection); }
+    void cacheSelectionInResponseToSetValue(int caretOffset) { cacheSelection(caretOffset, caretOffset, normalizeSelectionDirection(SelectionHasNoDirection)); }
 
     WEBCORE_EXPORT Color valueAsColor() const; // Returns transparent color if not type=color.
     WEBCORE_EXPORT void selectColor(StringView); // Does nothing if not type=color. Simulates user selection of color; intended for testing.

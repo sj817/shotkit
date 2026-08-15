@@ -52,7 +52,7 @@ RefPtr<CSSValue> consumeOverflowClipMargin(CSSParserTokenRange& range, CSS::Prop
     RefPtr<CSSPrimitiveValue> length;
     auto tryConsumeLength = [&length](CSSParserTokenRange& range, CSS::PropertyParserState& state) -> bool {
         auto consumeLength = [](CSSParserTokenRange& range, CSS::PropertyParserState& state) -> RefPtr<CSSPrimitiveValue> {
-            return CSSPrimitiveValueResolver<CSS::Length<CSS::NonnegativeUnzoomed>>::consumeAndResolve(range, state);
+            return CSSPrimitiveValueResolver<CSS::Length<CSS::Nonnegative>>::consumeAndResolve(range, state);
         };
         if (length)
             return false;
@@ -79,7 +79,7 @@ RefPtr<CSSValue> consumeOverflowClipMargin(CSSParserTokenRange& range, CSS::Prop
         list.append(length.releaseNonNull());
 
     if (list.isEmpty())
-        return { CSSPrimitiveValue::create(0, CSSUnitType::CSS_PX) };
+        return { CSSPrimitiveValue::create(0, CSSUnitType::Px) };
 
     if (list.size() == 1)
         return WTF::move(list[0]);

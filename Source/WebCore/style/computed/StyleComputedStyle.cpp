@@ -152,6 +152,7 @@ ComputedStyle ComputedStyle::createStyleInheritingFromPseudoStyle(const Computed
 {
     ASSERT(pseudoStyle.pseudoElementType() == PseudoElementType::Before
         || pseudoStyle.pseudoElementType() == PseudoElementType::After
+        || pseudoStyle.pseudoElementType() == PseudoElementType::Marker
         || pseudoStyle.pseudoElementType() == PseudoElementType::Checkmark
         || pseudoStyle.pseudoElementType() == PseudoElementType::PickerIcon);
 
@@ -527,11 +528,7 @@ UserSelect ComputedStyle::usedUserSelect() const
     if (effectiveInert())
         return UserSelect::None;
 
-    auto value = userSelect();
-    if (userModify() != UserModify::ReadOnly && userDrag() != UserDrag::Element)
-        return value == UserSelect::None ? UserSelect::Text : value;
-
-    return value;
+    return static_cast<UserSelect>(m_inheritedRareData->usedUserSelect);
 }
 
 WebCore::Color ComputedStyle::usedScrollbarThumbColor() const
@@ -594,11 +591,11 @@ Style::LineWidth ComputedStyle::usedColumnRuleWidth() const
     return columnRuleWidth();
 }
 
-Style::Length<CSS::AllUnzoomed> ComputedStyle::usedOutlineOffset() const
+Style::Length<> ComputedStyle::usedOutlineOffset() const
 {
     auto& outline = this->outline();
     if (outline.outlineOffset.isInset())
-        return Style::Length<CSS::AllUnzoomed> { -usedOutlineWidth().unresolvedValue() };
+        return Style::Length<> { -usedOutlineWidth().unresolvedValue() };
     return *outline.outlineOffset.tryLength();
 }
 

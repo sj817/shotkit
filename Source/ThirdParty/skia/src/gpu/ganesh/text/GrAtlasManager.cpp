@@ -10,9 +10,9 @@
 #include "include/core/SkColorType.h"
 #include "include/core/SkSize.h"
 #include "include/core/SkSpan.h"
-#include "include/private/base/SkMalloc.h"
-#include "include/private/base/SkTLogic.h"
-#include "src/base/SkAutoMalloc.h"
+#include "include/private/SkMalloc.h"
+#include "include/private/SkTLogic.h"
+#include "src/core/SkAutoMalloc.h"
 #include "src/core/SkDistanceFieldGen.h"
 #include "src/core/SkGlyph.h"
 #include "src/core/SkMask.h"
@@ -49,8 +49,8 @@ void GrAtlasManager::freeAll() {
     }
 }
 
-bool GrAtlasManager::hasGlyph(MaskFormat format, const GlyphEntry& glyph) {
-    return this->getAtlas(format)->hasID(glyph.fAtlasLocator.plotLocator());
+bool GrAtlasManager::hasGlyph(const GlyphEntry& glyph) {
+    return this->getAtlas(glyph.fKey.maskFormat())->hasID(glyph.fAtlasLocator.plotLocator());
 }
 
 template <typename INT_TYPE>
@@ -163,33 +163,36 @@ static void get_packed_glyph_image(
 // returns true if glyph successfully added to texture atlas, false otherwise.
 GrDrawOpAtlas::ErrorCode GrAtlasManager::addGlyphToAtlas(const SkGlyph& skGlyph,
                                                          GlyphEntry* glyph,
-                                                         int srcPadding,
                                                          GrResourceProvider* resourceProvider,
                                                          GrDeferredUploadTarget* uploadTarget) {
-#if !defined(SK_DISABLE_SDF_TEXT)
-    SkASSERT(0 <= srcPadding && srcPadding <= SK_DistanceFieldInset);
-#else
-    SkASSERT(0 <= srcPadding);
-#endif
-
     if (skGlyph.image() == nullptr) {
         return GrDrawOpAtlas::ErrorCode::kError;
     }
     SkASSERT(glyph != nullptr);
 
-    MaskFormat expectedMaskFormat = this->resolveMaskFormat(glyph->fGlyphEntryKey.fFormat);
+    const int srcPadding = glyph->fKey.padding();
+
+#if !defined(SK_DISABLE_SDF_TEXT)
+    SkDEBUGCODE(const bool skGlyphIsSDF = skGlyph.maskFormat() == SkMask::Format::kSDF_Format;)
+    SkASSERT(0 <= srcPadding && srcPadding <= SK_DistanceFieldInset);
+    SkASSERT(skGlyphIsSDF == glyph->fKey.isSDF());
+#else
+    SkASSERT(0 <= srcPadding);
+    SkASSERT(!glyph->fKey.isSDF());
+#endif
+
+    const MaskFormat expectedMaskFormat = glyph->fKey.maskFormat();
+    SkASSERT(expectedMaskFormat == this->resolveMaskFormat(glyph->fKey.maskFormat()));
+
     int bytesPerPixel = MaskFormatBytesPerPixel(expectedMaskFormat);
 
     int padding;
     switch (srcPadding) {
         case 0:
-            // The direct mask/image case.
+            // The direct mask/image case; lifting to 1px padding should have happened earlier when
+            // the glyph key was created.
+            SkASSERT(!fSupportBilerpAtlas);
             padding = 0;
-            if (fSupportBilerpAtlas) {
-                // Force direct masks (glyph with no padding) to have padding.
-                padding = 1;
-                srcPadding = 1;
-            }
             break;
         case 1:
             // The transformed mask/image case.
@@ -198,6 +201,7 @@ GrDrawOpAtlas::ErrorCode GrAtlasManager::addGlyphToAtlas(const SkGlyph& skGlyph,
 #if !defined(SK_DISABLE_SDF_TEXT)
         case SK_DistanceFieldInset:
             // The SDFT case.
+            SkASSERT(glyph->fKey.isSDF());
             // If the srcPadding == SK_DistanceFieldInset (SDFT case) then the padding is built
             // into the image on the glyph; no extra padding needed.
             // TODO: can the SDFT glyph image in the cache be reduced by the padding?
@@ -211,6 +215,14 @@ GrDrawOpAtlas::ErrorCode GrAtlasManager::addGlyphToAtlas(const SkGlyph& skGlyph,
 
     const int width = skGlyph.width() + 2*padding;
     const int height = skGlyph.height() + 2*padding;
+
+    // Verify that the glyph data (received from potentially untrusted source) actually has room
+    // for the padding. Under normal flow, this should always be the case, but if a glyph was
+    // corrupted or manipulated it has no bearing on the code that *should* have produced the glyph.
+    // It's strict comparison since equality would imply the original glyph was empty, which should
+    // have been dropped.
+    SkASSERT_RELEASE(width > 2*srcPadding && height > 2*srcPadding);
+
     int rowBytes = width * bytesPerPixel;
     size_t size = height * rowBytes;
 
@@ -240,23 +252,11 @@ GrDrawOpAtlas::ErrorCode GrAtlasManager::addGlyphToAtlas(const SkGlyph& skGlyph,
     return errorCode;
 }
 
-// add to texture atlas that matches this format
-GrDrawOpAtlas::ErrorCode GrAtlasManager::addToAtlas(GrResourceProvider* resourceProvider,
-                                                    GrDeferredUploadTarget* target,
-                                                    MaskFormat format,
-                                                    int width, int height,
-                                                    const void* image,
-                                                    GrAtlasLocator* atlasLocator) {
-    return this->getAtlas(format)->addToAtlas(resourceProvider, target, width, height, image,
-                                              atlasLocator);
-}
-
 void GrAtlasManager::addGlyphToBulkAndSetUseToken(GrBulkUsePlotUpdater* updater,
-                                                  MaskFormat format,
                                                   const GlyphEntry& glyph,
                                                   skgpu::Token token) {
     if (updater->add(glyph.fAtlasLocator)) {
-        this->getAtlas(format)->setLastUseToken(glyph.fAtlasLocator, token);
+        this->getAtlas(glyph.fKey.maskFormat())->setLastUseToken(glyph.fAtlasLocator, token);
     }
 }
 

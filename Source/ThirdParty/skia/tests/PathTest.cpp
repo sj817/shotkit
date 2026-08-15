@@ -29,21 +29,20 @@
 #include "include/core/SkSurface.h"
 #include "include/core/SkTypes.h"
 #include "include/core/SkVertices.h"
+#include "include/private/SkFloatingPoint.h"
 #include "include/private/SkIDChangeListener.h"
+#include "include/private/SkMalloc.h"
 #include "include/private/SkPathRef.h"
-#include "include/private/base/SkFloatingPoint.h"
-#include "include/private/base/SkMalloc.h"
-#include "include/private/base/SkPoint_impl.h"
-#include "include/private/base/SkTo.h"
+#include "include/private/SkTo.h"
 #include "include/utils/SkNullCanvas.h"
 #include "include/utils/SkParse.h"
 #include "include/utils/SkParsePath.h"
-#include "src/base/SkAutoMalloc.h"
-#include "src/base/SkFloatBits.h"
-#include "src/base/SkRandom.h"
+#include "src/core/SkAutoMalloc.h"
+#include "src/core/SkFloatBits.h"
 #include "src/core/SkGeometry.h"
 #include "src/core/SkPathEnums.h"
 #include "src/core/SkPathPriv.h"
+#include "src/core/SkRandom.h"
 #include "src/core/SkReadBuffer.h"
 #include "src/core/SkWriteBuffer.h"
 #include "tests/Test.h"
@@ -5650,4 +5649,89 @@ DEF_TEST(path_empty_iter, reporter) {
 
     SkPath::Iter iter(p, false);
     REPORTER_ASSERT(reporter, !iter.next());
+}
+
+DEF_TEST(path_b511244869, reporter) {
+    SkPath path =
+            SkPathBuilder()
+                    .moveTo(2.11521295e+37f, 15.9130936f)
+                    .conicTo(2.11521295e+37f, 15.9130936f, -1.90539568e+38f, 15.9130936f, 0.0f)
+                    .detach();
+
+    SkMatrix m;
+    m.setAll(1.356316e-19f, 1.356316e-19f, 1.356316e-19f,
+             1.356316e-19f, -2.128433e+38f, 1.356316e-19f,
+             1.152428e-41f, 0.000000e+00f, 0.000000e+00f);
+
+    // This should not crash or trigger an assertion in debug builds.
+    SkPath transformed = path.makeTransform(m);
+    REPORTER_ASSERT(reporter, transformed.isEmpty());
+}
+
+DEF_TEST(Path_snapshot_rrect_rotation, reporter) {
+    SkPathBuilder builder;
+    builder.addRRect(SkRRect::MakeRectXY({0, 0, 100, 100}, 10, 10));
+
+    // A rotation matrix that is not axis-aligned
+    SkMatrix matrix = SkMatrix::RotateDeg(45);
+    SkPath path = builder.snapshot(&matrix);
+
+    // Should NOT be recognized as an RRect because it's no longer axis-aligned.
+    REPORTER_ASSERT(reporter, !path.isRRect(nullptr));
+}
+
+DEF_TEST(Path_snapshot_rrect_perspective, reporter) {
+    SkPathBuilder builder;
+    builder.addRRect(SkRRect::MakeRectXY({0, 0, 100, 100}, 10, 10));
+
+    // A perspective matrix
+    SkMatrix matrix;
+    matrix.setPerspX(0.01f);
+    SkPath path = builder.snapshot(&matrix);
+
+    // Should NOT be recognized as an RRect because it's twisted
+    REPORTER_ASSERT(reporter, !path.isRRect(nullptr));
+}
+
+DEF_TEST(Path_addRRect_with_move, reporter) {
+    SkPathBuilder builder;
+    builder.moveTo(0, 0);
+    builder.close();  // make sure it's not a trailing move
+    builder.addRRect(SkRRect::MakeRectXY({0, 0, 100, 100}, 10, 10));
+
+    SkPath path = builder.detach();
+    // Not an RRect because something comes between the initial move and the rrect.
+    REPORTER_ASSERT(reporter, !path.isRRect(nullptr));
+}
+
+DEF_TEST(Path_snapshot_rrect_success, reporter) {
+    // 1. Translation & Scale (preserves winding direction)
+    {
+        SkPathBuilder builder;
+        builder.addRRect(SkRRect::MakeRectXY({10, 20, 110, 120}, 10, 10), SkPathDirection::kCW, 0);
+
+        SkMatrix matrix = SkMatrix::Translate(50, 100);
+        matrix.postScale(2, 3);
+        SkPath path = builder.snapshot(&matrix);
+
+        REPORTER_ASSERT(reporter, path.isRRect(nullptr));
+        auto info = SkPathPriv::IsRRect(path);
+        REPORTER_ASSERT(reporter, info.has_value());
+        REPORTER_ASSERT(reporter, info->fDirection == SkPathDirection::kCW);
+        REPORTER_ASSERT(reporter, info->fStartIndex == 0);
+    }
+
+    // 2. Mirror/Flip (reverses winding direction)
+    {
+        SkPathBuilder builder;
+        builder.addRRect(SkRRect::MakeRectXY({10, 20, 110, 120}, 10, 10), SkPathDirection::kCW, 0);
+
+        SkMatrix matrix = SkMatrix::Scale(-1, 1);
+        SkPath path = builder.snapshot(&matrix);
+
+        REPORTER_ASSERT(reporter, path.isRRect(nullptr));
+        auto info = SkPathPriv::IsRRect(path);
+        REPORTER_ASSERT(reporter, info.has_value());
+        REPORTER_ASSERT(reporter, info->fDirection == SkPathDirection::kCCW);
+    }
 }

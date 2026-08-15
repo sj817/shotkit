@@ -191,8 +191,7 @@ public:
     void computeAndSetBlockDirectionMargins(const RenderBlock& containingBlock);
 
     void markMarginAsTrimmed(Style::MarginTrimSide);
-    void clearTrimmedMarginsMarkings();
-    bool NODELETE hasTrimmedMargin(std::optional<Style::MarginTrimSide>) const;
+    bool NODELETE hasTrimmedMargin(Style::MarginTrimSide) const;
 
     enum class VisualEffectOverflowOption : uint8_t {
         ExcludeFilterOutsets,
@@ -338,6 +337,15 @@ public:
     // zero (and returns just border + padding).
     LayoutUnit computeLogicalHeightForIntrinsicWidthContribution() const;
 
+    // Computes this box's intrinsic block-axis size (its logical height). A container
+    // gathering the inline-axis intrinsic contribution of an orthogonal child calls
+    // this because, for an orthogonal box, the block-axis size is what maps to the
+    // container's inline axis (CSS Writing Modes 3, orthogonal shrink-to-fit). Unlike
+    // computeLogicalHeightForIntrinsicWidthContribution() this lays the box out when a
+    // content-based height is needed, re-arming its dirty bit so the regular layout
+    // pass runs again afterwards. May lay out the box, hence non-const.
+    LayoutUnit computeIntrinsicLogicalHeight();
+
     LayoutUnit constrainLogicalWidthByMinMax(LayoutUnit, LayoutUnit, const RenderBlock&, AllowIntrinsic = AllowIntrinsic::Yes) const;
     LayoutUnit constrainLogicalHeightByMinMax(LayoutUnit logicalHeight, std::optional<LayoutUnit> intrinsicContentHeight, IsComputingIntrinsicSize = IsComputingIntrinsicSize::No) const;
     LayoutUnit constrainContentBoxLogicalHeightByMinMax(LayoutUnit logicalHeight, std::optional<LayoutUnit> intrinsicContentHeight) const;
@@ -378,8 +386,8 @@ public:
     std::optional<LayoutUnit> computePercentageLogicalHeight(const Style::MinimumSize& logicalHeight, UpdatePercentageHeightDescendants = UpdatePercentageHeightDescendants::Yes) const;
     std::optional<LayoutUnit> computePercentageLogicalHeight(const Style::MaximumSize& logicalHeight, UpdatePercentageHeightDescendants = UpdatePercentageHeightDescendants::Yes) const;
     std::optional<LayoutUnit> computePercentageLogicalHeight(const Style::FlexBasis& logicalHeight, UpdatePercentageHeightDescendants = UpdatePercentageHeightDescendants::Yes) const;
-    std::optional<LayoutUnit> computePercentageLogicalHeight(const Style::Percentage<CSS::NonnegativeLayoutUnitClampedUnzoomed, float>& logicalHeight, UpdatePercentageHeightDescendants = UpdatePercentageHeightDescendants::Yes) const;
-    std::optional<LayoutUnit> computePercentageLogicalHeight(const Style::UnevaluatedCalculation<CSS::LengthPercentage<CSS::NonnegativeLayoutUnitClampedUnzoomed, float>>& logicalHeight, UpdatePercentageHeightDescendants = UpdatePercentageHeightDescendants::Yes) const;
+    std::optional<LayoutUnit> computePercentageLogicalHeight(const Style::Percentage<CSS::NonnegativeLayoutUnitClamped, float>& logicalHeight, UpdatePercentageHeightDescendants = UpdatePercentageHeightDescendants::Yes) const;
+    std::optional<LayoutUnit> computePercentageLogicalHeight(const Style::UnevaluatedCalculation<CSS::LengthPercentage<CSS::NonnegativeLayoutUnitClamped, float>>& logicalHeight, UpdatePercentageHeightDescendants = UpdatePercentageHeightDescendants::Yes) const;
     bool hasAutoHeightOrContainingBlockWithAutoHeight(UpdatePercentageHeightDescendants = UpdatePercentageHeightDescendants::Yes) const;
 
     virtual LayoutUnit availableLogicalHeight(AvailableLogicalHeightType) const;
@@ -395,9 +403,9 @@ public:
     LayoutUnit computeSizingKeywordLogicalWidthUsing(const Style::MaximumSize& logicalWidth, LayoutUnit availableLogicalWidth, LayoutUnit borderAndPadding) const;
     LayoutUnit computeSizingKeywordLogicalWidthUsing(const Style::FlexBasis& logicalWidth, LayoutUnit availableLogicalWidth, LayoutUnit borderAndPadding) const;
 
-    LayoutUnit adjustBorderBoxLogicalWidthForBoxSizing(const Style::Length<CSS::NonnegativeLayoutUnitClampedUnzoomed, float>& logicalWidth) const;
+    LayoutUnit adjustBorderBoxLogicalWidthForBoxSizing(const Style::Length<CSS::NonnegativeLayoutUnitClamped, float>& logicalWidth) const;
     LayoutUnit adjustBorderBoxLogicalWidthForBoxSizing(LayoutUnit computedLogicalWidth) const;
-    LayoutUnit adjustContentBoxLogicalWidthForBoxSizing(const Style::Length<CSS::NonnegativeLayoutUnitClampedUnzoomed, float>& logicalWidth) const;
+    LayoutUnit adjustContentBoxLogicalWidthForBoxSizing(const Style::Length<CSS::NonnegativeLayoutUnitClamped, float>& logicalWidth) const;
     LayoutUnit adjustContentBoxLogicalWidthForBoxSizing(LayoutUnit computedLogicalWidth) const;
 
     // Overridden by fieldsets to subtract out the intrinsic border.
@@ -525,13 +533,13 @@ public:
     FloatRect objectBoundingBox() const override { return borderBoxRect(); }
 
     RepaintRects localRectsForRepaint(RepaintOutlineBounds) const override;
-    std::optional<RepaintRects> computeVisibleRectsInContainer(const RepaintRects&, const RenderLayerModelObject* container, VisibleRectContext) const override;
+    std::optional<RepaintRects> computeVisibleRectsInContainer(const RepaintRects&, const RenderLayerModelObject* container, const VisibleRectContext&, VisibleRectState) const override;
     void repaintDuringLayoutIfMoved(const LayoutRect&);
     virtual void repaintOverhangingFloats(bool paintAllDescendants);
 
     // Returns false if the rect has no intersection with the applied clip rect. When the context specifies edge-inclusive
     // intersection, this return value allows distinguishing between no intersection and zero-area intersection.
-    bool applyCachedClipAndScrollPosition(RepaintRects&, const RenderLayerModelObject* container, VisibleRectContext) const final;
+    bool applyCachedClipAndScrollPosition(RepaintRects&, const RenderLayerModelObject* container, const VisibleRectContext&) const final;
 
     enum class RenderBoxFragmentInfoFlags : bool { CacheRenderBoxFragmentInfo, DoNotCacheRenderBoxFragmentInfo };
 

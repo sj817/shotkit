@@ -93,6 +93,11 @@ inline bool RenderElement::canContainFixedPositionObjects(const Style::ComputedS
         || (isRenderBlock() && style.willChange().createsContainingBlockForOutOfFlowPositioned(isDocumentElementRenderer()));
 }
 
+// createsGroupForStyle / createsGroupForStyleExcludingClipPath are deliberately
+// NOT defined inline here — they live out-of-line in RenderElement.cpp.
+// See upstream-sync/deviations.md.
+
+
 inline bool RenderElement::shouldApplyAnyContainment() const
 {
     RefPtr element = this->element();

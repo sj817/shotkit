@@ -10,10 +10,10 @@
 #include "include/core/SkColorType.h"
 #include "include/gpu/graphite/Context.h"
 #include "include/gpu/graphite/TextureInfo.h"
-#include "include/private/base/SkTArray.h"
-#include "src/base/SkFloatBits.h"
-#include "src/base/SkHalf.h"
+#include "include/private/SkTArray.h"
 #include "src/core/SkColorSpaceXformSteps.h"
+#include "src/core/SkFloatBits.h"
+#include "src/core/SkHalf.h"
 #include "src/core/SkRasterPipeline.h"
 #include "src/gpu/Swizzle.h"
 #include "src/gpu/graphite/Caps.h"
@@ -300,12 +300,13 @@ bool needs_unpremul(SkAlphaType srcAlphaType, SkAlphaType dstAlphaType) {
                                                    dstAlphaType == kUnknown_SkAlphaType);
 }
 
-PixelData gen_pixel_data(SkSpan<const Channel> dstChannels,
-                         Swizzle storeDstSwizzle,
-                         SkAlphaType dstAlphaType,
-                         SkSpan<const Channel> srcChannels,
-                         Swizzle loadSrcSwizzle,
-                         SkAlphaType srcAlphaType) {
+// Returns the number of set *bits* within PixelData.
+std::pair<PixelData, size_t> gen_pixel_data(SkSpan<const Channel> dstChannels,
+                                            Swizzle storeDstSwizzle,
+                                            SkAlphaType dstAlphaType,
+                                            SkSpan<const Channel> srcChannels,
+                                            Swizzle loadSrcSwizzle,
+                                            SkAlphaType srcAlphaType) {
     PixelData pixel{}; // zero-initialize all bytes
     int bitOffset = 0;
     for (size_t c = 0; c < dstChannels.size(); ++c) {
@@ -335,11 +336,13 @@ PixelData gen_pixel_data(SkSpan<const Channel> dstChannels,
         bitOffset = copy_unaligned_bits(dstChannels[c].fBits, bitOffset, channelValue, pixel);
     }
 
-    return pixel;
+    return {pixel, bitOffset};
 }
 
 // No swizzling or data conversion variant for input data generation
-PixelData gen_pixel_data(SkSpan<const Channel> channels, Swizzle readSwizzle, SkAlphaType alphaType) {
+std::pair<PixelData, size_t> gen_pixel_data(SkSpan<const Channel> channels,
+                                            Swizzle readSwizzle,
+                                            SkAlphaType alphaType) {
     return gen_pixel_data(channels, readSwizzle.invert(), alphaType,
                           channels, readSwizzle, alphaType);
 }
@@ -502,9 +505,68 @@ bool compare_pixels(SkSpan<const Channel> channels,
     return true;
 }
 
-PixelData transfer_data(const TextureFormatXferFn& xferFn, const PixelData& inputData) {
+PixelData transfer_data(const TextureFormatXferFn& xferFn,
+                        const PixelData& inputData,
+                        size_t srcPixelBits,
+                        size_t dstPixelBits) {
+    // First do a conversion on a 1x1 image, which will represent the expected output when
+    // testing various width/height/rowbyte combinations for a solid input.
     PixelData outputData{}; // zero-initialize for comparison stability on unwritten values.
     xferFn.run(1, 1, &inputData, sizeof(PixelData), &outputData, sizeof(PixelData));
+
+    SkASSERT(srcPixelBits % sizeof(std::uint8_t) == 0);
+    SkASSERT(dstPixelBits % sizeof(std::uint8_t) == 0);
+    const size_t srcPixelBytes = srcPixelBits / 8;
+    const size_t dstPixelBytes = dstPixelBits / 8;
+
+    static constexpr int kMaxDim = 32; // > 128-bit SIMD processing for 8-bit formats
+    using ImageBytes = std::array<uint8_t, kMaxDim*kMaxDim*sizeof(PixelData)>;
+    std::unique_ptr<ImageBytes> src = std::make_unique<ImageBytes>();
+    std::unique_ptr<ImageBytes> dst = std::make_unique<ImageBytes>();
+
+    auto fill_image = [&](int w, int h, size_t rowBytes) {
+        uint8_t* dataStart = src->data();
+        for (int x = 0; x < w; ++x) {
+            memcpy(src->data() + x*srcPixelBytes, &inputData, srcPixelBytes);
+        }
+        for (int y = 1; y < h; ++y) {
+            memcpy(dataStart + rowBytes, dataStart, rowBytes);
+            dataStart += rowBytes;
+        }
+    };
+    auto check_image = [&](int w, int h, size_t rowBytes) {
+        const uint8_t* dataStart = dst->data();
+        PixelData pxData{}; // zero-initialize all bytes
+        for (int y = 0; y < h; ++y) {
+            for (int x = 0; x < w; ++x) {
+                memcpy(&pxData, dataStart + x*dstPixelBytes, dstPixelBytes);
+                if (pxData != outputData) {
+                    SkDebugf("Pixel mismatch at (%d, %d) in bulk transfer.\n", x, y);
+                    outputData = pxData; // propagate this error out for pixel dumping
+                    return false;
+                }
+            }
+            dataStart += rowBytes;
+        }
+        return true;
+    };
+
+    // RasterPipeline isn't the fastest in debug builds and transfer_data is called ~70k times
+    // in this unit test, so only test a specific width and height.
+    static constexpr int kWidth = 17; // > 16 to test padding logic for 128-bit SIMD processing
+    static constexpr int kHeight = 7; // > 1 for multirow testing, but low to help performance
+
+    for (bool inputDense : {true, false}) {
+        size_t srcRowBytes = (inputDense ? kWidth : kMaxDim) * srcPixelBytes;
+        fill_image(kWidth, kHeight, srcRowBytes);
+        for (bool outputDense : {true, false}) {
+            size_t dstRowBytes = (outputDense ? kWidth : kMaxDim) * dstPixelBytes;
+            xferFn.run(kWidth, kHeight, src->data(), srcRowBytes, dst->data(), dstRowBytes);
+            if (!check_image(kWidth, kHeight, dstRowBytes)) {
+                return outputData;
+            }
+        }
+    }
     return outputData;
 }
 
@@ -839,6 +901,38 @@ static const FormatExpectation kExpectations[] {
      .fXferSwizzle=std::nullopt,
      .fCompatibleColorTypes={{kRGBA_10x6_SkColorType, Swizzle::RGBA(), std::nullopt}}},
 
+    {.fFormat=TextureFormat::kYUV8_P2_422,
+     .fChannels={{'y', 8, UNorm}, {'u', 8, UNorm}, {'v', 8, UNorm}},
+     .fXferSwizzle=std::nullopt,
+     .fCompatibleColorTypes={{kRGB_888x_SkColorType, Swizzle::RGBA(), std::nullopt}}},
+
+    {.fFormat=TextureFormat::kYUV8_P3_422,
+     .fChannels={{'y', 8, UNorm}, {'u', 8, UNorm}, {'v', 8, UNorm}},
+     .fXferSwizzle=std::nullopt,
+     .fCompatibleColorTypes={{kRGB_888x_SkColorType, Swizzle::RGBA(), std::nullopt}}},
+
+    {.fFormat=TextureFormat::kYUV10x6_P2_422,
+     .fChannels={{'y', 10, UNorm}, {'x', 6, Pad}, {'u', 10, UNorm}, {'x', 6, Pad},
+                 {'v', 10, UNorm}, {'x', 6, Pad}},
+     .fXferSwizzle=std::nullopt,
+     .fCompatibleColorTypes={{kRGBA_10x6_SkColorType, Swizzle::RGBA(), std::nullopt}}},
+
+    {.fFormat=TextureFormat::kYUV8_P2_444,
+     .fChannels={{'y', 8, UNorm}, {'u', 8, UNorm}, {'v', 8, UNorm}},
+     .fXferSwizzle=std::nullopt,
+     .fCompatibleColorTypes={{kRGB_888x_SkColorType, Swizzle::RGBA(), std::nullopt}}},
+
+    {.fFormat=TextureFormat::kYUV8_P3_444,
+     .fChannels={{'y', 8, UNorm}, {'u', 8, UNorm}, {'v', 8, UNorm}},
+     .fXferSwizzle=std::nullopt,
+     .fCompatibleColorTypes={{kRGB_888x_SkColorType, Swizzle::RGBA(), std::nullopt}}},
+
+    {.fFormat=TextureFormat::kYUV10x6_P2_444,
+     .fChannels={{'y', 10, UNorm}, {'x', 6, Pad}, {'u', 10, UNorm}, {'x', 6, Pad},
+                 {'v', 10, UNorm}, {'x', 6, Pad}},
+     .fXferSwizzle=std::nullopt,
+     .fCompatibleColorTypes={{kRGBA_10x6_SkColorType, Swizzle::RGBA(), std::nullopt}}},
+
     {.fFormat=TextureFormat::kExternal,
      // We don't really know this, but most Skia behavior defaults to assuming 8-bit color
      .fChannels={{'r', 8, UNorm}, {'g', 8, UNorm}, {'b', 8, UNorm}, {'a', 8, UNorm}},
@@ -911,7 +1005,7 @@ void test_format_transfers(skiatest::Reporter* r,
         REPORTER_ASSERT(r, textureFormat.fXferSwizzle.has_value() == xferFn.has_value());
 
         if (textureFormat.fXferSwizzle.has_value() && xferFn.has_value()) {
-            PixelData cpuPixel = gen_pixel_data(src.fChannels, Swizzle::RGBA(), srcAT);
+            auto [cpuPixel, cpuPixelBits] = gen_pixel_data(src.fChannels, Swizzle::RGBA(), srcAT);
 
             // The expected GPU value is formed by applying the source colortype's effective
             // swizzle (i.e. fill in missing channels), and the format's compatible colortype's
@@ -923,13 +1017,13 @@ void test_format_transfers(skiatest::Reporter* r,
                 loadSrc = Swizzle::Concat(loadSrc, Swizzle("gbra"));
             }
 
-            PixelData expectedGpuPixel = gen_pixel_data(expectedTextureChannels,
-                                                        writeSwizzle,
-                                                        dstAT,
-                                                        src.fChannels,
-                                                        loadSrc,
-                                                        srcAT);
-            PixelData actualGpuPixel = transfer_data(*xferFn, cpuPixel);
+            auto [expectedGpuPixel, gpuPixelBits] = gen_pixel_data(expectedTextureChannels,
+                                                                   writeSwizzle,
+                                                                   dstAT,
+                                                                   src.fChannels,
+                                                                   loadSrc,
+                                                                   srcAT);
+            PixelData actualGpuPixel = transfer_data(*xferFn, cpuPixel, cpuPixelBits, gpuPixelBits);
 
             const int tol = channel_tolerance(src.fChannels, srcAT,
                                               expectedTextureChannels, dstAT);
@@ -963,9 +1057,9 @@ void test_format_transfers(skiatest::Reporter* r,
         REPORTER_ASSERT(r, textureFormat.fXferSwizzle.has_value() == xferFn.has_value());
 
         if (textureFormat.fXferSwizzle.has_value() && xferFn.has_value()) {
-            PixelData gpuPixel = gen_pixel_data(expectedTextureChannels,
-                                                textureCT.fReadSwizzle,
-                                                srcAT);
+            auto [gpuPixel, gpuPixelBits] = gen_pixel_data(expectedTextureChannels,
+                                                           textureCT.fReadSwizzle,
+                                                           srcAT);
 
             // The expected CPU value is formed by applying the TextureFormat's implicit transfer
             // swizzle (i.e. fill in missing channels), its compatible colortype's read swizzle
@@ -974,14 +1068,14 @@ void test_format_transfers(skiatest::Reporter* r,
             if (applyCS) {
                 loadSrc = Swizzle::Concat(loadSrc, Swizzle("gbra")); // See above
             }
-            PixelData expectedCpuPixel = gen_pixel_data(dst.fChannels,
-                                                        Swizzle::RGBA(),
-                                                        dstAT,
-                                                        expectedTextureChannels,
-                                                        loadSrc,
-                                                        srcAT);
+            auto [expectedCpuPixel, cpuPixelBits] = gen_pixel_data(dst.fChannels,
+                                                                   Swizzle::RGBA(),
+                                                                   dstAT,
+                                                                   expectedTextureChannels,
+                                                                   loadSrc,
+                                                                   srcAT);
 
-            PixelData actualCpuPixel = transfer_data(*xferFn, gpuPixel);
+            PixelData actualCpuPixel = transfer_data(*xferFn, gpuPixel, gpuPixelBits, cpuPixelBits);
 
             const int tol = channel_tolerance(expectedTextureChannels, srcAT,
                                               dst.fChannels, dstAT);
@@ -1109,7 +1203,7 @@ void run_texture_format_test(skiatest::Reporter* r, const Caps* caps, TextureFor
     REPORTER_ASSERT(r, foundExpectation, "Missing expectation for %s", TextureFormatName(format));
 }
 
-DEF_GRAPHITE_TEST_FOR_ALL_CONTEXTS(TextureFormatTest, r, ctx, CtsEnforcement::kNextRelease) {
+DEF_GRAPHITE_TEST_FOR_ALL_CONTEXTS(TextureFormatTest, r, ctx, CtsEnforcement::kApiLevel_202604) {
     for (int i = 0; i < kTextureFormatCount; ++i) {
         run_texture_format_test(r, ctx->priv().caps(), static_cast<TextureFormat>(i));
     }

@@ -56,6 +56,7 @@
 #include "HTMLStyleElement.h"
 #include "InputEvent.h"
 #include "InspectorInstrumentation.h"
+#include "JSNodeCustom.h"
 #include "KeyboardEvent.h"
 #include "LiveNodeListInlines.h"
 #include "LocalDOMWindow.h"
@@ -1271,7 +1272,7 @@ bool Node::canStartSelection() const
         if (style.userDrag() == UserDrag::Element && style.usedUserSelect() == UserSelect::None)
             return false;
     }
-    return parentOrShadowHostNode() ? protect(parentOrShadowHostNode())->canStartSelection() : true;
+    return !parentOrShadowHostNode() || protect(parentOrShadowHostNode())->canStartSelection();
 }
 
 Element* Node::shadowHost() const
@@ -2279,6 +2280,16 @@ void Node::moveTreeToNewScope(Node& root, TreeScope& oldScope, TreeScope& newSco
     }
 }
 
+inline void Node::adoptCustomElementRegistryIntoScopedRegistryDocument()
+{
+    // Called during adoption only when the destination document's custom element registry is scoped.
+    // An element that inherits the global custom element registry (neither uses the null registry
+    // nor an explicit scoped registry) has no global registry to inherit in such a document, so it
+    // ends up with a null custom element registry.
+    if (is<Element>(*this) && !usesNullCustomElementRegistry() && !usesScopedCustomElementRegistryMap())
+        setUsesNullCustomElementRegistry();
+}
+
 void Node::moveNodeToNewDocumentFastCase(Document& oldDocument, Document& newDocument)
 {
     ASSERT(!oldDocument.shouldInvalidateNodeListAndCollectionCaches());
@@ -2292,8 +2303,13 @@ void Node::moveNodeToNewDocumentFastCase(Document& oldDocument, Document& newDoc
     ASSERT(!transientMutationObserverRegistry());
     ASSERT(!oldDocument.numberOfIntersectionObservers());
 
+    ensureWrapperForAdoptedNodeWithForeignGlobalObjectIfNeeded(*this, oldDocument, newDocument);
+
     if (usesNullCustomElementRegistry() && !newDocument.usesNullCustomElementRegistry()) [[unlikely]]
         clearUsesNullCustomElementRegistry();
+
+    if (RefPtr newRegistry = newDocument.customElementRegistry(); newRegistry && newRegistry->isScoped()) [[unlikely]]
+        adoptCustomElementRegistryIntoScopedRegistryDocument();
 
     if (!hasTypeFlag(TypeFlag::HasDidMoveToNewDocument) && !hasEventTargetFlag(EventTargetFlag::HasLangAttr) && !hasEventTargetFlag(EventTargetFlag::HasXMLLangAttr)
         && !isDefinedCustomElement())
@@ -2305,11 +2321,16 @@ void Node::moveNodeToNewDocumentFastCase(Document& oldDocument, Document& newDoc
 
 void Node::moveNodeToNewDocumentSlowCase(Document& oldDocument, Document& newDocument)
 {
+    ensureWrapperForAdoptedNodeWithForeignGlobalObjectIfNeeded(*this, oldDocument, newDocument);
+
     newDocument.incrementReferencingNodeCount();
     oldDocument.decrementReferencingNodeCount();
 
     if (usesNullCustomElementRegistry() && !newDocument.usesNullCustomElementRegistry()) [[unlikely]]
         clearUsesNullCustomElementRegistry();
+
+    if (RefPtr newRegistry = newDocument.customElementRegistry(); newRegistry && newRegistry->isScoped()) [[unlikely]]
+        adoptCustomElementRegistryIntoScopedRegistryDocument();
 
     if (hasRareData()) {
         if (auto* nodeLists = rareData()->nodeLists())
@@ -2830,8 +2851,8 @@ void Node::defaultEventHandler(Event& event)
 
 bool Node::willRespondToMouseMoveEvents() const
 {
-    // FIXME: Why is the iOS code path different from the non-iOS code path?
-#if !PLATFORM(IOS_FAMILY)
+    // FIXME: Why is the Cocoa code path different from the non-Cocoa code path?
+#if !PLATFORM(COCOA)
     auto* element = dynamicDowncast<Element>(*this);
     if (!element)
         return false;
@@ -2869,10 +2890,15 @@ bool Node::willRespondToMouseClickEvents(const Style::ComputedStyle* styleToUse)
     return willRespondToMouseClickEventsWithEditability(computeEditabilityForMouseClickEvents(styleToUse));
 }
 
+bool Node::hasActivationBehavior() const
+{
+    return false;
+}
+
 bool Node::willRespondToMouseClickEventsWithEditability(Editability editability) const
 {
-    // FIXME: Why is the iOS code path different from the non-iOS code path?
-#if !PLATFORM(IOS_FAMILY)
+    // FIXME: Why is the Cocoa code path different from the non-Cocoa code path?
+#if !PLATFORM(COCOA)
     auto* element = dynamicDowncast<Element>(*this);
     if (!element)
         return false;

@@ -365,6 +365,12 @@ void Pasteboard::read(PasteboardFileReader& reader, std::optional<size_t>)
             return;
         }
     }
+
+    static constexpr auto svgImageType = "image/svg+xml"_s;
+    if (reader.shouldReadBuffer(svgImageType)) {
+        if (auto buffer = readBuffer(0, svgImageType))
+            reader.readBuffer("image.svg"_s, svgImageType, buffer.releaseNonNull());
+    }
 }
 
 bool Pasteboard::hasData()
@@ -498,7 +504,7 @@ void Pasteboard::writeMarkup(const String&)
 {
 }
 
-void Pasteboard::writeCustomData(const Vector<PasteboardCustomData>& data)
+void Pasteboard::writeCustomData(const Vector<PasteboardCustomData>& data, PasteboardWriteType)
 {
     if (m_selectionData) {
         if (!data.isEmpty()) {

@@ -95,6 +95,10 @@
 #include "DocumentFullscreen.h"
 #endif
 
+#if ENABLE(AX_CUSTOM_COLOR_MODE)
+#include <WebKitAdditions/StyleAdjusterAdditions.cpp>
+#endif
+
 namespace WebCore {
 namespace Style {
 
@@ -392,6 +396,9 @@ static bool shouldTreatAutoZIndexAsZero(const Style::ComputedStyle& style)
         || style.isolation() != Isolation::Auto
         || style.position() == PositionType::Sticky
         || style.position() == PositionType::Fixed
+#if ENABLE(SPATIAL_PORTAL)
+        || style.spatial() == SpatialType::Portal
+#endif
         || style.willChange().canCreateStackingContext();
 }
 
@@ -628,6 +635,21 @@ void Adjuster::adjust(Style::ComputedStyle& style) const
         if (m_document->settings().detailsAutoExpandEnabled() && m_element->isInUserAgentShadowTree() && m_element->userAgentPart() == UserAgentParts::detailsContent())
             style.setAutoRevealsWhenFound();
 
+#if ENABLE(IMAGE_ANALYSIS)
+        // Don't allow selecting individual glyphs on text recognized inside an image:
+        if (m_element->isInUserAgentShadowTree() && m_element->userAgentPart() == UserAgentParts::internalImageOverlayText()) {
+            switch (style.webkitUserSelect()) {
+            case UserSelect::All:
+            case UserSelect::None:
+                break;
+            case UserSelect::Auto:
+            case UserSelect::Text:
+                style.setWebkitUserSelect(UserSelect::All);
+                break;
+            }
+        }
+#endif
+
         if (RefPtr htmlElement = dynamicDowncast<HTMLElement>(element); htmlElement && htmlElement->isHiddenUntilFound())
             style.setAutoRevealsWhenFound();
     }
@@ -728,6 +750,12 @@ void Adjuster::adjust(Style::ComputedStyle& style) const
 
     style.setIsEffectivelyTransparent(style.opacity().isTransparent() || m_parentStyle.isEffectivelyTransparent());
 
+    // https://drafts.csswg.org/css-text-4/#wrap-inside
+    // wrap-inside is not inherited, but its "avoid" effect applies to soft wrap opportunities within the box's own inline
+    // formatting context. Propagate it from an inline box to its in-flow content.
+    bool isInlineBox = style.display() == DisplayType::InlineFlow || style.display() == DisplayType::InlineRuby || style.display() == DisplayType::RubyBase;
+    style.setEffectiveWrapInsideAvoid(style.wrapInside() == WrapInside::Avoid || (isInlineBox && m_parentStyle.effectiveWrapInsideAvoid()));
+
     if (RefPtr element = dynamicDowncast<SVGElement>(m_element))
         adjustSVGElementStyle(style, *element);
 
@@ -793,7 +821,29 @@ void Adjuster::adjust(Style::ComputedStyle& style) const
         style.setContainIntrinsicHeight(style.containIntrinsicHeight().addingAuto());
     }
 
+#if ENABLE(AX_CUSTOM_COLOR_MODE)
+    adjustForAXCustomColorMode(style);
+#endif
+
     adjustForSiteSpecificQuirks(style);
+
+    adjustUsedUserSelect(style);
+}
+
+void Adjuster::adjustUsedUserSelect(Style::ComputedStyle& style) const
+{
+    auto value = style.webkitUserSelect();
+
+    // On editable, non-draggable content, 'none' is overridden so that the content can
+    // still be selected and carets can be placed in it.
+    if (style.userModify() != UserModify::ReadOnly && style.userDrag() != UserDrag::Element && value == UserSelect::None)
+        value = UserSelect::Text;
+
+    // 'auto' means nothing stronger was inherited, so it is handled as 'text'.
+    if (value == UserSelect::Auto)
+        value = UserSelect::Text;
+
+    style.setUsedUserSelect(value);
 }
 
 static bool NODELETE hasEffectiveDisplayNoneForDisplayContents(const Element& element)
@@ -1002,17 +1052,6 @@ void Adjuster::adjustForSiteSpecificQuirks(Style::ComputedStyle& style) const
             style.setDisplayMaintainingOriginalDisplay(DisplayType::None);
     }
 
-    // zillow.com rdar://171279940
-    // FIXME(309831): Remove after rdar://172303198 is implemented.
-    if (documentQuirks.needsZillowFloorplanMarginQuirk()) {
-        if (m_element->hasTagName(imgTag)) {
-            if (RefPtr parent = m_element->parentElement(); parent && parent->idForStyleResolution() == "floorplan_panel"_s) {
-                style.setMarginLeft(CSS::Keyword::Auto { });
-                style.setMarginRight(CSS::Keyword::Auto { });
-            }
-        }
-    }
-
     // yahoo.com rdar://170502516
     if (documentQuirks.needsYahooVolumeSliderQuirk()) {
         static MainThreadNeverDestroyed<const AtomString> className("vjs-volume-control"_s);
@@ -1058,7 +1097,7 @@ void Adjuster::adjustForSiteSpecificQuirks(Style::ComputedStyle& style) const
     if (documentQuirks.needsPrimeVideoUserSelectNoneQuirk()) {
         static MainThreadNeverDestroyed<const AtomString> className("webPlayerSDKUiContainer"_s);
         if (m_element->hasClassName(className))
-            style.setUserSelect(UserSelect::None);
+            style.setWebkitUserSelect(UserSelect::None);
     }
 
     if (auto tikTokOverflowingContentQuery = documentQuirks.needsTikTokOverflowingContentQuirk(protect(*m_element), m_parentStyle)) {

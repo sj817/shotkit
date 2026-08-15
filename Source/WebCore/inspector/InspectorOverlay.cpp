@@ -61,12 +61,12 @@
 #include "Node.h"
 #include "NodeList.h"
 #include "NodeRenderStyle.h"
-#include "OrderIterator.h"
 #include "Page.h"
 #include "PageInspectorController.h"
 #include "PseudoElement.h"
 #include "RenderBoxInlines.h"
 #include "RenderBoxModelObject.h"
+#include "RenderChildIterator.h"
 #include "RenderElementStyleInlines.h"
 #include "RenderFlexibleBox.h"
 #include "RenderGrid.h"
@@ -1140,10 +1140,7 @@ void InspectorOverlay::drawRulers(GraphicsContext& context, const InspectorOverl
 
 static bool NODELETE rendererIsFlexboxItem(RenderObject& renderer)
 {
-    if (auto* parentFlexRenderer = dynamicDowncast<RenderFlexibleBox>(renderer.parent()))
-        return !parentFlexRenderer->orderIterator().shouldSkipChild(renderer);
-
-    return false;
+    return is<RenderFlexibleBox>(renderer.parent()) && !renderer.isOutOfFlowPositioned() && !renderer.isExcludedFromNormalLayout();
 }
 
 static bool NODELETE rendererIsGridItem(RenderObject& renderer)
@@ -1699,7 +1696,7 @@ std::optional<InspectorOverlay::Highlight::GridHighlightOverlay> InspectorOverla
     gridHighlightOverlay.color = gridOverlay.config.gridColor;
 
     // Draw columns and rows.
-    auto columnWidths = renderGrid->trackSizesForComputedStyle(Style::GridTrackSizingDirection::Columns);
+    auto& columnWidths = renderGrid->trackSizesForComputedStyle(Style::GridTrackSizingDirection::Columns);
     auto columnLineNames = gridLineNames(node->renderStyle(), Style::GridTrackSizingDirection::Columns, columnPositions.size());
     auto authoredTrackColumnSizes = authoredGridTrackSizes(node, Style::GridTrackSizingDirection::Columns, columnWidths.size());
     FloatLine previousColumnEndLine;
@@ -1788,7 +1785,7 @@ std::optional<InspectorOverlay::Highlight::GridHighlightOverlay> InspectorOverla
         }
     }
 
-    auto rowHeights = renderGrid->trackSizesForComputedStyle(Style::GridTrackSizingDirection::Rows);
+    auto& rowHeights = renderGrid->trackSizesForComputedStyle(Style::GridTrackSizingDirection::Rows);
     auto rowLineNames = gridLineNames(node->renderStyle(), Style::GridTrackSizingDirection::Rows, rowPositions.size());
     auto authoredTrackRowSizes = authoredGridTrackSizes(node, Style::GridTrackSizingDirection::Rows, rowHeights.size());
     FloatLine previousRowEndLine;
@@ -2246,12 +2243,16 @@ std::optional<InspectorOverlay::Highlight::FlexHighlightOverlay> InspectorOverla
     Vector<RenderBox*> renderChildrenInDOMOrder;
     bool hasCustomOrder = false;
 
-    auto childOrderIterator = renderFlex->orderIterator();
-    for (CheckedPtr<RenderBox> renderChild = childOrderIterator.first(); renderChild; renderChild = childOrderIterator.next()) {
-        if (childOrderIterator.shouldSkipChild(*renderChild))
-            continue;
-        renderChildrenInFlexOrder.append(renderChild);
+    // The container's in-flow children in order-modified document order, which is the order the flex algorithm laid
+    // them out in and so the order the cached line-start indices below are relative to. A stable sort by the used
+    // 'order' value keeps document order among equal values.
+    for (auto& flexItem : childrenOfType<RenderBox>(renderFlex.get())) {
+        if (!flexItem.isOutOfFlowPositioned() && !flexItem.isExcludedFromNormalLayout())
+            renderChildrenInFlexOrder.append(&flexItem);
     }
+    std::stable_sort(renderChildrenInFlexOrder.begin(), renderChildrenInFlexOrder.end(), [](auto& a, auto& b) {
+        return a->style().order().value < b->style().order().value;
+    });
 
     if (flexOverlay.config.showOrderNumbers) {
         for (RefPtr child = node->firstChild(); child; child = child->nextSibling()) {

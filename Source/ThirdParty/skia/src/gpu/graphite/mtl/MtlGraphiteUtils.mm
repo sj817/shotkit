@@ -5,6 +5,7 @@
  * found in the LICENSE file.
  */
 
+#include "include/core/SkContext.h"
 #include "include/core/SkStream.h"
 #include "include/gpu/ShaderErrorHandler.h"
 #include "include/gpu/graphite/Context.h"
@@ -18,6 +19,15 @@
 #include "src/gpu/mtl/MtlUtilsPriv.h"
 
 #import <Metal/Metal.h>
+
+namespace SkContexts {
+// Creates a context wrapping a Graphite GPU backend using Metal
+std::unique_ptr<SkContext> MakeGraphite(const skgpu::graphite::MtlBackendContext& mtlContext,
+                              const SkContextOptions& options) {
+    return nullptr;
+}
+
+}  // namespace SkContexts
 
 namespace skgpu::graphite {
 
@@ -469,9 +479,15 @@ SkEnumBitMask<MTLFeatureFlag> MTLPixelFormatSupport(MTLGPUFamily family, MTLPixe
     /*TextureFormat::kRGB8_BC1,       unsupported */                        \
     M(TextureFormat::kRGBA8_BC1,      MTLPixelFormatBC1_RGBA_)              \
     M(TextureFormat::kRGBA8_BC1_sRGB, MTLPixelFormatBC1_RGBA_sRGB_)         \
-    /*TextureFormat::kYUV8_P2_420,    unsupported */                        \
+    /*TextureFormat::kYUV8_P2_420,    CVPixelFormat('420v') */              \
     /*TextureFormat::kYUV8_P3_420,    unsupported */                        \
-    /*TextureFormat::kYUV10x6_P2_420, unsupported */                        \
+    /*TextureFormat::kYUV10x6_P2_420, CVPixelFormat('x420') */              \
+    /*TextureFormat::kYUV8_P2_422,    CVPixelFormat('422v') */              \
+    /*TextureFormat::kYUV8_P3_422,    unsupported */                        \
+    /*TextureFormat::kYUV10x6_P2_422, CVPixelFormat('x422') */              \
+    /*TextureFormat::kYUV8_P2_444,    CVPixelFormat('444v') */              \
+    /*TextureFormat::kYUV8_P3_444,    unsupported */                        \
+    /*TextureFormat::kYUV10x6_P2_444, CVPixelFormat('x444') */              \
     /*TextureFormat::kExternal,       unsupported */                        \
     M(TextureFormat::kS8,             MTLPixelFormatStencil8)               \
     M(TextureFormat::kD16,            MTLPixelFormatDepth16Unorm)           \

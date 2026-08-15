@@ -78,6 +78,7 @@
 #include <JavaScriptCore/ContentSearchUtilities.h>
 #include <JavaScriptCore/IdentifiersFactory.h>
 #include <JavaScriptCore/RegularExpression.h>
+#include <wtf/HashSet.h>
 #include <wtf/ListHashSet.h>
 #include <wtf/Stopwatch.h>
 #include <wtf/TZoneMallocInlines.h>
@@ -160,15 +161,23 @@ Inspector::Protocol::ErrorStringOr<void> InspectorPageAgent::disable()
 
     auto& inspectedPageSettings = m_inspectedPage->settings();
     inspectedPageSettings.setAuthorAndUserStylesEnabledInspectorOverride(std::nullopt);
+    inspectedPageSettings.setFixedBackgroundsPaintRelativeToDocumentInspectorOverride(std::nullopt);
+    inspectedPageSettings.setFullScreenEnabledInspectorOverride(std::nullopt);
     inspectedPageSettings.setICECandidateFilteringEnabledInspectorOverride(std::nullopt);
     inspectedPageSettings.setImagesEnabledInspectorOverride(std::nullopt);
+    inspectedPageSettings.setInputTypeMonthEnabledInspectorOverride(std::nullopt);
+    inspectedPageSettings.setInputTypeWeekEnabledInspectorOverride(std::nullopt);
     inspectedPageSettings.setMediaCaptureRequiresSecureConnectionInspectorOverride(std::nullopt);
     inspectedPageSettings.setMockCaptureDevicesEnabledInspectorOverride(std::nullopt);
     inspectedPageSettings.setNeedsSiteSpecificQuirksInspectorOverride(std::nullopt);
+    inspectedPageSettings.setNotificationsEnabledInspectorOverride(std::nullopt);
+    inspectedPageSettings.setPointerLockEnabledInspectorOverride(std::nullopt);
+    inspectedPageSettings.setPushAPIEnabledInspectorOverride(std::nullopt);
     inspectedPageSettings.setScriptEnabledInspectorOverride(std::nullopt);
     inspectedPageSettings.setShowDebugBordersInspectorOverride(std::nullopt);
     inspectedPageSettings.setShowRepaintCounterInspectorOverride(std::nullopt);
     inspectedPageSettings.setWebSecurityEnabledInspectorOverride(std::nullopt);
+
     inspectedPageSettings.setForcedPrefersReducedMotionAccessibilityValue(ForcedAccessibilityValue::System);
     inspectedPageSettings.setForcedPrefersContrastAccessibilityValue(ForcedAccessibilityValue::System);
 
@@ -221,6 +230,14 @@ Inspector::Protocol::ErrorStringOr<void> InspectorPageAgent::overrideSetting(Ins
         inspectedPageSettings.setAuthorAndUserStylesEnabledInspectorOverride(value);
         return { };
 
+    case Inspector::Protocol::Page::Setting::FixedBackgroundsPaintRelativeToDocument:
+        inspectedPageSettings.setFixedBackgroundsPaintRelativeToDocumentInspectorOverride(value);
+        return { };
+
+    case Inspector::Protocol::Page::Setting::FullScreenEnabled:
+        inspectedPageSettings.setFullScreenEnabledInspectorOverride(value);
+        return { };
+
     case Inspector::Protocol::Page::Setting::ICECandidateFilteringEnabled:
         inspectedPageSettings.setICECandidateFilteringEnabledInspectorOverride(value);
         return { };
@@ -231,6 +248,14 @@ Inspector::Protocol::ErrorStringOr<void> InspectorPageAgent::overrideSetting(Ins
 
     case Inspector::Protocol::Page::Setting::ImagesEnabled:
         inspectedPageSettings.setImagesEnabledInspectorOverride(value);
+        return { };
+
+    case Inspector::Protocol::Page::Setting::InputTypeMonthEnabled:
+        inspectedPageSettings.setInputTypeMonthEnabledInspectorOverride(value);
+        return { };
+
+    case Inspector::Protocol::Page::Setting::InputTypeWeekEnabled:
+        inspectedPageSettings.setInputTypeWeekEnabledInspectorOverride(value);
         return { };
 
     case Inspector::Protocol::Page::Setting::MediaCaptureRequiresSecureConnection:
@@ -245,6 +270,18 @@ Inspector::Protocol::ErrorStringOr<void> InspectorPageAgent::overrideSetting(Ins
     case Inspector::Protocol::Page::Setting::NeedsSiteSpecificQuirks:
         inspectedPageSettings.setNeedsSiteSpecificQuirksInspectorOverride(value);
         m_client->setDeveloperPreferenceOverride(InspectorBackendClient::DeveloperPreference::NeedsSiteSpecificQuirks, value);
+        return { };
+
+    case Inspector::Protocol::Page::Setting::NotificationsEnabled:
+        inspectedPageSettings.setNotificationsEnabledInspectorOverride(value);
+        return { };
+
+    case Inspector::Protocol::Page::Setting::PointerLockEnabled:
+        inspectedPageSettings.setPointerLockEnabledInspectorOverride(value);
+        return { };
+
+    case Inspector::Protocol::Page::Setting::PushAPIEnabled:
+        inspectedPageSettings.setPushAPIEnabledInspectorOverride(value);
         return { };
 
     case Inspector::Protocol::Page::Setting::ScriptEnabled:
@@ -547,20 +584,27 @@ void InspectorPageAgent::getResourceTree(Ref<GetResourceTreeCallback>&& callback
     callback->sendSuccess(buildObjectForFrameTree(localMainFrame.get()));
 }
 
-Inspector::Protocol::ErrorStringOr<std::tuple<String, bool /* base64Encoded */>> InspectorPageAgent::getResourceContent(const Inspector::Protocol::Network::FrameId& frameId, const String& url)
+void InspectorPageAgent::getResourceContent(const Inspector::Protocol::Network::FrameId& frameId, const String& url, Ref<GetResourceContentCallback>&& callback)
 {
     Inspector::Protocol::ErrorString errorString;
 
     RefPtr frame = assertFrame(errorString, frameId);
-    if (!frame)
-        return makeUnexpected(errorString);
+    if (!frame) {
+        callback->sendFailure(errorString);
+        return;
+    }
 
     String content;
-    bool base64Encoded;
+    bool base64Encoded = false;
 
-    ResourceUtilities::resourceContent(errorString, frame, URL({ }, url), &content, &base64Encoded);
+    // Behavior is identical to the previous synchronous implementation: on a resource-lookup
+    // miss resourceContent() sets errorString but leaves content empty, and we still report
+    // success with that empty content (the frontend tolerates empty content on this path).
+    // Only the return mechanism changed (sync tuple -> async callback) for the Page.json
+    // "async" flip required by ProxyingPageAgent's cross-process implementation.
+    ResourceUtilities::resourceContent(errorString, frame.get(), URL({ }, url), &content, &base64Encoded);
 
-    return { { content, base64Encoded } };
+    callback->sendSuccess(content, base64Encoded);
 }
 
 Inspector::Protocol::ErrorStringOr<void> InspectorPageAgent::setBootstrapScript(const String& source)
@@ -641,12 +685,14 @@ void InspectorPageAgent::searchInResources(const String& text, std::optional<boo
     auto regex = ContentSearchUtilities::createRegularExpressionForString(text, searchType, searchCaseSensitive);
 
     // FIXME: rework this frame tree traversal as it won't work with Site Isolation enabled.
+    HashSet<String> searchedURLs;
     for (RefPtr frame = &m_inspectedPage->mainFrame(); frame; frame = frame->tree().traverseNext()) {
         RefPtr localFrame = dynamicDowncast<LocalFrame>(frame);
         if (!localFrame)
             continue;
         for (RefPtr cachedResource : ResourceUtilities::cachedResourcesForFrame(localFrame.get())) {
             if (auto textContent = ResourceUtilities::textContentForCachedResource(*cachedResource)) {
+                searchedURLs.add(cachedResource->url().string());
                 int matchesCount = ContentSearchUtilities::countRegularExpressionMatches(regex, *textContent);
                 if (matchesCount)
                     result->addItem(buildObjectForSearchResult(frameId(localFrame.get()), cachedResource->url().string(), matchesCount));
@@ -655,7 +701,7 @@ void InspectorPageAgent::searchInResources(const String& text, std::optional<boo
     }
 
     if (CheckedPtr networkAgent = Ref { m_instrumentingAgents.get() }->enabledNetworkAgent())
-        networkAgent->searchOtherRequests(regex, result);
+        networkAgent->searchOtherRequests(regex, result, searchedURLs);
 
     callback->sendSuccess(WTF::move(result));
 }

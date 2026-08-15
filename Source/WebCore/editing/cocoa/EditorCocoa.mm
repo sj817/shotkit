@@ -65,6 +65,7 @@
 #import "PasteboardStrategy.h"
 #import "PlatformNSAdaptiveImageGlyph.h"
 #import "PlatformStrategies.h"
+#import "RemoteFrame.h"
 #import "RenderElement.h"
 #import "ReplaceSelectionCommand.h"
 #import "Settings.h"
@@ -75,9 +76,12 @@
 #import "WebContentReader.h"
 #import "markup.h"
 #import <pal/spi/cocoa/NSAttributedStringSPI.h>
+#import <ranges>
 #import <wtf/BlockObjCExceptions.h>
+#import <wtf/HashSet.h>
 #import <wtf/cocoa/NSURLExtras.h>
 #import <wtf/cocoa/SpanCocoa.h>
+#import <wtf/cocoa/TypeCastsCocoa.h>
 #import <wtf/text/MakeString.h>
 
 namespace WebCore {
@@ -111,7 +115,7 @@ void Editor::getPasteboardTypesAndDataForAttachment(Element& element, Vector<std
 
 static RetainPtr<NSAttributedString> selectionInImageOverlayAsAttributedString(const VisibleSelection& selection)
 {
-#if ENABLE(IMAGE_ANALYSIS_ENHANCEMENTS)
+#if ENABLE(IMAGE_ANALYSIS)
     RefPtr page = selection.document()->page();
     if (!page)
         return nil;
@@ -155,16 +159,55 @@ static RetainPtr<NSAttributedString> selectionAsAttributedString(const Document&
     if (ImageOverlay::isInsideOverlay(selection))
         return selectionInImageOverlayAsAttributedString(selection);
     auto range = selection.firstRange();
-    return range ? attributedString(*range, IgnoreUserSelectNone::Yes).nsAttributedString() : adoptNS([[NSAttributedString alloc] init]);
+    return range ? attributedString(*range, IgnoreUserSelectNone::Yes, MarkRemoteFrameContentPositions::Yes).nsAttributedString() : adoptNS([NSAttributedString new]);
+}
+
+static RetainPtr<NSAttributedString> attributedStringByReplacingRemoteFrameMarkers(RetainPtr<NSAttributedString>&& string, const HashMap<FrameIdentifier, AttributedString>& remoteFrameContent)
+{
+    HashMap<String, AttributedString> contentByFrameIdentifier;
+    for (auto& [frameIdentifier, content] : remoteFrameContent)
+        contentByFrameIdentifier.set(makeString(frameIdentifier.toUInt64()), content);
+
+    RetainPtr result = adoptNS([[NSMutableAttributedString alloc] initWithAttributedString:string]);
+    HashSet<String> replacedFrameIdentifiers;
+    while (true) {
+        Vector<std::pair<NSRange, String>> markers;
+        [result enumerateAttribute:protect(remoteFrameIdentifierAttributeName()) inRange:NSMakeRange(0, [result length]) options:0 usingBlock:[&](id value, NSRange range, BOOL *) {
+            if (RetainPtr identifier = dynamic_objc_cast<NSString>(value))
+                markers.append({ range, identifier.get() });
+        }];
+
+        if (markers.isEmpty())
+            break;
+
+        // Replace back to front so that each range stays valid as earlier ones are substituted.
+        for (auto& [range, frameIdentifier] : markers | std::views::reverse) {
+            RetainPtr<NSAttributedString> content;
+            if (replacedFrameIdentifiers.add(frameIdentifier).isNewEntry) {
+                if (auto it = contentByFrameIdentifier.find(frameIdentifier); it != contentByFrameIdentifier.end())
+                    content = it->value.nsAttributedString();
+            }
+
+            if (content)
+                [result replaceCharactersInRange:range withAttributedString:content];
+            else
+                [result deleteCharactersInRange:range];
+        }
+    }
+    return result;
 }
 
 template<typename PasteboardContent>
-void populateRichTextDataIfNeeded(PasteboardContent& content, const Document& document)
+void populateRichTextDataIfNeeded(PasteboardContent& content, const Document& document, const HashMap<FrameIdentifier, AttributedString>& remoteFrameContent = { })
 {
     if (!document.settings().writeRichTextDataWhenCopyingOrDragging())
         return;
 
-    auto string = selectionAsAttributedString(document);
+    RetainPtr stringWithRemoteFrameMarkers = selectionAsAttributedString(document);
+    if (!stringWithRemoteFrameMarkers)
+        return;
+
+    auto string = attributedStringByReplacingRemoteFrameMarkers(WTF::move(stringWithRemoteFrameMarkers), remoteFrameContent);
     content.dataInRTFDFormat = [string containsAttachments] ? Editor::dataInRTFDFormat(string.get()) : nullptr;
     content.dataInRTFFormat = Editor::dataInRTFFormat(string.get());
     content.dataInAttributedStringFormat = AttributedString::fromNSAttributedString(string.get());
@@ -183,9 +226,17 @@ void Editor::writeSelectionToPasteboard(Pasteboard& pasteboard)
                 LegacyWebArchive::ShouldSaveScriptsFromMemoryCache::Yes,
                 LegacyWebArchive::ShouldArchiveSubframes::No
             };
-            if (document->settings().siteIsolationEnabled())
+            HashMap<FrameIdentifier, AttributedString> remoteFrameContent;
+            if (document->settings().siteIsolationEnabled()) {
                 content.webArchive = LegacyWebArchive::createFromSelection(protect(document->frame()), WTF::move(options));
-            populateRichTextDataIfNeeded(content, document);
+                RefPtr localFrame = document->frame();
+                if (content.webArchive && localFrame) {
+                    auto selectedSubframeIdentifiers = protect(content.webArchive)->subframeIdentifiers();
+                    if (!selectedSubframeIdentifiers.isEmpty() && localFrame->tree().containsRemoteFrame())
+                        remoteFrameContent = client()->collectAttributedStringsForRemoteFrames(localFrame->frameID(), selectedSubframeIdentifiers);
+                }
+            }
+            populateRichTextDataIfNeeded(content, document, remoteFrameContent);
         }
         client()->getClientPasteboardData(selectedRange(), content.clientTypesAndData);
     }
@@ -271,6 +322,8 @@ RefPtr<SharedBuffer> Editor::dataInRTFDFormat(NSAttributedString *string)
     if (!length)
         return nullptr;
 
+    ASSERT(!containsRemoteFrameContentMarkers(string));
+
     BEGIN_BLOCK_OBJC_EXCEPTIONS
     return SharedBuffer::create(retainPtr([string RTFDFromRange:NSMakeRange(0, length) documentAttributes:@{ }]).get());
     END_BLOCK_OBJC_EXCEPTIONS
@@ -283,6 +336,8 @@ RefPtr<SharedBuffer> Editor::dataInRTFFormat(NSAttributedString *string)
     NSUInteger length = string.length;
     if (!length)
         return nullptr;
+
+    ASSERT(!containsRemoteFrameContentMarkers(string));
 
     BEGIN_BLOCK_OBJC_EXCEPTIONS
     return SharedBuffer::create(retainPtr([string RTFFromRange:NSMakeRange(0, length) documentAttributes:@{ }]).get());

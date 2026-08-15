@@ -26,12 +26,14 @@
 #pragma once
 
 #include "GridTypeAliases.h"
+#include "UsedTrackSizes.h"
 #include <WebCore/LayoutIntegrationUtils.h>
 #include <WebCore/LayoutState.h>
 #include <WebCore/StyleGapGutter.h>
 #include <WebCore/StyleGridTemplateList.h>
 #include <WebCore/StyleGridTrackSizes.h>
 #include <WebCore/StylePrimitiveNumericTypes+Evaluation.h>
+#include <WebCore/StyleZoomPrimitives.h>
 #include <wtf/CheckedRef.h>
 
 namespace WebCore {
@@ -39,13 +41,11 @@ namespace Layout {
 
 class ElementBox;
 class PlacedGridItem;
-
 class UnplacedGridItem;
 
 struct GridAreaLines;
 struct GridLayoutConstraints;
 struct UnplacedGridItems;
-struct UsedTrackSizes;
 
 enum class PackingStrategy : bool {
     Sparse,
@@ -62,6 +62,21 @@ struct GridAutoFlowOptions {
     GridAutoFlowDirection direction;
 };
 
+struct GridLayoutResult {
+    UsedTrackSizes usedTrackSizes;
+    GridItemRects gridItemRects;
+};
+
+// The number of implicit tracks generated before the start of the explicit grid, per axis, because
+// an item is placed with a negative line that resolves before line 1. Every item's resolved line is
+// shifted forward by these counts when the UnplacedGridItems are constructed so that matrix indices
+// are non-negative, and layout uses them to include the leading tracks in the grid's initial
+// dimensions and track sizing functions.
+struct LeadingImplicitTracks {
+    size_t columnsCount { 0 };
+    size_t rowsCount { 0 };
+};
+
 // https://drafts.csswg.org/css-grid-1/#grid-definition
 struct GridDefinition {
     Style::GridTemplateList gridTemplateColumns;
@@ -69,6 +84,15 @@ struct GridDefinition {
     Style::GridTrackSizes gridAutoColumns;
     Style::GridTrackSizes gridAutoRows;
     GridAutoFlowOptions autoFlowOptions;
+    Style::ZoomFactor zoom;
+};
+
+// Static classification of how much grid-sizing work is required to compute
+// the grid's intrinsic widths. Set once per GridFormattingContext before
+// either the min-content or max-content scenario runs.
+enum class IntrinsicWidthSizingPath : uint8_t {
+    ColumnsOnly, // No item's inline contribution depends on the item's own block size.
+    NeedsFullSizing, // At least one item's inline contribution depends on the item's own block size.
 };
 
 class GridFormattingContext {
@@ -77,7 +101,7 @@ public:
 
     GridFormattingContext(const ElementBox& gridBox, LayoutState&);
 
-    UsedTrackSizes layout(GridLayoutConstraints);
+    GridLayoutResult layout(GridLayoutConstraints);
 
     struct IntrinsicWidths {
         LayoutUnit minimum;
@@ -85,6 +109,7 @@ public:
     };
 
     IntrinsicWidths computeIntrinsicWidths();
+    IntrinsicWidthSizingPath intrinsicWidthSizingPath() const { return m_intrinsicWidthSizingPath; }
 
     PlacedGridItems constructPlacedGridItems(const GridAreas&) const;
 
@@ -115,7 +140,9 @@ public:
     }
 
 private:
-    UnplacedGridItems constructUnplacedGridItems() const;
+    UnplacedGridItems constructUnplacedGridItems(const LogicalGridItems&, LeadingImplicitTracks) const;
+
+    IntrinsicWidthSizingPath classifyIntrinsicWidthSizingPath() const;
 
     const LayoutState& layoutState() const LIFETIME_BOUND { return m_globalLayoutState; }
     BoxGeometry& geometryForGridItem(const ElementBox&) LIFETIME_BOUND;
@@ -126,6 +153,7 @@ private:
     const CheckedRef<const ElementBox> m_gridBox;
     const CheckedRef<LayoutState> m_globalLayoutState;
     const IntegrationUtils m_integrationUtils;
+    const IntrinsicWidthSizingPath m_intrinsicWidthSizingPath;
 };
 
 } // namespace Layout

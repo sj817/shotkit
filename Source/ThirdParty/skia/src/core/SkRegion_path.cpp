@@ -9,23 +9,23 @@
 #include "include/core/SkMatrix.h"
 #include "include/core/SkPath.h"
 #include "include/core/SkPathBuilder.h"
+#include "include/core/SkPoint.h"
 #include "include/core/SkRect.h"
 #include "include/core/SkRegion.h"
 #include "include/core/SkScalar.h"
 #include "include/core/SkTypes.h"
-#include "include/private/base/SkDebug.h"
-#include "include/private/base/SkMalloc.h"
-#include "include/private/base/SkMath.h"
-#include "include/private/base/SkPoint_impl.h"
-#include "include/private/base/SkTDArray.h"
-#include "include/private/base/SkTFitsIn.h"
-#include "include/private/base/SkTo.h"
-#include "src/base/SkSafeMath.h"
-#include "src/base/SkTSort.h"
+#include "include/private/SkDebug.h"
+#include "include/private/SkMalloc.h"
+#include "include/private/SkMath.h"
+#include "include/private/SkTDArray.h"
+#include "include/private/SkTFitsIn.h"
+#include "include/private/SkTo.h"
 #include "src/core/SkBlitter.h"
 #include "src/core/SkPathPriv.h"
 #include "src/core/SkRegionPriv.h"
+#include "src/core/SkSafeMath.h"
 #include "src/core/SkScan.h"
+#include "src/core/SkTSort.h"
 
 #include <algorithm>
 #include <cstdint>
@@ -143,7 +143,7 @@ bool SkRgnBuilder::init(int maxHeight, int maxTransitions, bool pathIsInverse) {
         return false;
     }
 
-    SkSafeMath  safe;
+    SkSafeMath safe;
 
     if (pathIsInverse) {
         // allow for additional X transitions to "invert" each scanline
@@ -364,22 +364,40 @@ bool SkRegion::setPath(const SkPath& path, const SkRegion& clip) {
     // big, tile the clip bounds and union the pieces back together.
     if (SkScan::PathRequiresTiling(clipBounds)) {
         static constexpr int kTileSize = 32767 >> 1; // Limit so coords can fit into SkFixed (16.16)
+        static constexpr int kTileLimit = 1000;      // Max size is about 500k x 500k
         const SkIRect pathBounds = path.getBounds().roundOut();
 
         this->setEmpty();
 
+        SkIRect intersection;
+        if (!intersection.intersect(pathBounds, clipBounds)) {
+            return false;
+        }
+
+        SkSafeMath safe;
+        int width = safe.subInt(intersection.fRight, intersection.fLeft);
+        int height = safe.subInt(intersection.fBottom, intersection.fTop);
+
+        int tilesX = safe.divInt(safe.addInt(width, kTileSize - 1), kTileSize);
+        int tilesY = safe.divInt(safe.addInt(height, kTileSize - 1), kTileSize);
+
+        int totalTiles = safe.mulInt(tilesX, tilesY);
+
+        // Limit the total number of tiles to prevent large coordinate spans from timing out.
+        if (!safe || totalTiles > kTileLimit) {
+            return false;
+        }
+
         // Note: With large integers some intermediate calculations can overflow, but the
         // end results will still be in integer range. Using int64_t for the intermediate
         // values will handle this situation.
-        for (int64_t top = clipBounds.fTop; top < clipBounds.fBottom; top += kTileSize) {
-            int64_t bot = std::min(top + kTileSize, (int64_t)clipBounds.fBottom);
-            for (int64_t left = clipBounds.fLeft; left < clipBounds.fRight; left += kTileSize) {
-                int64_t right = std::min(left + kTileSize, (int64_t)clipBounds.fRight);
+        for (int64_t top = intersection.fTop; top < intersection.fBottom; top += kTileSize) {
+            int64_t bot = std::min(top + kTileSize, (int64_t)intersection.fBottom);
+            for (int64_t left = intersection.fLeft; left < intersection.fRight; left += kTileSize) {
+                int64_t right = std::min(left + kTileSize, (int64_t)intersection.fRight);
 
                 SkIRect tileClipBounds = {(int)left, (int)top, (int)right, (int)bot};
-                if (!SkIRect::Intersects(pathBounds, tileClipBounds)) {
-                    continue;
-                }
+                SkASSERT(SkIRect::Intersects(pathBounds, tileClipBounds));
 
                 // Shift coordinates so the top left is (0,0) during scan conversion and then
                 // translate the SkRegion afterwards.

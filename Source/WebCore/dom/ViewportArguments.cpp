@@ -3,7 +3,7 @@
  *           (C) 1999 Antti Koivisto (koivisto@kde.org)
  *           (C) 2001 Dirk Mueller (mueller@kde.org)
  *           (C) 2006 Alexey Proskuryakov (ap@webkit.org)
- * Copyright (C) 2004, 2005, 2006, 2007, 2008, 2011 Apple Inc. All rights reserved.
+ * Copyright (C) 2004-2026 Apple Inc. All rights reserved.
  * Copyright (C) 2008 Torch Mobile Inc. All rights reserved. (http://www.torchmobile.com/)
  * Copyright (C) 2010 Nokia Corporation and/or its subsidiary(-ies)
  * Copyright (C) 2012 Intel Corporation. All rights reserved.
@@ -165,7 +165,7 @@ ViewportAttributes ViewportArguments::resolve(const FloatSize& initialViewportSi
     result.orientation = orientation;
     result.shrinkToFit = shrinkToFit;
     result.viewportFit = viewportFit;
-    result.interactiveWidget = interactiveWidget;
+    result.interactiveWidgetValue = interactiveWidgetValue;
 
     return result;
 }
@@ -178,7 +178,7 @@ static FloatSize NODELETE convertToUserSpace(const FloatSize& deviceSize, float 
     return result;
 }
 
-ViewportAttributes computeViewportAttributes(ViewportArguments args, int desktopWidth, int deviceWidth, int deviceHeight, float devicePixelRatio, IntSize visibleViewport)
+ViewportAttributes computeViewportAttributes(const ViewportArguments& args, int desktopWidth, int deviceWidth, int deviceHeight, float devicePixelRatio, IntSize visibleViewport)
 {
     FloatSize initialViewportSize = convertToUserSpace(visibleViewport, devicePixelRatio);
     FloatSize deviceSize = convertToUserSpace(FloatSize(deviceWidth, deviceHeight), devicePixelRatio);
@@ -312,18 +312,18 @@ static ViewportFit parseViewportFitValue(StringView key, StringView value, NOESC
     return ViewportFit::Auto;
 }
 
-static InteractiveWidget parseInteractiveWidgetValue(StringView key, StringView value, NOESCAPE const InternalViewportErrorHandler& errorHandler)
+static InteractiveWidgetValue parseInteractiveWidgetValue(StringView key, StringView value, NOESCAPE const InternalViewportErrorHandler& errorHandler)
 {
     if (equalLettersIgnoringASCIICase(value, "resizes-visual"_s))
-        return InteractiveWidget::ResizesVisual;
+        return InteractiveWidgetValue::ResizesVisual;
     if (equalLettersIgnoringASCIICase(value, "resizes-content"_s))
-        return InteractiveWidget::ResizesContent;
+        return InteractiveWidgetValue::ResizesContent;
     if (equalLettersIgnoringASCIICase(value, "overlays-content"_s))
-        return InteractiveWidget::OverlaysContent;
+        return InteractiveWidgetValue::OverlaysContent;
 
     errorHandler(ViewportErrorCode::UnrecognizedViewportArgumentValue, value, key);
 
-    return InteractiveWidget::ResizesVisual;
+    return InteractiveWidgetValue::ResizesVisual;
 }
 
 static ASCIILiteral viewportErrorMessageTemplate(ViewportErrorCode errorCode)
@@ -411,7 +411,7 @@ void setViewportFeature(ViewportArguments& arguments, StringView key, StringView
     else if (equalLettersIgnoringASCIICase(key, "viewport-fit"_s))
         arguments.viewportFit = parseViewportFitValue(key, value, internalErrorHandler);
     else if (metaViewportInteractiveWidgetEnabled && equalLettersIgnoringASCIICase(key, "interactive-widget"_s))
-        arguments.interactiveWidget = parseInteractiveWidgetValue(key, value, internalErrorHandler);
+        arguments.interactiveWidgetValue = parseInteractiveWidgetValue(key, value, internalErrorHandler);
     else
         internalErrorHandler(ViewportErrorCode::UnrecognizedViewportArgumentKey, key, { });
 }

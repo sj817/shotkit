@@ -9,14 +9,15 @@
 
 #include "include/gpu/vk/VulkanBackendContext.h"
 #include "include/gpu/vk/VulkanExtensions.h"
-#include "include/private/base/SkAssert.h"
-#include "include/private/base/SkTo.h"
+#include "include/private/SkAssert.h"
+#include "include/private/SkTo.h"
 #include "src/core/SkTraceEvent.h"
 #include "src/gpu/GpuTypesPriv.h"
 #include "src/gpu/vk/VulkanInterface.h"
 #include "src/gpu/vk/VulkanUtilsPriv.h"
 #include "src/gpu/vk/vulkanmemoryallocator/VulkanMemoryAllocatorPriv.h"
 
+#include <array>
 #include <cstring>
 
 namespace skgpu {
@@ -24,7 +25,6 @@ namespace skgpu {
 sk_sp<VulkanMemoryAllocator> VulkanAMDMemoryAllocator::Make(VkInstance instance,
                                                             VkPhysicalDevice physicalDevice,
                                                             VkDevice device,
-                                                            uint32_t physicalDeviceVersion,
                                                             const VulkanExtensions* extensions,
                                                             const VulkanInterface* interface,
                                                             ThreadSafe threadSafe) {
@@ -62,6 +62,7 @@ sk_sp<VulkanMemoryAllocator> VulkanAMDMemoryAllocator::Make(VkInstance instance,
     SKGPU_COPY_FUNCTION_KHR(BindBufferMemory2);
     SKGPU_COPY_FUNCTION_KHR(BindImageMemory2);
     SKGPU_COPY_FUNCTION_KHR(GetPhysicalDeviceMemoryProperties2);
+    SKGPU_COPY_FUNCTION_KHR(GetPhysicalDeviceProperties2);
 
     VmaAllocatorCreateInfo info;
     info.flags = 0;
@@ -86,7 +87,7 @@ sk_sp<VulkanMemoryAllocator> VulkanAMDMemoryAllocator::Make(VkInstance instance,
     info.instance = instance;
     // TODO: Update our interface and headers to support vulkan 1.3 and add in the new required
     // functions for 1.3 that the allocator needs. Until then we just clamp the version to 1.1,
-    // which is also Skia's minimum requirement.
+    // which is also Skia's minimum requirement. Updating this will require plumbing physDevVersion.
     info.vulkanApiVersion = VK_API_VERSION_1_1;
     info.pTypeExternalMemoryHandleTypes = nullptr;
 
@@ -116,6 +117,8 @@ VkResult VulkanAMDMemoryAllocator::allocateImageMemory(VkImage image,
     info.memoryTypeBits = 0;
     info.pool = VK_NULL_HANDLE;
     info.pUserData = nullptr;
+    info.priority = 1.0f; // This shouldn't be used by vma
+    info.minAlignment = 0; // 0 means used queried vulkan alignment
 
     if (kDedicatedAllocation_AllocationPropertyFlag & allocationPropertyFlags) {
         info.flags |= VMA_ALLOCATION_CREATE_DEDICATED_MEMORY_BIT;
@@ -146,6 +149,8 @@ VkResult VulkanAMDMemoryAllocator::allocateBufferMemory(VkBuffer buffer,
     info.memoryTypeBits = 0;
     info.pool = VK_NULL_HANDLE;
     info.pUserData = nullptr;
+    info.priority = 1.0f; // This shouldn't be used by vma
+    info.minAlignment = 0; // 0 means used queried vulkan alignment
 
     switch (usage) {
         case BufferUsage::kGpuOnly:
@@ -268,9 +273,31 @@ VkResult VulkanAMDMemoryAllocator::invalidateMemory(const VulkanBackendMemory& m
 }
 
 std::pair<uint64_t, uint64_t> VulkanAMDMemoryAllocator::totalAllocatedAndUsedMemory() const {
-    VmaTotalStatistics stats;
-    vmaCalculateStatistics(fAllocator, &stats);
-    return {stats.total.statistics.blockBytes, stats.total.statistics.allocationBytes};
+    const VkPhysicalDeviceMemoryProperties* physDevMemProps = nullptr;
+    vmaGetMemoryProperties(fAllocator, &physDevMemProps); // Cached by VMA.
+
+    std::array<VmaBudget, VK_MAX_MEMORY_HEAPS> budgets;
+    vmaGetHeapBudgets(fAllocator, budgets.data());
+
+    uint64_t totalAllocMem = 0;
+    uint64_t totalUsedMem = 0;
+    for (uint32_t heapIndex = 0; heapIndex < physDevMemProps->memoryHeapCount; heapIndex++) {
+        // TODO: consider looking at budgets[heapIndex].usage to get insight into "implicit objects
+        // also occupying the memory, like swapchain, pipelines, descriptor heaps, command buffers,
+        // or VkDeviceMemory blocks allocated outside of [VMA], if any" when VK_EXT_memory_budget is
+        // enabled.
+        totalAllocMem += budgets[heapIndex].statistics.blockBytes;
+        totalUsedMem += budgets[heapIndex].statistics.allocationBytes;
+    }
+
+    // Concurrent access could cause our view of totalUsedMem to temporarily exceed totalAllocMem.
+    // Clamping here ensures callers see a logically coherent view of memory usage. Some lossiness
+    // is expected to be preferable for clients when compared to the performance pitfall of the
+    // alternative, vmaCalculateStatistics().
+    if (totalUsedMem > totalAllocMem) {
+        totalUsedMem = totalAllocMem;
+    }
+    return {totalAllocMem, totalUsedMem};
 }
 
 namespace VulkanMemoryAllocators {
@@ -294,9 +321,8 @@ sk_sp<VulkanMemoryAllocator> Make(const skgpu::VulkanBackendContext& backendCont
     // VulkanMemoryAllocator to hold onto its interface as opposed to "borrowing" it.
     // Such a refactor could get messy without much actual benefit since interface creation is
     // not too expensive and this cost is only paid once during initialization.
-    uint32_t physDevVersion = 0;
     sk_sp<const skgpu::VulkanInterface> interface =
-            skgpu::MakeInterface(backendContext, extensions, &physDevVersion, nullptr);
+            skgpu::MakeInterface(backendContext, extensions, nullptr, nullptr);
     if (!interface) {
         return nullptr;
     }
@@ -304,7 +330,6 @@ sk_sp<VulkanMemoryAllocator> Make(const skgpu::VulkanBackendContext& backendCont
     return VulkanAMDMemoryAllocator::Make(backendContext.fInstance,
                                           backendContext.fPhysicalDevice,
                                           backendContext.fDevice,
-                                          physDevVersion,
                                           extensions,
                                           interface.get(),
                                           threadSafe);

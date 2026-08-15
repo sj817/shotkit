@@ -68,6 +68,11 @@ NonInheritedRareData::NonInheritedRareData()
     , rotate(ComputedStyle::initialRotate())
     , scale(ComputedStyle::initialScale())
     , translate(ComputedStyle::initialTranslate())
+#if ENABLE(SPATIAL_PORTAL)
+    , portalTransform(ComputedStyle::initialPortalTransform())
+#else
+    , portalTransform(CSS::Keyword::Auto { })
+#endif
     , containerNames(ComputedStyle::initialContainerNames())
     , viewTransitionClasses(ComputedStyle::initialViewTransitionClasses())
     , viewTransitionName(ComputedStyle::initialViewTransitionName())
@@ -79,6 +84,7 @@ NonInheritedRareData::NonInheritedRareData()
     , offsetAnchor(ComputedStyle::initialOffsetAnchor())
     , offsetRotate(ComputedStyle::initialOffsetRotate())
     , textDecorationColor(ComputedStyle::initialTextDecorationColor())
+    , textDecorationInset(ComputedStyle::initialTextDecorationInset())
     , textDecorationThickness(ComputedStyle::initialTextDecorationThickness())
     , scrollTimelines { CSS::Keyword::None { } }
     , viewTimelines { CSS::Keyword::None { } }
@@ -101,6 +107,8 @@ NonInheritedRareData::NonInheritedRareData()
     , blockStepAlign(static_cast<unsigned>(ComputedStyle::initialBlockStepAlign()))
     , blockStepInsert(static_cast<unsigned>(ComputedStyle::initialBlockStepInsert()))
     , blockStepRound(static_cast<unsigned>(ComputedStyle::initialBlockStepRound()))
+    , spatial(static_cast<unsigned>(SpatialType::None))
+    , portalAction(static_cast<unsigned>(PortalActionType::None))
     , overscrollBehaviorX(static_cast<unsigned>(ComputedStyle::initialOverscrollBehaviorX()))
     , overscrollBehaviorY(static_cast<unsigned>(ComputedStyle::initialOverscrollBehaviorY()))
     , transformStyle3D(static_cast<unsigned>(ComputedStyle::initialTransformStyle3D()))
@@ -125,6 +133,7 @@ NonInheritedRareData::NonInheritedRareData()
     , positionTryOrder(static_cast<unsigned>(ComputedStyle::initialPositionTryOrder()))
     , positionVisibility(ComputedStyle::initialPositionVisibility().toRaw())
     , fieldSizing(static_cast<unsigned>(ComputedStyle::initialFieldSizing()))
+    , wrapInside(static_cast<unsigned>(ComputedStyle::initialWrapInside()))
     , nativeAppearanceDisabled(static_cast<unsigned>(false))
 #if HAVE(CORE_MATERIAL)
     , appleVisualEffect(static_cast<unsigned>(ComputedStyle::initialAppleVisualEffect()))
@@ -138,6 +147,7 @@ NonInheritedRareData::NonInheritedRareData()
     , contain(ComputedStyle::initialContain().toRaw())
     , overflowContinue(static_cast<unsigned>(ComputedStyle::initialOverflowContinue()))
     , scrollSnapStop(static_cast<unsigned>(ComputedStyle::initialScrollSnapStop()))
+    , whiteSpaceTrim(ComputedStyle::initialWhiteSpaceTrim().toRaw())
 {
 }
 
@@ -176,6 +186,7 @@ inline NonInheritedRareData::NonInheritedRareData(const NonInheritedRareData& o)
     , rotate(o.rotate)
     , scale(o.scale)
     , translate(o.translate)
+    , portalTransform(o.portalTransform)
     , containerNames(o.containerNames)
     , viewTransitionClasses(o.viewTransitionClasses)
     , viewTransitionName(o.viewTransitionName)
@@ -187,6 +198,7 @@ inline NonInheritedRareData::NonInheritedRareData(const NonInheritedRareData& o)
     , offsetAnchor(o.offsetAnchor)
     , offsetRotate(o.offsetRotate)
     , textDecorationColor(o.textDecorationColor)
+    , textDecorationInset(o.textDecorationInset)
     , textDecorationThickness(o.textDecorationThickness)
     , scrollTimelines(o.scrollTimelines)
     , viewTimelines(o.viewTimelines)
@@ -209,6 +221,8 @@ inline NonInheritedRareData::NonInheritedRareData(const NonInheritedRareData& o)
     , blockStepAlign(o.blockStepAlign)
     , blockStepInsert(o.blockStepInsert)
     , blockStepRound(o.blockStepRound)
+    , spatial(o.spatial)
+    , portalAction(o.portalAction)
     , overscrollBehaviorX(o.overscrollBehaviorX)
     , overscrollBehaviorY(o.overscrollBehaviorY)
     , transformStyle3D(o.transformStyle3D)
@@ -233,6 +247,7 @@ inline NonInheritedRareData::NonInheritedRareData(const NonInheritedRareData& o)
     , positionTryOrder(o.positionTryOrder)
     , positionVisibility(o.positionVisibility)
     , fieldSizing(o.fieldSizing)
+    , wrapInside(o.wrapInside)
     , nativeAppearanceDisabled(o.nativeAppearanceDisabled)
 #if HAVE(CORE_MATERIAL)
     , appleVisualEffect(o.appleVisualEffect)
@@ -246,6 +261,7 @@ inline NonInheritedRareData::NonInheritedRareData(const NonInheritedRareData& o)
     , contain(o.contain)
     , overflowContinue(o.overflowContinue)
     , scrollSnapStop(o.scrollSnapStop)
+    , whiteSpaceTrim(o.whiteSpaceTrim)
 {
 }
 
@@ -292,6 +308,7 @@ bool NonInheritedRareData::operator==(const NonInheritedRareData& o) const
         && rotate == o.rotate
         && scale == o.scale
         && translate == o.translate
+        && portalTransform == o.portalTransform
         && containerNames == o.containerNames
         && columnGap == o.columnGap
         && rowGap == o.rowGap
@@ -301,6 +318,7 @@ bool NonInheritedRareData::operator==(const NonInheritedRareData& o) const
         && offsetAnchor == o.offsetAnchor
         && offsetRotate == o.offsetRotate
         && textDecorationThickness == o.textDecorationThickness
+        && textDecorationInset == o.textDecorationInset
         && scrollTimelines == o.scrollTimelines
         && viewTimelines == o.viewTimelines
         && timelineScope == o.timelineScope
@@ -322,6 +340,8 @@ bool NonInheritedRareData::operator==(const NonInheritedRareData& o) const
         && blockStepAlign == o.blockStepAlign
         && blockStepInsert == o.blockStepInsert
         && blockStepRound == o.blockStepRound
+        && spatial == o.spatial
+        && portalAction == o.portalAction
         && overscrollBehaviorX == o.overscrollBehaviorX
         && overscrollBehaviorY == o.overscrollBehaviorY
         && transformStyle3D == o.transformStyle3D
@@ -348,6 +368,7 @@ bool NonInheritedRareData::operator==(const NonInheritedRareData& o) const
         && positionTryOrder == o.positionTryOrder
         && positionVisibility == o.positionVisibility
         && fieldSizing == o.fieldSizing
+        && wrapInside == o.wrapInside
         && nativeAppearanceDisabled == o.nativeAppearanceDisabled
 #if HAVE(CORE_MATERIAL)
         && appleVisualEffect == o.appleVisualEffect
@@ -360,7 +381,8 @@ bool NonInheritedRareData::operator==(const NonInheritedRareData& o) const
         && marginTrim == o.marginTrim
         && contain == o.contain
         && overflowContinue == o.overflowContinue
-        && scrollSnapStop == o.scrollSnapStop;
+        && scrollSnapStop == o.scrollSnapStop
+        && whiteSpaceTrim == o.whiteSpaceTrim;
 }
 
 Contain NonInheritedRareData::usedContain() const
@@ -428,6 +450,7 @@ void NonInheritedRareData::dumpDifferences(TextStream& ts, const NonInheritedRar
     LOG_IF_DIFFERENT(rotate);
     LOG_IF_DIFFERENT(scale);
     LOG_IF_DIFFERENT(translate);
+    LOG_IF_DIFFERENT(portalTransform);
 
     LOG_IF_DIFFERENT(containerNames);
 
@@ -444,6 +467,7 @@ void NonInheritedRareData::dumpDifferences(TextStream& ts, const NonInheritedRar
     LOG_IF_DIFFERENT(offsetRotate);
 
     LOG_IF_DIFFERENT(textDecorationThickness);
+    LOG_IF_DIFFERENT(textDecorationInset);
 
     LOG_IF_DIFFERENT(scrollTimelines);
     LOG_IF_DIFFERENT(viewTimelines);
@@ -475,6 +499,8 @@ void NonInheritedRareData::dumpDifferences(TextStream& ts, const NonInheritedRar
     LOG_IF_DIFFERENT_WITH_CAST(BlockStepAlign, blockStepAlign);
     LOG_IF_DIFFERENT_WITH_CAST(BlockStepInsert, blockStepInsert);
     LOG_IF_DIFFERENT_WITH_CAST(BlockStepRound, blockStepRound);
+    LOG_IF_DIFFERENT_WITH_CAST(SpatialType, spatial);
+    LOG_IF_DIFFERENT_WITH_CAST(PortalActionType, portalAction);
 
     LOG_IF_DIFFERENT_WITH_CAST(OverscrollBehavior, overscrollBehaviorX);
     LOG_IF_DIFFERENT_WITH_CAST(OverscrollBehavior, overscrollBehaviorY);
@@ -507,6 +533,7 @@ void NonInheritedRareData::dumpDifferences(TextStream& ts, const NonInheritedRar
     LOG_IF_DIFFERENT_WITH_CAST(OverflowAnchor, overflowAnchor);
     LOG_IF_DIFFERENT_WITH_CAST(PositionTryOrder, positionTryOrder);
     LOG_IF_DIFFERENT_WITH_CAST(FieldSizing, fieldSizing);
+    LOG_IF_DIFFERENT_WITH_CAST(WrapInside, wrapInside);
 
     LOG_IF_DIFFERENT_WITH_CAST(bool, nativeAppearanceDisabled);
 
@@ -526,6 +553,7 @@ void NonInheritedRareData::dumpDifferences(TextStream& ts, const NonInheritedRar
 
     LOG_IF_DIFFERENT_WITH_CAST(OverflowContinue, overflowContinue);
     LOG_IF_DIFFERENT_WITH_CAST(ScrollSnapStop, scrollSnapStop);
+    LOG_IF_DIFFERENT_WITH_FROM_RAW(WhiteSpaceTrim, whiteSpaceTrim);
 }
 #endif // !LOG_DISABLED
 

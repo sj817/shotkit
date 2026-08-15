@@ -26,28 +26,29 @@
 #include "config.h"
 #include "StyleSubstitutionResolver.h"
 
-#include "CSSCalcRandomCachingKey.h"
+#include "CSSCalcTree+Evaluation.h"
 #include "CSSCustomPropertySyntax.h"
 #include "CSSCustomPropertyValue.h"
 #include "CSSPrimitiveValue.h"
 #include "CSSPropertyNames.h"
 #include "CSSPropertyParser.h"
 #include "CSSPropertyParserConsumer+Ident.h"
+#include "CSSPropertyParserConsumer+IntegerDefinitions.h"
 #include "CSSPropertyParserConsumer+MetaConsumer.h"
-#include "CSSPropertyParserConsumer+NumberDefinitions.h"
 #include "CSSPropertyParserConsumer+Primitives.h"
 #include "CSSPropertyParserState.h"
+#include "CSSRandomKeyParser.h"
 #include "CSSRegisteredCustomProperty.h"
 #include "CSSSelectorParser.h"
 #include "CSSSerializationContext.h"
 #include "CSSShorthandSubstitutionValue.h"
+#include "CSSSubstitutionParser.h"
 #include "CSSSubstitutionValue.h"
 #include "CSSTokenizer.h"
 #include "CSSUnits.h"
 #include "CSSValueKeywords.h"
 #include "CSSVariableData.h"
 #include "CSSWideKeyword.h"
-#include "ConstantPropertyMap.h"
 #include "ContainerQueryEvaluator.h"
 #include "CustomFunctionRegistry.h"
 #include "Document.h"
@@ -63,6 +64,8 @@
 #include "StyleComputedStyle+SettersInlines.h"
 #include "StyleCustomProperty.h"
 #include "StyleCustomPropertyRegistry.h"
+#include "StyleDocumentScope.h"
+#include "StyleEnvironmentVariables.h"
 #include "StyleLocalPropertyRegistry.h"
 #include "StylePrimitiveNumericTypes+Conversions.h"
 #include "StyleResolver.h"
@@ -75,6 +78,10 @@ namespace Style {
 // The maximum number of tokens that may be produced by a substitution function reference or fallback value.
 // https://drafts.csswg.org/css-variables/#long-variables
 static constexpr size_t maxSubstitutionTokens = 65536;
+
+// ident() collapses its argument into one token, so maxSubstitutionTokens does not bound its length.
+// https://drafts.csswg.org/css-values-5/#long-substitution
+static constexpr size_t maxIdentFunctionLength = 1024;
 
 static bool containsURLTokens(std::span<const CSSParserToken> tokens)
 {
@@ -137,7 +144,7 @@ SubstitutionResolver::SubstitutionResolver(Builder& builder, const CSSRegistered
 RefPtr<const CustomProperty> SubstitutionResolver::propertyValueForVariableName(const AtomString& variableName, CSSValueID functionId)
 {
     if (functionId == CSSValueEnv)
-        return m_styleBuilder.state().document().constantProperties().values().get(variableName);
+        return m_styleBuilder.state().document().styleScope().environmentVariables().values().get(variableName);
 
     // Apply this variable first, in case it is still unresolved
     m_styleBuilder.applyCustomProperty(variableName);
@@ -145,17 +152,82 @@ RefPtr<const CustomProperty> SubstitutionResolver::propertyValueForVariableName(
     return protect(m_styleBuilder.state().style())->customPropertyValue(variableName);
 }
 
-bool SubstitutionResolver::substituteVariableFunction(CSSParserTokenRange range, CSSValueID functionId, Vector<CSSParserToken>& tokens, const CSSParserContext& context)
+auto SubstitutionResolver::substituteVarArgumentGrammar(CSSParserTokenRange range, const CSSParserContext& context) -> VarArgumentGrammarSubstitution
 {
-    ASSERT(functionId == CSSValueVar || functionId == CSSValueEnv);
+    // https://drafts.csswg.org/css-values-5/#argument-grammars
+    // <var-args> = var( <declaration-value> , <declaration-value>? )
+    // Splits at the first literal comma and substitutes the name argument, which is then parsed as a
+    // <custom-property-name>. The name may itself come from other substitution functions, e.g.
+    // var(var(--name)). A name that does not parse is left unset rather than failing the function, so
+    // that the fallback still gets used.
 
+    range.consumeWhitespace();
+
+    auto nameArgStart = range;
+    while (!range.atEnd() && range.peek().type() != CommaToken)
+        range.consumeComponentValue();
+    auto nameArgRange = unwrapArgumentBraces(nameArgStart.rangeUntil(range));
+
+    std::optional<CSSParserTokenRange> fallbackRange;
+    if (CSSPropertyParserHelpers::consumeCommaIncludingWhitespace(range)) {
+        range.trimTrailingWhitespace();
+        fallbackRange = range;
+    }
+
+    auto parseName = [](CSSParserTokenRange nameRange) -> std::optional<AtomString> {
+        nameRange.consumeWhitespace();
+        auto& nameToken = nameRange.consumeIncludingWhitespace();
+        if (!CSSSubstitutionParser::isValidCustomPropertyName(nameToken) || !nameRange.atEnd())
+            return { };
+        return nameToken.value().toAtomString();
+    };
+
+    // Fast path: a name argument that is already a literal <custom-property-name> needs no substitution.
+    if (auto name = parseName(nameArgRange))
+        return { name, fallbackRange };
+
+    // https://drafts.csswg.org/css-values-5/#attr-security
+    // Isolate the flag to see whether resolving the name itself involved attr()-tainted values. Diffing
+    // it would miss the taint when something earlier in the same value had already set it.
+    auto wasAttrTainted = std::exchange(m_isAttrTainted, false);
+    auto substitutedName = substituteTokenRange(nameArgRange, context);
+    auto isNameAttrTainted = m_isAttrTainted ? IsAttrTainted::Yes : IsAttrTainted::No;
+    m_isAttrTainted |= wasAttrTainted;
+
+    if (!substitutedName)
+        return { { }, fallbackRange, isNameAttrTainted };
+
+    return { parseName(CSSParserTokenRange { *substitutedName }), fallbackRange, isNameAttrTainted };
+}
+
+bool SubstitutionResolver::substituteVarFunction(CSSParserTokenRange range, Vector<CSSParserToken>& tokens, const CSSParserContext& context)
+{
+    // https://drafts.csswg.org/css-variables-2/#replace-a-var-function
+    auto arguments = substituteVarArgumentGrammar(range, context);
+
+    auto startIndex = tokens.size();
+    if (!substituteNamedValueOrFallback(arguments.name, arguments.fallbackRange, CSSValueVar, tokens, context))
+        return false;
+
+    // https://drafts.csswg.org/css-values-5/#attr-security
+    // A name argument resolved from attr()-tainted values taints the whole substitution value. The
+    // URL to catch is in the substituted tokens, not in the name.
+    propagateAttrTaint(arguments.isNameAttrTainted, std::span(tokens).subspan(startIndex));
+
+    return true;
+}
+
+bool SubstitutionResolver::substituteEnvFunction(CSSParserTokenRange range, Vector<CSSParserToken>& tokens, const CSSParserContext& context)
+{
+    // https://drafts.csswg.org/css-env-1/#env-function
+    // FIXME: env()'s argument grammar is env( <declaration-value>, <declaration-value>? ) like var()'s,
+    // so the name argument should be substituted and only then parsed as <custom-ident> <integer>*.
+    // Only a literal <ident> name is supported here, the same limitation as the unsupported indices.
     range.consumeWhitespace();
     if (range.peek().type() != IdentToken)
         return false;
-    auto variableName = range.consumeIncludingWhitespace().value().toAtomString();
+    auto name = range.consumeIncludingWhitespace().value().toAtomString();
 
-    // Substitute the optional `, <fallback>` only when the referenced value is guaranteed-invalid.
-    // https://drafts.csswg.org/css-variables-2/#replace-a-var-function
     std::optional<CSSParserTokenRange> fallbackRange;
     if (!range.atEnd()) {
         if (range.peek().type() != CommaToken)
@@ -165,7 +237,15 @@ bool SubstitutionResolver::substituteVariableFunction(CSSParserTokenRange range,
         fallbackRange = range;
     }
 
-    RefPtr property = propertyValueForVariableName(variableName, functionId);
+    return substituteNamedValueOrFallback(name, fallbackRange, CSSValueEnv, tokens, context);
+}
+
+bool SubstitutionResolver::substituteNamedValueOrFallback(const std::optional<AtomString>& name, const std::optional<CSSParserTokenRange>& fallbackRange, CSSValueID functionId, Vector<CSSParserToken>& tokens, const CSSParserContext& context)
+{
+    ASSERT(functionId == CSSValueVar || functionId == CSSValueEnv);
+
+    // A name that failed to parse leaves the reference guaranteed-invalid, which still permits the fallback.
+    RefPtr property = name ? propertyValueForVariableName(*name, functionId) : nullptr;
 
     if (property && !property->isGuaranteedInvalid()) {
         if (property->tokens().size() > maxSubstitutionTokens)
@@ -179,25 +259,24 @@ bool SubstitutionResolver::substituteVariableFunction(CSSParserTokenRange range,
         return true;
     }
 
-    if (fallbackRange) {
-        auto fallbackTokens = substituteTokenRange(*fallbackRange, context);
-        if (!fallbackTokens || fallbackTokens->size() > maxSubstitutionTokens)
+    if (!fallbackRange)
+        return false;
+
+    auto fallbackTokens = substituteTokenRange(*fallbackRange, context);
+    if (!fallbackTokens || fallbackTokens->size() > maxSubstitutionTokens)
+        return false;
+
+    if (functionId == CSSValueVar && name) {
+        auto* registered = m_styleBuilder.state().registeredProperty(*name);
+        // https://drafts.css-houdini.org/css-properties-values-api/#fallbacks-in-var-references
+        // A used fallback must match the referenced registered property's syntax.
+        if (registered && !registered->syntax.isUniversal()
+            && !CSSPropertyParser::isValidCustomPropertyValueForSyntax(registered->syntax, *fallbackTokens, context))
             return false;
-
-        if (functionId == CSSValueVar) {
-            auto* registered = m_styleBuilder.state().registeredProperty(variableName);
-            // https://drafts.css-houdini.org/css-properties-values-api/#fallbacks-in-var-references
-            // A used fallback must match the referenced registered property's syntax.
-            if (registered && !registered->syntax.isUniversal()
-                && !CSSPropertyParser::isValidCustomPropertyValueForSyntax(registered->syntax, *fallbackTokens, context))
-                return false;
-        }
-
-        tokens.appendVector(*fallbackTokens);
-        return true;
     }
 
-    return false;
+    tokens.appendVector(*fallbackTokens);
+    return true;
 }
 
 // https://drafts.csswg.org/css-values-5/#first-valid
@@ -223,6 +302,61 @@ bool SubstitutionResolver::substituteFirstValid(CSSParserTokenRange range, Vecto
         return true;
     }
     return false;
+}
+
+// https://drafts.csswg.org/css-values-5/#funcdef-inherit
+// inherit() = inherit( <custom-property-name> , <declaration-value>? )
+// https://drafts.csswg.org/css-values-5/#replace-an-inherit-function
+bool SubstitutionResolver::substituteInheritFunction(CSSParserTokenRange range, Vector<CSSParserToken>& tokens, const CSSParserContext& context)
+{
+    // <inherit-args> is the same argument grammar as var()'s, including leaving an unparseable name
+    // unset so that the fallback still gets used.
+    auto arguments = substituteVarArgumentGrammar(range, context);
+
+    auto inheritedValue = [&]() -> RefPtr<const CustomProperty> {
+        if (!arguments.name)
+            return nullptr;
+
+        // Inside a custom function the parent is the calling context's element, whose custom
+        // properties are resolved lazily, so force this one before reading it. Otherwise the result
+        // would depend on the order the calling element's declarations happen to be applied in.
+        // https://drafts.csswg.org/css-mixins/#evaluating-custom-functions
+        if (auto* callingContextBuilder = m_styleBuilder.state().callingContextBuilder())
+            callingContextBuilder->applyCustomProperty(*arguments.name);
+
+        // The property read may be one that does not itself inherit, so a change to the parent's
+        // non-inherited properties has to re-resolve this element. Set this even when the fallback
+        // ends up being used, since the parent gaining the property later flips that choice.
+        protect(m_styleBuilder.state().style())->setHasExplicitlyInheritedProperties();
+
+        return protect(m_styleBuilder.state().parentStyle())->customPropertyValue(*arguments.name);
+    }();
+
+    auto startIndex = tokens.size();
+
+    if (inheritedValue && !inheritedValue->isGuaranteedInvalid()) {
+        if (inheritedValue->tokens().size() > maxSubstitutionTokens)
+            return false;
+
+        // https://drafts.csswg.org/css-values-5/#attr-security
+        // Propagate attr()-taint through inherit() references.
+        propagateAttrTaint(inheritedValue->isAttrTainted(), inheritedValue->tokens());
+
+        tokens.appendVector(inheritedValue->tokens());
+    } else if (arguments.fallbackRange) {
+        auto fallbackTokens = substituteTokenRange(*arguments.fallbackRange, context);
+        if (!fallbackTokens || fallbackTokens->size() > maxSubstitutionTokens)
+            return false;
+
+        tokens.appendVector(*fallbackTokens);
+    } else
+        return false;
+
+    // https://drafts.csswg.org/css-values-5/#attr-security
+    // A name argument resolved from attr()-tainted values taints the whole substitution value.
+    propagateAttrTaint(arguments.isNameAttrTainted, std::span(tokens).subspan(startIndex));
+
+    return true;
 }
 
 // https://drafts.csswg.org/css-mixins/#evaluate-a-custom-function
@@ -297,7 +431,7 @@ RefPtr<MutableStyleProperties> SubstitutionResolver::resolveAndRegisterDashedFun
 
     auto builderContext = BuilderContext {
         .document = m_styleBuilder.state().document(),
-        .parentStyle = &m_styleBuilder.state().renderStyle(),
+        .parentStyle = &m_styleBuilder.state().style(),
         .element = m_styleBuilder.state().element(),
         .localPropertyRegistry = &argumentRegistrations,
         .callingContextBuilder = &m_styleBuilder
@@ -355,14 +489,10 @@ bool SubstitutionResolver::substituteDashedFunction(StringView functionName, CSS
 
     auto& [customFunction, foundScopeOrdinal] = *resolved;
 
-    auto guard = m_styleBuilder.state().guardSubstitutionContext({ SubstitutionContext::Type::Function, scopedFunctionName.name, foundScopeOrdinal });
-
-    if (guard.isCyclicContext())
-        return false;
-
     auto& parameters = customFunction->parameters;
 
-    // Parse and substitute arguments.
+    // Arguments are substituted before the context is guarded, so an argument that calls the same
+    // function is not a cycle. https://drafts.csswg.org/css-mixins/#replace-a-dashed-function
     auto substitutedArguments = [&] -> std::optional<Vector<Vector<CSSParserToken>>> {
         Vector<Vector<CSSParserToken>> result;
         for (unsigned i = 0; !range.atEnd(); ++i) {
@@ -380,6 +510,13 @@ bool SubstitutionResolver::substituteDashedFunction(StringView functionName, CSS
     }();
 
     if (!substitutedArguments)
+        return false;
+
+    // Parameter default values and the body are resolved inside the guard, so a function that reaches
+    // itself through either is still cyclic.
+    auto guard = m_styleBuilder.state().guardSubstitutionContext({ SubstitutionContext::Type::Function, scopedFunctionName.name, foundScopeOrdinal });
+
+    if (guard.isCyclicContext())
         return false;
 
     // "Let registrations be an initially empty set of custom property registrations."
@@ -435,6 +572,21 @@ bool SubstitutionResolver::substituteDashedFunction(StringView functionName, CSS
         return mutableProperties;
     }();
 
+    // A local is not the document-registered property of the same name, so registering it as universal
+    // keeps it untyped. A parameter keeps its own registration, whose initial value is the argument.
+    for (auto property : bodyProperties.get()) {
+        if (property.id() != CSSPropertyCustom)
+            continue;
+        auto& name = downcast<CSSCustomPropertyValue>(*property.value()).name();
+        if (registrations.get(name))
+            continue;
+        registrations.add({
+            .name = name,
+            .syntax = CSSCustomPropertySyntax::universal(),
+            .inherits = true,
+        });
+    }
+
     auto bodyMatchResult = MatchResult::create();
     bodyMatchResult->authorDeclarations.append({ *resolvedArgumentProperties });
     bodyMatchResult->authorDeclarations.append({ .properties = bodyProperties, .styleScopeOrdinal = foundScopeOrdinal });
@@ -444,7 +596,7 @@ bool SubstitutionResolver::substituteDashedFunction(StringView functionName, CSS
     // properties on demand via the calling context's builder (https://drafts.csswg.org/css-mixins/#evaluating-custom-functions).
     auto builderContext = BuilderContext {
         .document = m_styleBuilder.state().document(),
-        .parentStyle = &m_styleBuilder.state().renderStyle(),
+        .parentStyle = &m_styleBuilder.state().style(),
         .element = m_styleBuilder.state().element(),
         .localPropertyRegistry = &registrations,
         .callingContextBuilder = &m_styleBuilder
@@ -541,7 +693,7 @@ bool SubstitutionResolver::substituteAttrFunction(CSSParserTokenRange argumentsR
     enum class AttrType { RawString, Number, Unit, Percentage, Syntax };
     struct AttrTypeResult {
         AttrType type;
-        CSSUnitType unitType { CSSUnitType::CSS_UNKNOWN };
+        CSSUnitType unitType { CSSUnitType::Unknown };
         CSSCustomPropertySyntax syntax { };
     };
 
@@ -698,7 +850,7 @@ bool SubstitutionResolver::substituteAttrFunction(CSSParserTokenRange argumentsR
     case AttrType::Unit:
     case AttrType::Percentage: {
         // "If the <attr-unit> does not match a known CSS unit, it triggers fallback."
-        if (attrType == AttrType::Unit && parsedAttrType->unitType == CSSUnitType::CSS_UNKNOWN)
+        if (attrType == AttrType::Unit && parsedAttrType->unitType == CSSUnitType::Unknown)
             return substituteFailure();
         CSSTokenizer tokenizer(attributeValue.string().trim(isUnicodeCompatibleASCIIWhitespace<UChar>));
         auto tokenRange = tokenizer.tokenRange();
@@ -780,14 +932,11 @@ bool SubstitutionResolver::substituteInternalAutoBaseFunction(CSSParserTokenRang
     return true;
 }
 
-bool SubstitutionResolver::substituteRandomItemFunction(CSSParserTokenRange range, Vector<CSSParserToken>& tokens, const CSSParserContext& context)
+auto SubstitutionResolver::substituteRandomItemArgumentGrammar(CSSParserTokenRange range, const CSSParserContext& context) -> std::optional<RandomItemArgumentGrammarSubstitution>
 {
-    // https://drafts.csswg.org/css-values-5/#funcdef-random-item
-    //
-    // The argument grammar is validated at parse time:
-    //   <random-item-args> = random-item( <declaration-value>, [ <declaration-value>? ]# )
-    // Here the full grammar is applied: substitute the argument grammar first, then parse the
-    // first argument as <random-key> and select an item. This follows substituteAttrFunction.
+    // https://drafts.csswg.org/css-values-5/#argument-grammars
+    // <random-item-args> = random-item( <declaration-value>, [ <declaration-value>? ]# )
+    // Splits at the literal commas and substitutes the first argument (the <random-key>).
 
     range.consumeWhitespace();
 
@@ -798,10 +947,10 @@ bool SubstitutionResolver::substituteRandomItemFunction(CSSParserTokenRange rang
     auto randomKeyRange = randomKeyStart.rangeUntil(range);
 
     if (!CSSPropertyParserHelpers::consumeCommaIncludingWhitespace(range))
-        return false;
+        return { };
 
     // Collect the item ranges. Each item is a (possibly empty) <declaration-value>; a {}-wrapped
-    // block groups internal commas and is unwrapped when the selected item is substituted below.
+    // block groups internal commas and is unwrapped when the selected item is substituted.
     Vector<CSSParserTokenRange> items;
     do {
         auto itemStart = range;
@@ -811,17 +960,88 @@ bool SubstitutionResolver::substituteRandomItemFunction(CSSParserTokenRange rang
     } while (CSSPropertyParserHelpers::consumeCommaIncludingWhitespace(range));
 
     if (items.isEmpty())
-        return false;
+        return { };
 
     // <random-key> may itself contain arbitrary substitution functions (var(), attr(), ...);
-    // substitute them before parsing it as a <random-key>.
+    // substitute them before parsing it as a <random-key>. Items are substituted lazily, once
+    // the selected one is known.
     auto substitutedRandomKey = substituteTokenRange(randomKeyRange, context);
     if (!substitutedRandomKey)
+        return { };
+
+    return RandomItemArgumentGrammarSubstitution { WTF::move(*substitutedRandomKey), WTF::move(items) };
+}
+
+bool SubstitutionResolver::substituteIdentFunction(CSSParserTokenRange range, Vector<CSSParserToken>& tokens, const CSSParserContext& context)
+{
+    // https://drafts.csswg.org/css-values-5/#ident
+    // <ident-args> = ident( <declaration-value> )
+    // ident() = ident( <ident-arg>+ ), <ident-arg> = <string> | <integer> | <ident>
+    // The argument is substituted first, then parsed as <ident-arg>+. The parts are concatenated with
+    // no separator, so ident("--" attr(id)) makes a <dashed-ident> out of an attribute value.
+
+    auto substitutedArgument = substituteTokenRange(unwrapArgumentBraces(range), context);
+    if (!substitutedArgument)
         return false;
 
-    auto baseValue = randomItemBaseValue(WTF::move(*substitutedRandomKey));
+    // https://drafts.csswg.org/css-variables/#long-variables
+    if (substitutedArgument->size() > maxSubstitutionTokens)
+        return false;
+
+    StringBuilder builder;
+    auto parserState = CSS::PropertyParserState { .context = context, .currentProperty = m_styleBuilder.state().cssPropertyID() };
+
+    auto argumentRange = CSSParserTokenRange { *substitutedArgument };
+    argumentRange.consumeWhitespace();
+    while (!argumentRange.atEnd()) {
+        auto tokenType = argumentRange.peek().type();
+        if (tokenType == IdentToken || tokenType == StringToken) {
+            auto part = argumentRange.consumeIncludingWhitespace().value();
+            if (builder.length() + part.length() > maxIdentFunctionLength)
+                return false;
+            builder.append(part);
+            continue;
+        }
+
+        // <integer> covers math functions too, so ident("--prop" calc(1 + 2)) names --prop3.
+        auto integer = CSSPropertyParserHelpers::MetaConsumer<CSS::Integer<>>::consume(argumentRange, parserState);
+        if (!integer)
+            return false;
+        builder.append(toStyle(*integer, m_styleBuilder.state()).value);
+        if (builder.length() > maxIdentFunctionLength)
+            return false;
+    }
+
+    // <ident-arg>+ is one or more arguments, and an empty identifier is not one.
+    if (builder.isEmpty())
+        return false;
+
+    m_intermediateTokenStrings.append(builder.toString());
+    tokens.append(CSSParserToken(IdentToken, StringView { m_intermediateTokenStrings.last() }));
+    return true;
+}
+
+bool SubstitutionResolver::substituteRandomItemFunction(CSSParserTokenRange range, Vector<CSSParserToken>& tokens, const CSSParserContext& context)
+{
+    // https://drafts.csswg.org/css-values-5/#funcdef-random-item
+
+    // Reject random-item() when resolving a @container style() query value: random functions are
+    // disallowed outside an element context. (random() is rejected via a separate parse-time guard.)
+    // Whether they should be allowed here is an open question: https://github.com/w3c/csswg-drafts/issues/10982
+    if (m_styleBuilder.state().isResolvingContainerQueries())
+        return false;
+
+    // <random-item-args> = random-item( <declaration-value>, [ <declaration-value>? ]# )
+    auto randomItemArgs = substituteRandomItemArgumentGrammar(range, context);
+    if (!randomItemArgs)
+        return false;
+
+    // random-item() = random-item( <random-key> , [ <declaration-value>? ]# )
+    auto baseValue = randomItemBaseValue(WTF::move(randomItemArgs->randomKey));
     if (!baseValue)
         return false;
+
+    auto& items = randomItemArgs->items;
 
     // https://drafts.csswg.org/css-values-5/#random-item
     // "Let index be a random integer less than N (the number of items), given the base value R:
@@ -846,72 +1066,30 @@ bool SubstitutionResolver::substituteRandomItemFunction(CSSParserTokenRange rang
 std::optional<double> SubstitutionResolver::randomItemBaseValue(Vector<CSSParserToken> randomKey)
 {
     // <random-key> = auto | <random-cache-key> | fixed <number [0,1]>
-    // The subset supported here matches random()'s current support:
-    //   [ [ auto | <dashed-ident> ] || element-scoped ] | fixed <number [0,1]>
-    // property-scoped / property-index-scoped / <random-ua-ident> are a follow-up, in sync with random().
+    // Parsed with the shared consumer so random-item()'s <random-key> stays in sync with random()'s
+    // (<dashed-ident>, element-scoped, property-scoped, property-index-scoped, fixed). <random-ua-ident>
+    // is a follow-up.
     CSSParserTokenRange randomKeyRange { randomKey };
     randomKeyRange.consumeWhitespace();
-    if (randomKeyRange.atEnd())
-        return { };
 
-    if (randomKeyRange.peek().id() == CSSValueFixed) {
-        randomKeyRange.consumeIncludingWhitespace();
-        // fixed <number [0,1]>, reusing random()'s number consumer so calc()/var()-derived numbers
-        // are accepted identically.
-        auto numberParsingState = CSS::PropertyParserState { .context = m_substitutionValue->context() };
-        auto number = CSSPropertyParserHelpers::MetaConsumer<CSS::Number<CSS::ClosedUnitRange>>::consume(randomKeyRange, numberParsingState);
-        if (!number || !randomKeyRange.atEnd())
-            return { };
-        return Style::toStyle(*number, m_styleBuilder.state()).value;
-    }
+    auto parserState = CSS::PropertyParserState { .context = m_substitutionValue->context() };
 
-    std::optional<CSS::Keyword::ElementScoped> elementScoped;
-    std::optional<AtomString> dashedIdent;
-    bool isAuto = false;
-
-    while (!randomKeyRange.atEnd()) {
-        auto& token = randomKeyRange.peek();
-        if (!elementScoped && token.id() == CSSValueElementScoped) {
-            elementScoped = CSS::Keyword::ElementScoped { };
-            randomKeyRange.consumeIncludingWhitespace();
-            continue;
-        }
-        if (!isAuto && !dashedIdent && token.id() == CSSValueAuto) {
-            isAuto = true;
-            randomKeyRange.consumeIncludingWhitespace();
-            continue;
-        }
-        if (!isAuto && !dashedIdent && token.type() == IdentToken && isCustomPropertyName(token.value())) {
-            dashedIdent = token.value().toAtomString();
-            randomKeyRange.consumeIncludingWhitespace();
-            continue;
-        }
-        break;
-    }
-
-    if (!randomKeyRange.atEnd())
-        return { };
-
-    if (elementScoped && !m_styleBuilder.state().element())
-        return { };
-
-    if (dashedIdent)
-        return m_styleBuilder.state().lookupCSSRandomBaseValue(CSSCalc::RandomCachingKey { Style::CustomIdent { *dashedIdent } }, elementScoped);
-
-    // "auto" (or an omitted identifier alongside element-scoped) keys on the current property,
-    // disambiguated by a per-resolver index so independent auto instances in one declaration select
-    // independently.
-    //
     // FIXME: This index is counted here, at substitution time, in a separate space from random()'s
     // parse-time cssRandomFunctionCount. An auto random-item() and an auto random() in the same
     // property value can therefore land on the same RandomCachingKey and share a base value, and the
     // index follows the selected branch rather than parse position. Unifying this with random()'s
-    // counter is the job of the shared <random-key> helper follow-up.
-    auto autoKey = CSSCalc::RandomSharingOptions::Auto {
-        .property = m_styleBuilder.state().cssPropertyID(),
-        .index = m_randomItemAutoIndex++
+    // counter is a follow-up.
+    auto keySource = CSSPropertyParserHelpers::RandomKeySource {
+        .property = { m_styleBuilder.state().cssPropertyID(), m_styleBuilder.state().customPropertyName() },
+        .autoElementScoped = CSS::Keyword::ElementScoped { }
     };
-    return m_styleBuilder.state().lookupCSSRandomBaseValue(CSSCalc::RandomCachingKey { autoKey }, elementScoped);
+    auto sharing = CSSPropertyParserHelpers::consumeUnresolvedRandomKey(randomKeyRange, parserState, keySource, [&] {
+        return m_randomItemAutoIndex++;
+    });
+    if (!sharing || !randomKeyRange.atEnd())
+        return { };
+
+    return CSSCalc::resolveRandomBaseValue(*sharing, m_styleBuilder.state());
 }
 
 auto SubstitutionResolver::substituteIfArgumentGrammar(CSSParserTokenRange range, const CSSParserContext& context) -> std::optional<Vector<IfBranch>>
@@ -1023,8 +1201,18 @@ std::optional<Vector<CSSParserToken>> SubstitutionResolver::substituteTokenRange
         auto token = range.peek();
         if (token.type() == FunctionToken) {
             auto functionId = token.functionId();
-            if (functionId == CSSValueVar || functionId == CSSValueEnv) {
-                if (!substituteVariableFunction(range.consumeBlock(), functionId, tokens, context))
+            if (functionId == CSSValueVar) {
+                if (!substituteVarFunction(range.consumeBlock(), tokens, context))
+                    success = false;
+                continue;
+            }
+            if (functionId == CSSValueEnv) {
+                if (!substituteEnvFunction(range.consumeBlock(), tokens, context))
+                    success = false;
+                continue;
+            }
+            if (functionId == CSSValueInherit && context.cssInheritFunctionEnabled) {
+                if (!substituteInheritFunction(range.consumeBlock(), tokens, context))
                     success = false;
                 continue;
             }
@@ -1053,6 +1241,11 @@ std::optional<Vector<CSSParserToken>> SubstitutionResolver::substituteTokenRange
             }
             if (functionId == CSSValueRandomItem) {
                 if (!substituteRandomItemFunction(range.consumeBlock(), tokens, context))
+                    success = false;
+                continue;
+            }
+            if (functionId == CSSValueIdent) {
+                if (!substituteIdentFunction(range.consumeBlock(), tokens, context))
                     success = false;
                 continue;
             }

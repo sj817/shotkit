@@ -39,6 +39,7 @@
 #include <WebCore/IntRect.h>
 #include <WebCore/IntSize.h>
 #include <array>
+#include <optional>
 #include <span>
 #include <wtf/EnumSet.h>
 #include <wtf/FunctionDispatcher.h>
@@ -1193,17 +1194,12 @@ public:
     static ALWAYS_INLINE bool srcFormatComesFromDOMElementOrImageData(DataFormat SrcFormat)
     {
 #if USE(CG)
-#if CPU(BIG_ENDIAN)
-    return SrcFormat == DataFormat::RGBA8 || SrcFormat == DataFormat::ARGB8 || SrcFormat == DataFormat::RGB8
-        || SrcFormat == DataFormat::RA8 || SrcFormat == DataFormat::AR8 || SrcFormat == DataFormat::R8 || SrcFormat == DataFormat::A8;
-#else
-    // That LITTLE_ENDIAN case has more possible formats than BIG_ENDIAN case is because some decoded image data is actually big endian
+    // This has more possible formats than BIG_ENDIAN case is because some decoded image data is actually big endian
     // even on little endian architectures.
     return SrcFormat == DataFormat::BGRA8 || SrcFormat == DataFormat::ABGR8 || SrcFormat == DataFormat::BGR8
         || SrcFormat == DataFormat::RGBA8 || SrcFormat == DataFormat::ARGB8 || SrcFormat == DataFormat::RGB8
         || SrcFormat == DataFormat::R8 || SrcFormat == DataFormat::A8
         || SrcFormat == DataFormat::RA8 || SrcFormat == DataFormat::AR8;
-#endif
 #else
     return SrcFormat == DataFormat::BGRA8 || SrcFormat == DataFormat::RGBA8;
 #endif
@@ -1235,12 +1231,15 @@ public:
         WEBCORE_EXPORT virtual ~Client();
         virtual void forceContextLost() = 0;
         virtual void addDebugMessage(GCGLenum, GCGLenum, GCGLenum, const CString&) = 0;
+        virtual void didChangeMemoryCost() = 0;
     };
 
     WEBCORE_EXPORT GraphicsContextGL(GraphicsContextGLAttributes);
     WEBCORE_EXPORT virtual ~GraphicsContextGL();
 
     void setClient(Client* client) { m_client = client; }
+
+    virtual std::optional<size_t> NODELETE estimatedMemoryCost() = 0;
 
     // ========== WebGL 1 entry points.
     virtual void activeTexture(GCGLenum texture) = 0;
@@ -1738,6 +1737,7 @@ public:
     bool isContextLost() const { return m_contextLost; }
 protected:
     WEBCORE_EXPORT virtual void forceContextLost();
+    WEBCORE_EXPORT void didChangeMemoryCost();
 
     int m_currentWidth { 0 };
     int m_currentHeight { 0 };

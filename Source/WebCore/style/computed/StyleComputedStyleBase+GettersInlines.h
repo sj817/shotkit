@@ -114,6 +114,11 @@ inline bool ComputedStyleBase::useTreeCountingFunctions() const
     return m_nonInheritedFlags.useTreeCountingFunctions;
 }
 
+inline bool ComputedStyleBase::colorIsCurrentColorForHighlight() const
+{
+    return m_inheritedData->colorIsCurrentColorForHighlight;
+}
+
 inline InsideLink ComputedStyleBase::insideLink() const
 {
     return static_cast<InsideLink>(m_inheritedFlags.insideLink);
@@ -152,6 +157,11 @@ inline bool ComputedStyleBase::effectiveInert() const
 inline bool ComputedStyleBase::isEffectivelyTransparent() const
 {
     return m_inheritedRareData->effectivelyTransparent;
+}
+
+inline bool ComputedStyleBase::effectiveWrapInsideAvoid() const
+{
+    return m_inheritedRareData->effectiveWrapInsideAvoid;
 }
 
 inline bool ComputedStyleBase::insideDefaultButton() const
@@ -273,6 +283,11 @@ inline const AtomString& ComputedStyleBase::pseudoElementNameArgument() const
     return m_nonInheritedData->rareData->pseudoElementNameArgument;
 }
 
+inline EnumSet<PseudoElementType> ComputedStyleBase::highlightPseudoElementTypes() const
+{
+    return EnumSet<PseudoElementType>::fromRaw(m_nonInheritedFlags.pseudoBits) & allHighlightPseudoElementTypes;
+}
+
 inline bool ComputedStyleBase::hasPseudoStyle(PseudoElementType pseudo) const
 {
     return m_nonInheritedFlags.hasPseudoStyle(pseudo);
@@ -296,11 +311,6 @@ inline const CustomPropertyData& ComputedStyleBase::nonInheritedCustomProperties
 }
 
 // MARK: - Zoom
-
-inline bool ComputedStyleBase::evaluationTimeZoomEnabled() const
-{
-    return m_inheritedRareData->evaluationTimeZoomEnabled;
-}
 
 inline bool ComputedStyleBase::useSVGZoomRulesForLength() const
 {
@@ -326,10 +336,7 @@ inline ZoomFactor ComputedStyleBase::usedZoomForLength() const
     if (useSVGZoomRulesForLength())
         return unzoomed;
 
-    if (evaluationTimeZoomEnabled())
-        return ZoomFactor(usedZoom());
-
-    return unzoomed;
+    return ZoomFactor(usedZoom());
 }
 
 // MARK: - Fonts

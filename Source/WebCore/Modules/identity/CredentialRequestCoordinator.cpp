@@ -149,6 +149,13 @@ void CredentialRequestCoordinator::prepareCredentialRequests(const Document& doc
 
     auto validatedCredentialRequests = validatedRequestsOrException.releaseReturnValue();
 
+    bool hasOpenID4VPRequest = unvalidatedRequests.containsIf([](auto& request) {
+        return std::holds_alternative<OpenID4VPSignedRequest>(request)
+            || std::holds_alternative<OpenID4VPMultisignedRequest>(request);
+    });
+    if (validatedCredentialRequests.isEmpty() && !hasOpenID4VPRequest)
+        return rejectTheCredentialRequestWith(Exception { ExceptionCode::TypeError, "No valid credential requests remain after validation"_s });
+
     if (signal) {
         ASSERT(!signal->aborted());
         m_abortSignal = signal;
@@ -200,8 +207,10 @@ void CredentialRequestCoordinator::processCredentialChooserResponse(Expected<Dig
 
     // A parked "wait" reply released during abort/teardown can arrive after the
     // request already left Requesting; it is moot, so return before the guard.
-    if (m_interactionState != InteractionState::Requesting)
+    if (m_interactionState != InteractionState::Requesting) {
+        LOG(DigitalCredentials, "Ignoring credential chooser response received while not in the Requesting state.");
         return;
+    }
 
     InteractionStateGuard guard(*this);
 

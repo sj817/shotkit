@@ -46,6 +46,7 @@
 #include "CSSLightDarkImageValue.h"
 #include "CSSNamedImageValue.h"
 #include "CSSPaintImageValue.h"
+#include "CSSParserIdioms.h"
 #include "DocumentInlines.h"
 #include "DocumentView.h"
 #include "ElementInlines.h"
@@ -92,19 +93,25 @@ BuilderState::BuilderState(ComputedStyle& style, BuilderContext&& context)
 
 const CSSRegisteredCustomProperty* BuilderState::registeredProperty(const AtomString& name) const
 {
-    if (m_context.localPropertyRegistry)
-        return m_context.localPropertyRegistry->get(name);
+    // "Only the custom property registrations in registrations are visible" covers the names a custom
+    // function introduces. A name it does not introduce arrives by inheritance carrying the calling
+    // element's computed value, so it keeps the document registration.
+    // https://drafts.csswg.org/css-mixins/#resolve-function-styles
+    if (m_context.localPropertyRegistry) {
+        if (auto* local = m_context.localPropertyRegistry->get(name))
+            return local;
+        // The result descriptor is never registered document-wide.
+        if (!isCustomPropertyName(name))
+            return nullptr;
+    }
     return document().customPropertyRegistry().get(name);
 }
 
 float BuilderState::zoomWithTextZoomFactor()
 {
-    if (auto* frame = document().frame()) {
-        float textZoomFactor = style().textZoom() != TextZoom::Reset ? frame->textZoomFactor() : 1.0f;
-        float usedZoom = evaluationTimeZoomEnabled(*this) ? 1.0f : style().usedZoom();
-        return usedZoom * textZoomFactor;
-    }
-    return cssToLengthConversionData().zoom();
+    if (auto* frame = document().frame())
+        return style().textZoom() != TextZoom::Reset ? frame->textZoomFactor() : 1.0f;
+    return 1.0f;
 }
 
 // SVG handles zooming in a different way compared to CSS. The whole document is scaled instead
@@ -296,6 +303,16 @@ void BuilderState::setFontSize(FontCascadeDescription& fontDescription, float si
 CSSPropertyID BuilderState::cssPropertyID() const
 {
     return m_currentProperty ? m_currentProperty->id : CSSPropertyInvalid;
+}
+
+// Every custom property shares CSSPropertyCustom, so anything keying on cssPropertyID() needs this to
+// tell them apart. Null unless a custom property is being applied.
+AtomString BuilderState::customPropertyName() const
+{
+    if (cssPropertyID() != CSSPropertyCustom)
+        return nullAtom();
+    RefPtr customPropertyValue = dynamicDowncast<CSSCustomPropertyValue>(m_currentProperty->cssValue[SelectorChecker::MatchDefault]);
+    return customPropertyValue ? customPropertyValue->name() : nullAtom();
 }
 
 bool BuilderState::isCurrentPropertyInvalidAtComputedValueTime() const

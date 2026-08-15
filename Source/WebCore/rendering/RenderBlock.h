@@ -201,8 +201,6 @@ public:
     LayoutUnit marginAfterForChild(const RenderBoxModelObject& child) const { return child.marginAfter(writingMode()); }
     LayoutUnit marginStartForChild(const RenderBoxModelObject& child) const { return child.marginStart(writingMode()); }
     LayoutUnit marginEndForChild(const RenderBoxModelObject& child) const { return child.marginEnd(writingMode()); }
-    void setMarginStartForChild(RenderBox& child, LayoutUnit value) const { child.setMarginStart(value, writingMode()); }
-    void setMarginEndForChild(RenderBox& child, LayoutUnit value) const { child.setMarginEnd(value, writingMode()); }
     void setMarginBeforeForChild(RenderBox& child, LayoutUnit value) const { child.setMarginBefore(value, writingMode()); }
     void setMarginAfterForChild(RenderBox& child, LayoutUnit value) const { child.setMarginAfter(value, writingMode()); }
     void setTrimmedMarginForChild(RenderBox& child, Style::MarginTrimSide);
@@ -272,6 +270,9 @@ public:
 
     static void relayoutRenderBlockForScrollbarChange(RenderBlock&);
 
+    enum PaintBlockType { PaintAsBlock, PaintAsInlineBlock };
+    bool paintChild(RenderBox&, PaintInfo& forSelf, const LayoutPoint&, PaintInfo& forChild, bool usePrintRect, PaintBlockType paintType = PaintAsBlock);
+
 protected:
     RenderFragmentedFlow* locateEnclosingFragmentedFlow() const override;
     bool establishesIndependentFormattingContextIgnoringDisplayType(const Style::ComputedStyle&) const;
@@ -288,8 +289,6 @@ protected:
     void paint(PaintInfo&, const LayoutPoint&) override;
     void paintObject(PaintInfo&, const LayoutPoint&) override;
     virtual void paintChildren(PaintInfo& forSelf, const LayoutPoint&, PaintInfo& forChild, bool usePrintRect);
-    enum PaintBlockType { PaintAsBlock, PaintAsInlineBlock };
-    bool paintChild(RenderBox&, PaintInfo& forSelf, const LayoutPoint&, PaintInfo& forChild, bool usePrintRect, PaintBlockType paintType = PaintAsBlock);
 
     bool nodeAtPoint(const HitTestRequest&, HitTestResult&, const HitTestLocation& locationInContainer, const LayoutPoint& accumulatedOffset, HitTestAction) override;
 

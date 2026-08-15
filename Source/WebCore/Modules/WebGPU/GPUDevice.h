@@ -39,6 +39,9 @@
 #include "ScriptExecutionContext.h"
 #include "WebGPUDevice.h"
 #include <optional>
+#include <wtf/CurrentThread.h>
+#include <wtf/HashSet.h>
+#include <wtf/Lock.h>
 #include <wtf/Ref.h>
 #include <wtf/TZoneMalloc.h>
 #include <wtf/WeakHashMap.h>
@@ -92,16 +95,19 @@ class XRBinding;
 class GPUDevice : public RefCounted<GPUDevice>, public ActiveDOMObject, public EventTarget {
     WTF_MAKE_TZONE_ALLOCATED(GPUDevice);
 public:
-    static Ref<GPUDevice> create(ScriptExecutionContext* scriptExecutionContext, Ref<WebGPU::Device>&& backing, String&& queueLabel, GPUAdapterInfo& info)
-    {
-        return adoptRef(*new GPUDevice(scriptExecutionContext, WTF::move(backing), WTF::move(queueLabel), info));
-    }
+    static Ref<GPUDevice> create(ScriptExecutionContext*, Ref<WebGPU::Device>&&, String&& queueLabel, GPUAdapterInfo&);
+
+    static HashSet<GPUDevice*>& NODELETE instances() WTF_REQUIRES_LOCK(instancesLock());
+    static Lock& NODELETE instancesLock() WTF_RETURNS_LOCK(s_instancesLock);
 
     virtual ~GPUDevice();
+
+    bool isContextThread() const { return m_owningThreadUID == currentThreadID(); }
 
     // ContextDestructionObserver.
     void ref() const final { RefCounted::ref(); }
     void deref() const final { RefCounted::deref(); }
+    void contextDestroyed() final;
     USING_CAN_MAKE_WEAKPTR(EventTarget);
 
     String NODELETE label() const;
@@ -149,33 +155,51 @@ public:
     using LostPromise = DOMPromiseProxy<IDLInterface<GPUDeviceLostInfo>>;
     LostPromise& lost() LIFETIME_BOUND;
 
+    ScriptExecutionContext* NODELETE scriptExecutionContext() const final;
+
     WebGPU::Device& backing() { return m_backing; }
     const WebGPU::Device& backing() const { return m_backing; }
     void removeBufferToUnmap(GPUBuffer&);
     void addBufferToUnmap(GPUBuffer&);
     Ref<GPUAdapterInfo> NODELETE adapterInfo() const;
+    size_t NODELETE memoryCost() const;
 
 #if ENABLE(VIDEO)
     WeakPtr<GPUExternalTexture> takeExternalTextureForVideoElement(const HTMLVideoElement&);
 #endif
 
+    bool hasActiveInspectorCanvasCallTracer() const { return m_hasActiveInspectorCanvasCallTracer; }
+    void setHasActiveInspectorCanvasCallTracer(bool active) { m_hasActiveInspectorCanvasCallTracer = active; }
+
 private:
+    friend class GPUBuffer;
+    friend class GPUTexture;
+
     GPUDevice(ScriptExecutionContext*, Ref<WebGPU::Device>&&, String&& queueLabel, GPUAdapterInfo&);
+
+    void didChangeBufferMemoryCost(GPUBuffer&);
+    void didChangeTextureMemoryCost(GPUTexture&);
+    void willDestroyBuffer(GPUBuffer&);
+    void willDestroyTexture(GPUTexture&);
+    void notifyMemoryCostChanged();
 
     // FIXME: We probably need to override more methods to make this work properly.
     RefPtr<GPUPipelineLayout> createAutoPipelineLayout();
 
     // EventTarget.
     enum EventTargetInterfaceType eventTargetInterface() const final { return EventTargetInterfaceType::GPUDevice; }
-    ScriptExecutionContext* NODELETE scriptExecutionContext() const final;
     void refEventTarget() final { ref(); }
     void derefEventTarget() final { deref(); }
+
+    static Lock s_instancesLock;
 
     const UniqueRef<LostPromise> m_lostPromise;
     const Ref<WebGPU::Device> m_backing;
     const Ref<GPUQueue> m_queue;
     RefPtr<GPUPipelineLayout> m_autoPipelineLayout;
     WeakHashSet<GPUBuffer> m_buffersToUnmap;
+    WeakHashSet<GPUBuffer> m_buffers;
+    WeakHashSet<GPUTexture> m_textures;
 
 #if ENABLE(VIDEO)
     GPUExternalTexture* externalTextureForDescriptor(const GPUExternalTextureDescriptor&);
@@ -187,9 +211,12 @@ private:
     const Ref<GPUSupportedFeatures> m_features;
     const Ref<GPUSupportedLimits> m_limits;
     const Ref<GPUAdapterInfo> m_adapterInfo;
+    const uint32_t m_owningThreadUID;
 
     bool m_waitingForDeviceLostPromise { false };
     bool m_listeningForUncapturedErrors { false };
+    bool m_hasActiveInspectorCanvasCallTracer { false };
+    bool m_isDestroyed { false };
 };
 
 } // namespace WebCore

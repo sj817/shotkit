@@ -893,6 +893,14 @@ preserve-breaks
 // preserve-spaces
 
 //
+// CSS_PROP_WHITE_SPACE_TRIM
+//
+// none
+discard-before
+discard-after
+discard-inner
+
+//
 // CSS_PROP__KHTML_NBSP_MODE
 //
 space
@@ -1094,6 +1102,18 @@ exit-crossing
 // scroll
 
 //
+// animation-trigger
+//
+// none
+play
+play-once
+play-forwards
+play-backwards
+pause
+// reset
+replay
+
+//
 // CSS_PROP_ZOOM
 //
 reset
@@ -1181,6 +1201,11 @@ after
 before
 inter-character
 legacy-inter-character
+
+// ruby-overhang
+// auto
+// none (legacy alias of spaces)
+spaces
 
 // -webkit-text-combine
 // horizontal
@@ -1547,6 +1572,8 @@ to-zero
 no-clamp
 random
 element-scoped
+property-scoped
+property-index-scoped
 // fixed
 sibling-count
 sibling-index
@@ -1772,9 +1799,11 @@ words
 // https://drafts.csswg.org/css-conditional-4/#typedef-supports-selector-fn
 // https://drafts.csswg.org/css-conditional-5/#typedef-supports-font-format-fn
 // https://drafts.csswg.org/css-conditional-5/#typedef-supports-font-tech-fn
+// https://drafts.csswg.org/css-conditional-5/#typedef-supports-at-rule-fn
 selector
 font-format
 font-tech
+at-rule
 
 // math-depth
 auto-add
@@ -1959,3 +1988,7 @@ will-change
 
 // block-ellipsis
 no-ellipsis
+
+// CSS Spatial Layout (spatial: portal)
+portal enable-if=ENABLE_SPATIAL_PORTAL
+orbit enable-if=ENABLE_SPATIAL_PORTAL

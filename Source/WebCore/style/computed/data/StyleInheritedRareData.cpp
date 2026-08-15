@@ -91,7 +91,8 @@ InheritedRareData::InheritedRareData()
     , overflowWrap(static_cast<unsigned>(ComputedStyle::initialOverflowWrap()))
     , nbspMode(static_cast<unsigned>(NBSPMode::Normal))
     , lineBreak(static_cast<unsigned>(LineBreak::Auto))
-    , userSelect(static_cast<unsigned>(ComputedStyle::initialUserSelect()))
+    , webkitUserSelect(static_cast<unsigned>(ComputedStyle::initialWebkitUserSelect()))
+    , usedUserSelect(static_cast<unsigned>(UserSelect::Text))
     , speakAs(ComputedStyle::initialSpeakAs().toRaw())
     , hyphens(static_cast<unsigned>(Hyphens::Manual))
     , textCombine(static_cast<unsigned>(ComputedStyle::initialTextCombine()))
@@ -123,15 +124,16 @@ InheritedRareData::InheritedRareData()
     , joinStyle(static_cast<unsigned>(ComputedStyle::initialJoinStyle()))
     , hasExplicitlySetStrokeWidth(false)
     , hasExplicitlySetStrokeColor(false)
+    , hasExplicitlySetWebkitUserSelect(false)
     , effectiveInert(false)
     , effectivelyTransparent(false)
+    , effectiveWrapInsideAvoid(false)
     , isInSubtreeWithBlendMode(false)
     , isForceHidden(false)
     , usedContentVisibility(static_cast<unsigned>(ContentVisibility::Visible))
     , autoRevealsWhenFound(false)
     , insideDefaultButton(false)
     , insideSubmitButton(false)
-    , evaluationTimeZoomEnabled(true)
 #if HAVE(CORE_MATERIAL)
     , usedAppleVisualEffectForSubtree(static_cast<unsigned>(AppleVisualEffect::None))
 #endif
@@ -197,7 +199,8 @@ inline InheritedRareData::InheritedRareData(const InheritedRareData& o)
     , overflowWrap(o.overflowWrap)
     , nbspMode(o.nbspMode)
     , lineBreak(o.lineBreak)
-    , userSelect(o.userSelect)
+    , webkitUserSelect(o.webkitUserSelect)
+    , usedUserSelect(o.usedUserSelect)
     , speakAs(o.speakAs)
     , hyphens(o.hyphens)
     , textCombine(o.textCombine)
@@ -229,15 +232,16 @@ inline InheritedRareData::InheritedRareData(const InheritedRareData& o)
     , joinStyle(o.joinStyle)
     , hasExplicitlySetStrokeWidth(o.hasExplicitlySetStrokeWidth)
     , hasExplicitlySetStrokeColor(o.hasExplicitlySetStrokeColor)
+    , hasExplicitlySetWebkitUserSelect(o.hasExplicitlySetWebkitUserSelect)
     , effectiveInert(o.effectiveInert)
     , effectivelyTransparent(o.effectivelyTransparent)
+    , effectiveWrapInsideAvoid(o.effectiveWrapInsideAvoid)
     , isInSubtreeWithBlendMode(o.isInSubtreeWithBlendMode)
     , isForceHidden(o.isForceHidden)
     , usedContentVisibility(o.usedContentVisibility)
     , autoRevealsWhenFound(o.autoRevealsWhenFound)
     , insideDefaultButton(o.insideDefaultButton)
     , insideSubmitButton(o.insideSubmitButton)
-    , evaluationTimeZoomEnabled(o.evaluationTimeZoomEnabled)
 #if HAVE(CORE_MATERIAL)
     , usedAppleVisualEffectForSubtree(o.usedAppleVisualEffectForSubtree)
 #endif
@@ -293,7 +297,8 @@ bool InheritedRareData::operator==(const InheritedRareData& o) const
 #if ENABLE(TEXT_AUTOSIZING)
         && textSizeAdjust == o.textSizeAdjust
 #endif
-        && userSelect == o.userSelect
+        && webkitUserSelect == o.webkitUserSelect
+        && usedUserSelect == o.usedUserSelect
         && speakAs == o.speakAs
         && hyphens == o.hyphens
         && hyphenateLimitBefore == o.hyphenateLimitBefore
@@ -331,6 +336,7 @@ bool InheritedRareData::operator==(const InheritedRareData& o) const
         && joinStyle == o.joinStyle
         && hasExplicitlySetStrokeWidth == o.hasExplicitlySetStrokeWidth
         && hasExplicitlySetStrokeColor == o.hasExplicitlySetStrokeColor
+        && hasExplicitlySetWebkitUserSelect == o.hasExplicitlySetWebkitUserSelect
         && mathShift == o.mathShift
         && mathStyle == o.mathStyle
         && isInSubtreeWithBlendMode == o.isInSubtreeWithBlendMode
@@ -340,6 +346,7 @@ bool InheritedRareData::operator==(const InheritedRareData& o) const
         && eventListenerRegionTypes == o.eventListenerRegionTypes
         && effectiveInert == o.effectiveInert
         && effectivelyTransparent == o.effectivelyTransparent
+        && effectiveWrapInsideAvoid == o.effectiveWrapInsideAvoid
         && usedContentVisibility == o.usedContentVisibility
         && insideDefaultButton == o.insideDefaultButton
         && insideSubmitButton == o.insideSubmitButton
@@ -353,7 +360,6 @@ bool InheritedRareData::operator==(const InheritedRareData& o) const
         && listStyleImage == o.listStyleImage
         && listStyleType == o.listStyleType
         && blockEllipsis == o.blockEllipsis
-        && evaluationTimeZoomEnabled == o.evaluationTimeZoomEnabled
         && mathDepth == o.mathDepth;
 }
 
@@ -409,7 +415,8 @@ void InheritedRareData::dumpDifferences(TextStream& ts, const InheritedRareData&
     LOG_IF_DIFFERENT_WITH_CAST(OverflowWrap, overflowWrap);
     LOG_IF_DIFFERENT_WITH_CAST(NBSPMode, nbspMode);
     LOG_IF_DIFFERENT_WITH_CAST(LineBreak, lineBreak);
-    LOG_IF_DIFFERENT_WITH_CAST(UserSelect, userSelect);
+    LOG_IF_DIFFERENT_WITH_CAST(UserSelect, webkitUserSelect);
+    LOG_IF_DIFFERENT_WITH_CAST(UserSelect, usedUserSelect);
 
     LOG_IF_DIFFERENT_WITH_FROM_RAW(SpeakAs, speakAs);
 
@@ -451,12 +458,14 @@ void InheritedRareData::dumpDifferences(TextStream& ts, const InheritedRareData&
 
     LOG_IF_DIFFERENT_WITH_CAST(bool, hasExplicitlySetStrokeWidth);
     LOG_IF_DIFFERENT_WITH_CAST(bool, hasExplicitlySetStrokeColor);
+    LOG_IF_DIFFERENT_WITH_CAST(bool, hasExplicitlySetWebkitUserSelect);
 
     LOG_IF_DIFFERENT_WITH_CAST(MathShift, mathShift);
     LOG_IF_DIFFERENT_WITH_CAST(MathStyle, mathStyle);
 
     LOG_IF_DIFFERENT_WITH_CAST(bool, effectiveInert);
     LOG_IF_DIFFERENT_WITH_CAST(bool, effectivelyTransparent);
+    LOG_IF_DIFFERENT_WITH_CAST(bool, effectiveWrapInsideAvoid);
 
     LOG_IF_DIFFERENT_WITH_CAST(bool, isInSubtreeWithBlendMode);
     LOG_IF_DIFFERENT_WITH_CAST(bool, isForceHidden);
@@ -503,8 +512,6 @@ void InheritedRareData::dumpDifferences(TextStream& ts, const InheritedRareData&
 
     LOG_IF_DIFFERENT(listStyleType);
     LOG_IF_DIFFERENT(blockEllipsis);
-
-    LOG_IF_DIFFERENT(evaluationTimeZoomEnabled);
 
     LOG_IF_DIFFERENT(mathDepth);
 }

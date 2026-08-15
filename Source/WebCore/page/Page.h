@@ -108,6 +108,7 @@ class BadgeClient;
 class BroadcastChannelRegistry;
 class CacheStorageProvider;
 class CaptionDisplaySettingsClient;
+class CanvasRenderingContext;
 class Chrome;
 class CompositeEditCommand;
 class ContextMenuController;
@@ -268,6 +269,7 @@ enum class VisibilityState : bool;
 
 #if ENABLE(DOM_AUDIO_SESSION)
 enum class DOMAudioSessionType : uint8_t;
+enum class DOMAudioSessionState : uint8_t;
 #endif
 
 using MediaProducerMediaStateFlags = OptionSet<MediaProducerMediaState>;
@@ -364,12 +366,14 @@ constexpr OptionSet<RenderingUpdateStep> updateRenderingSteps = {
     RenderingUpdateStep::AdjustVisibility,
 };
 
-constexpr auto allRenderingUpdateSteps = updateRenderingSteps | OptionSet<RenderingUpdateStep> {
+constexpr auto perRootFrameRenderingUpdateSteps = OptionSet<RenderingUpdateStep> {
     RenderingUpdateStep::LayerFlush,
 #if ENABLE(ASYNC_SCROLLING)
     RenderingUpdateStep::ScrollingTreeUpdate,
 #endif
 };
+
+constexpr auto allRenderingUpdateSteps = updateRenderingSteps | perRootFrameRenderingUpdateSteps;
 
 using WeakElementEdges = RectEdges<WeakPtr<Element, WeakPtrImplWithEventTargetData>>;
 
@@ -386,7 +390,7 @@ public:
     WEBCORE_EXPORT static void updateStyleForAllPagesAfterGlobalChangeInEnvironment();
     WEBCORE_EXPORT static void clearPreviousItemFromAllPages(BackForwardFrameItemIdentifier);
 
-    WEBCORE_EXPORT void setupForRemoteWorker(const URL& scriptURL, const SecurityOriginData& topOrigin, const String& referrerPolicy, OptionSet<AdvancedPrivacyProtections>);
+    WEBCORE_EXPORT void setupForRemoteWorker(const URL& scriptURL, const SecurityOriginData& topOrigin, const String& referrerPolicy, OptionSet<AdvancedPrivacyProtections>, std::optional<bool> globalPrivacyControlEnabled);
 
     WEBCORE_EXPORT void updateStyleAfterChangeInEnvironment();
 
@@ -425,9 +429,15 @@ public:
     WEBCORE_EXPORT bool hasAnyLocalFrame() const;
     WEBCORE_EXPORT Document* localTopDocument() const;
 
+    // localMainFrame() normally; under Site Isolation the main frame can be remote in this process,
+    // so falls back to the local root frame. Document overlays and their geometry are relative to it.
+    WEBCORE_EXPORT LocalFrame* NODELETE localMainOrRootFrame() const;
+
     Frame& mainFrame() const { return m_mainFrame.get(); }
     WEBCORE_EXPORT void setMainFrame(Ref<Frame>&&);
     WEBCORE_EXPORT const URL& NODELETE mainFrameURL() const LIFETIME_BOUND;
+
+    WEBCORE_EXPORT void didObserveFirstPartyUserGesture();
     SecurityOrigin& mainFrameOrigin() const;
     WEBCORE_EXPORT RefPtr<Frame> findFrameByPath(const Vector<uint64_t>& path) const;
 
@@ -435,6 +445,8 @@ public:
 #if ENABLE(DOM_AUDIO_SESSION)
     void setAudioSessionType(DOMAudioSessionType);
     DOMAudioSessionType NODELETE audioSessionType() const;
+    void setAudioSessionState(DOMAudioSessionState);
+    DOMAudioSessionState NODELETE audioSessionState() const;
 #endif
     void setUserDidInteractWithPage(bool);
     bool NODELETE userDidInteractWithPage() const;
@@ -589,6 +601,7 @@ public:
 
 #if ENABLE(VIDEO)
     WEBCORE_EXPORT Vector<CueMatch> findCueMatches(const String&, FindOptions);
+    WEBCORE_EXPORT void clearFindCaptionTracks();
 #endif
 
 #if PLATFORM(COCOA)
@@ -659,6 +672,9 @@ public:
     static constexpr OptionSet<PreferredRenderingUpdateOption> allPreferredRenderingUpdateOptions = { PreferredRenderingUpdateOption::IncludeThrottlingReasons, PreferredRenderingUpdateOption::IncludeAnimationsFrameRate };
     WEBCORE_EXPORT std::optional<FramesPerSecond> preferredRenderingUpdateFramesPerSecond(OptionSet<PreferredRenderingUpdateOption> = allPreferredRenderingUpdateOptions) const;
     WEBCORE_EXPORT Seconds preferredRenderingUpdateInterval() const;
+
+    void addGPUCanvasRequestingRenderingUpdatePacing(CanvasRenderingContext&);
+    void removeGPUCanvasRequestingRenderingUpdatePacing(CanvasRenderingContext&);
 
     const FloatBoxExtent& contentInsets() const LIFETIME_BOUND { return m_contentInsets; }
     void setContentInsets(const FloatBoxExtent& insets) { m_contentInsets = insets; }
@@ -752,6 +768,12 @@ public:
     WEBCORE_EXPORT ImageAnalysisQueue& imageAnalysisQueue();
     ImageAnalysisQueue* imageAnalysisQueueIfExists() { return m_imageAnalysisQueue.get(); }
 #endif
+
+    // Non-empty while the user agent is presenting this page as a machine translation (e.g. a
+    // built-in "Translate this page" feature).
+    const String& displayedTranslationLocaleIdentifier() const LIFETIME_BOUND { return m_displayedTranslationLocaleIdentifier; }
+    bool isPresentingMachineTranslation() const { return !m_displayedTranslationLocaleIdentifier.isEmpty(); }
+    WEBCORE_EXPORT void setDisplayedTranslationLocaleIdentifier(String&&);
 
 #if ENABLE(WHEEL_EVENT_LATCHING)
     ScrollLatchingController& scrollLatchingController() LIFETIME_BOUND;
@@ -1406,6 +1428,7 @@ public:
 #endif
 
     void syncLocalFrameInfoToRemote();
+    RenderingUpdateScheduler& renderingUpdateScheduler() LIFETIME_BOUND;
 
 private:
     explicit Page(PageConfiguration&&);
@@ -1455,7 +1478,6 @@ private:
     void scheduleRenderingUpdateInternal();
     void prioritizeVisibleResources();
 
-    RenderingUpdateScheduler& renderingUpdateScheduler() LIFETIME_BOUND;
     RenderingUpdateScheduler* NODELETE existingRenderingUpdateScheduler() LIFETIME_BOUND;
 
     WheelEventTestMonitor& ensureWheelEventTestMonitor();
@@ -1709,6 +1731,8 @@ private:
     OptionSet<ThrottlingReason> m_throttlingReasons;
     OptionSet<ThrottlingReason> m_throttlingReasonsOverridenForTesting;
 
+    WeakHashSet<CanvasRenderingContext> m_gpuCanvasesRequestingPacing;
+
     std::optional<Navigation> m_navigationToLogWhenVisible;
 
     const UniqueRef<PerformanceLogging> m_performanceLogging;
@@ -1827,6 +1851,8 @@ private:
 #if HAVE(SPATIAL_TRACKING_LABEL)
     String m_defaultSpatialTrackingLabel;
 #endif
+
+    String m_displayedTranslationLocaleIdentifier;
 
 #if ENABLE(GAMEPAD)
     MonotonicTime m_lastAccessNotificationTime;

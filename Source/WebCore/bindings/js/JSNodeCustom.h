@@ -54,6 +54,8 @@ namespace WebCore {
 WEBCORE_EXPORT JSC::JSValue createWrapper(JSC::JSGlobalObject*, JSDOMGlobalObject*, Ref<Node>&&);
 WEBCORE_EXPORT JSC::JSObject* getOutOfLineCachedWrapper(JSDOMGlobalObject*, Node&);
 
+WEBCORE_EXPORT JSDOMGlobalObject* globalObjectForNode(Node&, JSDOMGlobalObject*);
+
 inline JSC::JSValue toJS(JSC::JSGlobalObject* lexicalGlobalObject, JSDOMGlobalObject* globalObject, Node& node)
 {
     if (globalObject->worldIsNormal()) [[likely]] {
@@ -71,7 +73,12 @@ inline JSC::JSValue toJS(JSC::JSGlobalObject* lexicalGlobalObject, JSDOMGlobalOb
 // root. In the JavaScript DOM, a node tree survives as long as there is a
 // reference to any node in the tree. To model the JavaScript DOM on top of
 // the C++ DOM, we ensure that the root of every tree has a JavaScript wrapper.
-void willCreatePossiblyOrphanedTreeByRemovalSlowCase(Node& root);
+//
+// The wrapper is created in the given document's realm, bypassing the usual
+// globalObjectForNode() remap: the caller has already determined the correct
+// document (e.g., the node's tree scope may have moved on during adoption).
+void createNodeWrapperInDocumentRealmSlowCase(Node&, Document&);
+
 inline void willCreatePossiblyOrphanedTreeByRemoval(Node& root)
 {
 #if defined(SHOT_NO_SCRIPT)
@@ -83,7 +90,26 @@ inline void willCreatePossiblyOrphanedTreeByRemoval(Node& root)
     UNUSED_PARAM(root);
 #else
     if (!root.wrapper() && root.hasChildNodes())
-        willCreatePossiblyOrphanedTreeByRemovalSlowCase(root);
+        createNodeWrapperInDocumentRealmSlowCase(root, protect(root.document()));
+#endif
+}
+
+inline void ensureWrapperForAdoptedNodeWithForeignGlobalObjectIfNeeded(Node& node, Document& oldDocument, Document& newDocument)
+{
+#if defined(SHOT_NO_SCRIPT)
+    // Same reason as willCreatePossiblyOrphanedTreeByRemoval above: this is the
+    // adoptNode() counterpart. Giving an adopted node a wrapper in its old realm
+    // only matters to script, and the slow case would force the JS world into
+    // existence from a plain C++ Document::adoptNode().
+    UNUSED_PARAM(node);
+    UNUSED_PARAM(oldDocument);
+    UNUSED_PARAM(newDocument);
+#else
+    if (node.wrapper())
+        return;
+    if (&oldDocument.contextDocument() == &newDocument.contextDocument())
+        return;
+    createNodeWrapperInDocumentRealmSlowCase(node, oldDocument);
 #endif
 }
 

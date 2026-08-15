@@ -84,6 +84,7 @@ class HitTestRequest;
 class HitTestResult;
 class HitTestingTransformState;
 class Region;
+class ClipPathPaintScope;
 class RegionContext;
 class RenderFragmentedFlow;
 class RenderLayerBacking;
@@ -170,8 +171,11 @@ enum class UpdateBackingSharingFlags {
 using ScrollingScope = uint64_t;
 
 class RenderLayer final : public UniquelyOwned<RenderLayer> {
-    WTF_MAKE_PREFERABLY_COMPACT_TZONE_ALLOCATED_EXPORT(RenderLayer, WEBCORE_EXPORT);
+#if ENABLE(COMPACT_ALLOCATION_FOR_PREFERABLY_COMPACT_TYPES)
+    WTF_ALLOW_COMPACT_POINTERS;
+#endif
 public:
+    friend class WTF::RefCountedWithInlineWeakPtr<RenderLayer>;
     friend class RenderReplica;
     friend class RenderLayerFilters;
     friend class RenderLayerBacking;
@@ -181,7 +185,7 @@ public:
 
     static UniquelyOwnedPtr<RenderLayer> create(RenderLayerModelObject& modelObject)
     {
-        return adoptUniquelyOwned(new RenderLayer(modelObject));
+        return makeUniquelyOwned<RenderLayer>(modelObject);
     }
 
     WEBCORE_EXPORT ~RenderLayer();
@@ -289,7 +293,9 @@ private:
             return true;
         return hasVisibleContentForPaintingForSVG();
     }
-    bool hasVisibleContentForPaintingForSVG() const; // Defined in RenderLayerSVGAdditions.cpp.
+
+    // Defined in RenderLayerSVGAdditions.cpp.
+    bool hasVisibleContentForPaintingForSVG() const;
 
     // These flags propagate in paint order (z-order tree).
     enum class Compositing {
@@ -765,12 +771,6 @@ public:
     LayoutRect childrenClipRect() const; // Returns the foreground clip rect of the layer in the document's coordinate space.
     LayoutRect selfClipRect() const; // Returns the background clip rect of the layer in the document's coordinate space.
 
-    enum class LocalClipRectMode {
-        IncludeCompositingState,
-        ExcludeCompositingState,
-    };
-    LayoutRect localClipRect(bool& clipExceedsBounds, LocalClipRectMode = LocalClipRectMode::IncludeCompositingState) const; // Returns the background clip rect of the layer in the local coordinate space.
-
     bool clipCrossesPaintingBoundary() const;
 
     // Pass offsetFromRoot if known.
@@ -802,8 +802,6 @@ public:
     WEBCORE_EXPORT IntRect absoluteBoundingBox() const;
     // Device pixel snapped bounding box relative to the root. absoluteBoundingBox() callers will be directed to this.
     FloatRect absoluteBoundingBoxForPainting() const;
-    // Returns the 'reference box' used for clip-path handling (different rules for inlines, wrt. to boxes).
-    FloatRect referenceBoxRectForClipPath(CSSBoxType, const LayoutSize& offsetFromRoot, const LayoutRect& rootRelativeBounds) const;
 
     // Bounds used for layer overlap testing in RenderLayerCompositor.
     LayoutRect overlapBounds() const;
@@ -1040,9 +1038,10 @@ private:
 
     // SVG-specific methods -- defined in RenderLayerSVGAdditions.cpp.
     bool setupClipPathIfNeededForSVG(OptionSet<PaintLayerFlag>&);
+    void paintResourceCorrectedChildLayerForSVG(GraphicsContext&, RenderLayer& childLayer, const LayerPaintingInfo&, OptionSet<PaintLayerFlag>, LayoutSize correction) const;
     bool paintForegroundForFragmentsForSVG(const LayerFragments&, GraphicsContext&, const LayerPaintingInfo&, OptionSet<PaintBehavior>, RenderObject*);
     void paintNegativeZOrderChildrenForSVG(GraphicsContext&, const LayerPaintingInfo&, OptionSet<PaintLayerFlag>);
-    void paintForegroundChildrenForSVG(GraphicsContext&, const LayerPaintingInfo&, const LayerPaintingInfo& localPaintingInfo, OptionSet<PaintLayerFlag>, const LayerFragments&, OptionSet<PaintBehavior>, RenderObject* subtreePaintRoot, std::optional<WTF::Range<unsigned>> svgPaintOrderItemRange);
+    void paintForegroundChildrenForSVG(GraphicsContext&, const LayerPaintingInfo&, const LayerPaintingInfo& localPaintingInfo, OptionSet<PaintLayerFlag>, const LayerFragments&, OptionSet<PaintBehavior>, RenderObject* subtreePaintRoot, std::optional<WTF::Range<unsigned>> svgPaintOrderItemRange, LayoutSize svgFilterChildLayerCorrection);
     struct HitLayer {
         RenderLayer* layer { nullptr };
         double zOffset = 0;
@@ -1055,8 +1054,8 @@ private:
     // children), signaling that the parent needs a "split" entry.
     bool appendChildrenInDOMOrderForSVG(RenderElement& parent, LayoutSize ancestorOffset, bool& anyNonZeroZIndex);
     const Vector<SVGPaintOrderLayerItem>& childrenInDOMOrderForSVG();
-    void paintChildrenInDOMOrderForSVG(GraphicsContext&, const LayerPaintingInfo&, OptionSet<PaintLayerFlag>, const LayerFragments&, OptionSet<PaintBehavior>, RenderObject*, std::optional<WTF::Range<unsigned>> svgPaintOrderItemRange);
-    void paintNonLayerChildForFragmentsForSVG(RenderElement&, const LayoutSize& accumulatedAncestorOffset, PaintPhase, const LayerFragments&, GraphicsContext&, const LayerPaintingInfo&, OptionSet<PaintBehavior>, RenderObject*, const LayoutPoint& containerBaseOffset, bool isSVGRoot);
+    void paintChildrenInDOMOrderForSVG(GraphicsContext&, const LayerPaintingInfo&, OptionSet<PaintLayerFlag>, const LayerFragments&, OptionSet<PaintBehavior>, RenderObject*, std::optional<WTF::Range<unsigned>> svgPaintOrderItemRange, LayoutSize svgFilterChildLayerCorrection);
+    void paintNonLayerChildForFragmentsForSVG(RenderElement&, const LayoutSize& accumulatedAncestorOffset, PaintPhase, const LayerFragments&, GraphicsContext&, const LayerPaintingInfo&, OptionSet<PaintBehavior>, RenderObject*, const LayoutPoint& containerBaseOffset, bool isSVGRoot, bool sharedClipApplied);
     void paintRendererByApplyingTransformForSVG(GraphicsContext&, CheckedRef<RenderElement>, const LayoutSize& positionOffset, const LayerPaintingInfo&, OptionSet<PaintLayerFlag>, OptionSet<PaintBehavior>, RenderObject*, const LayoutSize& nominalPreTranslation = { });
     void paintSubtreeWithinTransformScopeForSVG(GraphicsContext&, RenderElement& container, const LayoutPoint& paintOffset, const LayerPaintingInfo&, OptionSet<PaintLayerFlag>, OptionSet<PaintBehavior>, RenderObject*);
     HitLayer hitTestChildrenInDOMOrderForSVG(RenderLayer* rootLayer, const HitTestRequest&, HitTestResult&, const LayoutRect& hitTestRect, const HitTestLocation&, const HitTestingTransformState*, double* zOffsetForDescendants);
@@ -1238,8 +1237,7 @@ private:
 
     bool setupFontSubpixelQuantization(GraphicsContext&, bool& didQuantizeFonts);
 
-    std::pair<Path, WindRule> computeClipPath(const LayoutSize& offsetFromRoot, const LayoutRect& rootRelativeBoundsForNonBoxes) const;
-    void setupClipPath(GraphicsContext&, GraphicsContextStateSaver&, RegionContextStateSaver&, const LayerPaintingInfo&, OptionSet<PaintLayerFlag>&, const LayoutSize& offsetFromRoot);
+    void setupClipPath(std::optional<ClipPathPaintScope>&, GraphicsContext&, const LayerPaintingInfo&, OptionSet<PaintLayerFlag>&, const LayoutSize& offsetFromRoot);
     void clearLayerClipPath();
 
     RenderLayerFilters& ensureLayerFilters();

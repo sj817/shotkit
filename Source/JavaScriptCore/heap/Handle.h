@@ -44,7 +44,6 @@ template <> class Handle<JSValue>;
 class HandleBase {
     template <typename T> friend class Weak;
     template <typename T, ShouldStrongDestructorGrabLock shouldStrongDestructorGrabLock> friend class Strong;
-    friend class HandleSet;
     friend struct JSCallbackObjectData;
 
 public:
@@ -115,8 +114,6 @@ public:
         setSlot(o.slot());
     }
 
-    virtual ~Handle() = default;
-
     void swap(Handle& other) { HandleBase::swap(other); }
 
     ExternalType get() const { return HandleTypes<T>::getFromSlot(this->slot()); }
@@ -128,7 +125,6 @@ protected:
     }
 
 private:
-    friend class HandleSet;
     friend class WeakBlock;
 
     static Handle<T> wrapSlot(HandleSlot slot)

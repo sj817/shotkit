@@ -22,3 +22,26 @@ CMakeLists.txt
 # Xcode 工程文件：本 fork 只用 CMake 构建，*.xcodeproj 已整体删除（27 个），
 # 其中 7 个落在上述路径域内（WebCore/WTF/JSC/bmalloc/PAL/ANGLE/dav1d）。
 :(exclude,glob)Source/**/*.xcodeproj/**
+
+# 测试套件：从不构建（ENABLE_API_TESTS/LAYOUT_TESTS 均 OFF），且 ANGLE 那套
+# 还带成百的二进制 .angledata 追踪数据。
+:(exclude,glob)Source/ThirdParty/ANGLE/src/tests/**
+:(exclude,glob)Source/bmalloc/libpas/src/test/**
+
+# 其他端口的平台层与端口选项：Shot 只走 Win/Linux(Skia+curl) 与 macOS(CG+CFNetwork)。
+:(exclude,glob)Source/WebCore/platform/gtk/**
+:(exclude,glob)Source/WebCore/platform/wpe/**
+:(exclude,glob)Source/WebCore/platform/playstation/**
+:(exclude)Source/cmake/OptionsGTK.cmake
+:(exclude)Source/cmake/OptionsWPE.cmake
+:(exclude)Source/cmake/OptionsPlayStation.cmake
+:(exclude)Source/cmake/OptionsIOS.cmake
+
+# GStreamer 后端：USE_GSTREAMER 从未开启（音视频整体关闭）。
+:(exclude,glob)Source/**/gstreamer/**
+
+# 注意：以下看着「没用」但**不能**排除，都实际参与构建——
+#   ThirdParty/skia（Win/Linux 光栅后端）、ThirdParty/ANGLE 主体（Windows 的 EGL 抽象）、
+#   */cocoa|mac|ios/*（macOS 端口）、Modules/WebGPU（115 个 .cpp 无条件在 Sources.txt
+#   里、JS 绑定也在生成，只是被 #if ENABLE(WEBGPU) 掏空）。
+#   排除它们会让本地副本相对上游头文件走样，编译期才炸。

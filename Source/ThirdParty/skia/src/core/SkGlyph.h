@@ -17,12 +17,12 @@
 #include "include/core/SkScalar.h"
 #include "include/core/SkString.h"
 #include "include/core/SkTypes.h"
-#include "include/private/base/SkDebug.h"
-#include "include/private/base/SkFixed.h"
-#include "include/private/base/SkTo.h"
-#include "src/base/SkVx.h"
+#include "include/private/SkDebug.h"
+#include "include/private/SkFixed.h"
+#include "include/private/SkTo.h"
 #include "src/core/SkChecksum.h"
 #include "src/core/SkMask.h"
+#include "src/core/SkVx.h"
 
 #include <algorithm>
 #include <cmath>
@@ -103,19 +103,19 @@ struct SkPackedGlyphID {
         return this->fID < that.fID;
     }
 
-    SkGlyphID glyphID() const {
+    constexpr SkGlyphID glyphID() const {
         return (fID >> kGlyphID) & kGlyphIDMask;
     }
 
-    uint32_t value() const {
+    constexpr uint32_t value() const {
         return fID;
     }
 
-    SkFixed getSubXFixed() const {
+    constexpr SkFixed getSubXFixed() const {
         return this->subToFixed(kSubPixelX);
     }
 
-    SkFixed getSubYFixed() const {
+    constexpr SkFixed getSubYFixed() const {
         return this->subToFixed(kSubPixelY);
     }
 

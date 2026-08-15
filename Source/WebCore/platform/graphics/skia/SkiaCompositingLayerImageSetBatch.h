@@ -27,6 +27,7 @@
 
 #if USE(COORDINATED_GRAPHICS) && USE(SKIA)
 
+#include "SkiaDamageRegion.h"
 WTF_IGNORE_WARNINGS_IN_THIRD_PARTY_CODE_BEGIN
 #include <skia/core/SkCanvas.h>
 #include <skia/core/SkColorFilter.h>
@@ -48,9 +49,13 @@ public:
     ~SkiaCompositingLayerImageSetBatch() = default;
 
     void updatePaintProperties(SkCanvas&, const sk_sp<SkColorFilter>&, const std::optional<SkBlendMode>&);
-    void updateSamplingOptions(SkCanvas&, SkSamplingOptions);
-    void addImageSet(SkCanvas&, SkiaBackingStore&, const SkMatrix&, float opacity, bool enableAntialias);
-    void addImage(SkCanvas&, const sk_sp<SkImage>&, const FloatRect&, const FloatRect& clip, const SkMatrix&, float opacity, bool enableAntialias);
+
+    // A null damage region draws everything. Otherwise the draw is drawn whole when the damage covers it,
+    // split by the rects of the region when the transform allows, and otherwise flushed and drawn under a
+    // damage clip with fallbackPaint, which is used in that case only.
+    void addImageSet(SkCanvas&, SkiaBackingStore&, const SkM44& transform, float opacity, bool enableAntialias, const SkiaDamageRegion*, const SkPaint& fallbackPaint);
+    void addImage(SkCanvas&, const sk_sp<SkImage>&, const FloatRect&, const SkM44& transform, float opacity, bool enableAntialias, const SkiaDamageRegion*, const SkPaint& fallbackPaint);
+
     void flushIfNeeded(SkCanvas&);
 
     class ScopedFlush {
@@ -72,8 +77,45 @@ public:
     };
 
 private:
+    // What the caller has left to do to limit one draw to the damage.
+    enum class RestrictedDraw : uint8_t {
+        Done,
+        Whole,
+        Split
+    };
+
+    // Entries here carry no clip quad, so a draw needing a damage clip ends the batch.
+    template<typename FallbackDrawFunction>
+    RestrictedDraw planRestrictedDraw(SkCanvas& canvas, const SkM44& transform, const SkMatrix& ctm, const SkRect& deviceRect, const SkiaDamageRegion& damageRegion, SkMatrix& inverse, NOESCAPE const FallbackDrawFunction& fallbackDraw)
+    {
+        ASSERT(!damageRegion.isEmpty());
+
+        if (damageRegion.covers(deviceRect))
+            return RestrictedDraw::Whole;
+
+        switch (damageRegion.planDraw(ctm, deviceRect, inverse)) {
+        case SkiaDamageRegion::DrawDamageStrategy::Skip:
+            return RestrictedDraw::Done;
+        case SkiaDamageRegion::DrawDamageStrategy::ClipToDamage: {
+            ScopedFlush autoFlush(canvas, *this, ScopedFlush::Mode::FlushBefore);
+            canvas.concat(transform);
+            damageRegion.clipCanvasInDeviceSpace(canvas);
+            fallbackDraw(canvas);
+            return RestrictedDraw::Done;
+        }
+        case SkiaDamageRegion::DrawDamageStrategy::SplitByRect:
+            break;
+        }
+
+        return RestrictedDraw::Split;
+    }
+
+    void updateSamplingOptions(SkCanvas&, SkSamplingOptions);
+    bool imageRequiresLinearSampling(const SkCanvas&, const sk_sp<SkImage>&, const FloatRect&, const SkMatrix&) const;
+    SkSamplingOptions samplingOptionsForImage(const SkCanvas&, const sk_sp<SkImage>&, const FloatRect&, const SkMatrix&) const;
+    size_t matrixIndexForDraw(const SkMatrix& ctm);
+
     Vector<SkCanvas::ImageSetEntry> m_imageSet;
-    Vector<SkPoint> m_dstClips;
     Vector<SkMatrix> m_preViewMatrices;
     sk_sp<SkColorFilter> m_colorFilter;
     std::optional<SkBlendMode> m_blendMode;

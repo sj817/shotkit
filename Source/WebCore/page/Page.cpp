@@ -43,12 +43,12 @@
 #include "BroadcastChannelRegistry.h"
 #include "CacheStorageProvider.h"
 #include "CachedImage.h"
+#include "CanvasRenderingContext.h"
 #include "CaptionDisplaySettingsClient.h"
 #include "Chrome.h"
 #include "ChromeClient.h"
 #include "CommonAtomStrings.h"
 #include "CommonVM.h"
-#include "ConstantPropertyMap.h"
 #include "ContainerNodeInlines.h"
 #include "ContextMenuClient.h"
 #include "ContextMenuController.h"
@@ -119,6 +119,7 @@
 #include "LayoutDisallowedScope.h"
 #include "LegacySchemeRegistry.h"
 #include "LoaderStrategy.h"
+#include "LocalDOMWindow.h"
 #include "LocalFrameLoaderClient.h"
 #include "LocalFrameViewInlines.h"
 #include "LogInitialization.h"
@@ -131,6 +132,7 @@
 #include "ModelPlayerProvider.h"
 #include "NavigationScheduler.h"
 #include "Navigator.h"
+#include "NavigatorAudioSession.h"
 #include "NavigatorGamepad.h"
 #include "NavigatorMediaSession.h"
 #include "OpportunisticTaskScheduler.h"
@@ -192,6 +194,7 @@
 #include "StringCallback.h"
 #include "StyleAdjuster.h"
 #include "StyleDocumentScope.h"
+#include "StyleEnvironmentVariables.h"
 #include "StyleResolver.h"
 #include "SubframeLoader.h"
 #include "SubresourceLoader.h"
@@ -553,6 +556,8 @@ Page::Page(PageConfiguration&& pageConfiguration)
     if (pageConfiguration.imageTranslationLanguageIdentifiers)
         protect(imageAnalysisQueue())->setTranslationLanguageIdentifiers(WTF::move(*pageConfiguration.imageTranslationLanguageIdentifiers));
 #endif
+
+    m_displayedTranslationLocaleIdentifier = WTF::move(pageConfiguration.displayedTranslationLocaleIdentifier);
 }
 
 Page::~Page()
@@ -920,6 +925,21 @@ DOMAudioSessionType Page::audioSessionType() const
 {
     return m_topDocumentSyncData->audioSessionType;
 }
+
+void Page::setAudioSessionState(DOMAudioSessionState audioSessionState)
+{
+    if (m_topDocumentSyncData->audioSessionState == audioSessionState)
+        return;
+
+    m_topDocumentSyncData->audioSessionState = audioSessionState;
+    if (settings().siteIsolationEnabled())
+        documentSyncClient().broadcastAudioSessionStateToOtherProcesses(audioSessionState);
+}
+
+DOMAudioSessionState Page::audioSessionState() const
+{
+    return m_topDocumentSyncData->audioSessionState;
+}
 #endif
 
 void Page::setUserDidInteractWithPage(bool didInteract)
@@ -989,6 +1009,19 @@ void Page::updateTopDocumentSyncData(const DocumentSyncSerializationData& data)
 #endif
         protect(m_topDocumentSyncData)->update(data);
         break;
+#if ENABLE(DOM_AUDIO_SESSION)
+    case DocumentSyncDataType::AudioSessionState:
+        protect(m_topDocumentSyncData)->update(data);
+        forEachDocument([](Document& document) {
+            RefPtr window = document.window();
+            RefPtr navigator = window ? window->optionalNavigator() : nullptr;
+            if (!navigator)
+                return;
+            if (RefPtr audioSession = NavigatorAudioSession::audioSessionIfExists(*navigator))
+                audioSession->topDocumentAudioSessionStateChanged();
+        });
+        break;
+#endif
     }
 }
 
@@ -1006,6 +1039,11 @@ void Page::setMainFrameURLFragment(String&& fragment)
 const URL& Page::mainFrameURL() const
 {
     return m_topDocumentSyncData->documentURL;
+}
+
+void Page::didObserveFirstPartyUserGesture()
+{
+    chrome().client().didObserveFirstPartyUserGesture();
 }
 
 SecurityOrigin& Page::mainFrameOrigin() const
@@ -1312,6 +1350,13 @@ Vector<CueMatch> Page::findCueMatches(const String& target, FindOptions options)
 
     return results;
 }
+
+void Page::clearFindCaptionTracks()
+{
+    forEachMediaElement([](HTMLMediaElement& element) {
+        element.clearFindCaptionTrack();
+    });
+}
 #endif // ENABLE(VIDEO)
 
 std::optional<SimpleRange> Page::rangeOfString(const String& target, const std::optional<SimpleRange>& referenceRange, FindOptions options)
@@ -1360,9 +1405,11 @@ unsigned Page::findMatchesForText(const String& target, FindOptions options, uns
             frame = incrementFrame(frame.get(), true, CanWrap::No);
             continue;
         }
-        if (shouldMarkMatches == MarkMatches)
+        if (shouldMarkMatches == MarkMatches) {
             protect(localFrame->editor())->setMarkedTextMatchesAreHighlighted(shouldHighlightMatches == HighlightMatches);
-        matchCount += protect(localFrame->editor())->countMatchesForText(target, std::nullopt, options, maxMatchCount ? (maxMatchCount - matchCount) : 0, shouldMarkMatches == MarkMatches, nullptr);
+            matchCount += protect(localFrame->editor())->markAllMatchesForText(target, options, maxMatchCount ? (maxMatchCount - matchCount) : 0);
+        } else
+            matchCount += protect(localFrame->editor())->countMatchesForText(target, std::nullopt, options, maxMatchCount ? (maxMatchCount - matchCount) : 0, false, nullptr);
         frame = incrementFrame(frame.get(), true, CanWrap::No);
     } while (frame);
 
@@ -1488,6 +1535,8 @@ void Page::unmarkAllTextMatches()
     forEachDocument([] (Document& document) {
         if (CheckedPtr markers = document.markersIfExists())
             markers->removeMarkers(DocumentMarkerType::TextMatch);
+        if (RefPtr frame = document.frame())
+            protect(frame->editor())->textMatchMarkersWereCleared();
     });
 }
 
@@ -2213,8 +2262,22 @@ void Page::syncLocalFrameInfoToRemote()
 
         HashMap<FrameIdentifier, Ref<RemoteFrameLayoutInfo>> childrenFrameLayoutInfo;
         for (RefPtr child = frame.tree().firstChild(); child; child = child->tree().nextSibling()) {
+            auto childVisibleRect = frameView->visibleRectOfChild(*child.get());
+
+            // Clamp the child's visible rect to the portion of the page actually on-screen, so an offscreen
+            // iframe commits ~0 tiles — matching the single-tiled-backing coverage decision the page makes
+            // with site isolation off. visibleRectOfChild() clips through the compositor tree but not the
+            // top-level viewport, so a fully-below-fold iframe can still return a non-empty box; intersect
+            // it here with the parent's exposed viewport.
+#if PLATFORM(IOS_FAMILY)
+            if (childVisibleRect && frame.settings().siteIsolationEnabled()) {
+                auto viewport = LayoutRect { frameView->exposedContentRect() };
+                childVisibleRect->intersect(viewport);
+            }
+#endif
+
             childrenFrameLayoutInfo.add(child->frameID(), RemoteFrameLayoutInfo::create(
-                frameView->visibleRectOfChild(*child.get()),
+                childVisibleRect,
                 frameView->childFrameOwnerToRootContentTransform(*child),
                 frameView->absoluteToChildFrameOwnerLocalTransform(*child),
                 frame.usedZoomForChild(*child),
@@ -2535,7 +2598,9 @@ void Page::finalizeRenderingUpdate(OptionSet<FinalizeRenderingUpdateFlags> flags
     for (auto& rootFrame : m_rootFrames)
         finalizeRenderingUpdateForRootFrame(Ref { rootFrame.get() }, flags);
 
-    ASSERT(m_renderingUpdateRemainingSteps.last().isEmpty());
+    // A site-isolated Page can have no local root frame with a view to consume the per-root-frame steps.
+    ASSERT(m_renderingUpdateRemainingSteps.last().isEmpty()
+        || (settings().siteIsolationEnabled() && m_renderingUpdateRemainingSteps.last() == perRootFrameRenderingUpdateSteps));
     renderingUpdateCompleted();
 }
 
@@ -2787,12 +2852,29 @@ std::optional<FramesPerSecond> Page::preferredRenderingUpdateFramesPerSecond(Opt
         }
     });
 
+    for (Ref canvasContext : m_gpuCanvasesRequestingPacing) {
+        if (auto canvasPreferredFrameRate = canvasContext->preferredRenderingUpdateFramesPerSecond()) {
+            if (!frameRate || *canvasPreferredFrameRate < *frameRate)
+                frameRate = *canvasPreferredFrameRate;
+        }
+    }
+
     return frameRate;
 }
 
 Seconds Page::preferredRenderingUpdateInterval() const
 {
     return preferredFrameInterval(m_throttlingReasons, m_displayNominalFramesPerSecond, settings().preferPageRenderingUpdatesNear60FPSEnabled());
+}
+
+void Page::addGPUCanvasRequestingRenderingUpdatePacing(CanvasRenderingContext& context)
+{
+    m_gpuCanvasesRequestingPacing.add(context);
+}
+
+void Page::removeGPUCanvasRequestingRenderingUpdatePacing(CanvasRenderingContext& context)
+{
+    m_gpuCanvasesRequestingPacing.remove(context);
 }
 
 void Page::setIsVisuallyIdleInternal(bool isVisuallyIdle)
@@ -4318,7 +4400,7 @@ void Page::setUnobscuredSafeAreaInsets(const FloatBoxExtent& insets)
     m_unobscuredSafeAreaInsets = insets;
 
     forEachDocument([&] (Document& document) {
-        document.constantProperties().didChangeSafeAreaInsets();
+        document.styleScope().environmentVariables().didChangeSafeAreaInsets();
     });
 }
 
@@ -4373,19 +4455,19 @@ bool Page::useDarkAppearance() const
     if (m_useDarkAppearanceOverride)
         return m_useDarkAppearanceOverride.value();
 
+    if (mainFrame().isPrinting())
+        return false;
+
     if (RefPtr localMainFrame = this->localMainFrame()) {
-        // Printed page should always use light appearance (i.e return false)
-        // FIXME: implement this logic for remote main frames.
+        // Media type can be non-screen without printing (Inspector emulation, client override).
         RefPtr view = localMainFrame->view();
         if (!view || view->mediaType() != screenAtom())
             return false;
-
-        if (auto* documentLoader = localMainFrame->loader().documentLoader()) {
-            auto colorSchemePreference = documentLoader->colorSchemePreference();
-            if (colorSchemePreference != ColorSchemePreference::NoPreference)
-                return colorSchemePreference == ColorSchemePreference::Dark;
-        }
     }
+
+    auto colorSchemePreference = protect(mainFrame())->colorSchemePreference();
+    if (colorSchemePreference != ColorSchemePreference::NoPreference)
+        return colorSchemePreference == ColorSchemePreference::Dark;
 
     return m_useDarkAppearance;
 #else
@@ -4411,7 +4493,7 @@ void Page::setFullscreenInsets(const FloatBoxExtent& insets)
     m_fullscreenInsets = insets;
 
     forEachDocument([] (Document& document) {
-        document.constantProperties().didChangeFullscreenInsets();
+        document.styleScope().environmentVariables().didChangeFullscreenInsets();
     });
 }
 
@@ -4423,7 +4505,7 @@ void Page::setFullscreenAutoHideDuration(Seconds duration)
     m_fullscreenAutoHideDuration = duration;
 
     forEachDocument([&] (Document& document) {
-        document.constantProperties().setFullscreenAutoHideDuration(duration);
+        document.styleScope().environmentVariables().setFullscreenAutoHideDuration(duration);
     });
 }
 
@@ -4473,6 +4555,21 @@ void Page::enableICECandidateFiltering()
 LocalFrame* Page::localMainFrame() const
 {
     return dynamicDowncast<LocalFrame>(mainFrame());
+}
+
+LocalFrame* Page::localMainOrRootFrame() const
+{
+    if (auto* localMainFrame = this->localMainFrame())
+        return localMainFrame;
+
+    // Under Site Isolation the main frame can be remote in this process; fall back to the first
+    // live local root frame (normally exactly one per WebContent process for a given page).
+    for (auto& rootFrame : m_rootFrames) {
+        if (rootFrame->view())
+            return rootFrame.ptr();
+    }
+
+    return nullptr;
 }
 
 Document* Page::localTopDocument() const
@@ -5188,7 +5285,7 @@ ModelPlayerProvider& Page::modelPlayerProvider()
     return m_modelPlayerProvider.get();
 }
 
-void Page::setupForRemoteWorker(const URL& scriptURL, const SecurityOriginData& topOrigin, const String& referrerPolicy, OptionSet<AdvancedPrivacyProtections> advancedPrivacyProtections)
+void Page::setupForRemoteWorker(const URL& scriptURL, const SecurityOriginData& topOrigin, const String& referrerPolicy, OptionSet<AdvancedPrivacyProtections> advancedPrivacyProtections, std::optional<bool> globalPrivacyControlEnabled)
 {
     RefPtr localMainFrame = this->localMainFrame();
     if (!localMainFrame)
@@ -5206,6 +5303,8 @@ void Page::setupForRemoteWorker(const URL& scriptURL, const SecurityOriginData& 
 
     if (auto* documentLoader = localMainFrame->loader().documentLoader())
         documentLoader->setAdvancedPrivacyProtections(advancedPrivacyProtections);
+
+    settings().setGlobalPrivacyControlEnabled(globalPrivacyControlEnabled);
 
     document->setStorageBlockingPolicy(document->settings().storageBlockingPolicy());
 
@@ -5367,7 +5466,8 @@ void Page::performOpportunisticallyScheduledTasks(MonotonicTime deadline)
     OptionSet<JSC::VM::SchedulerOptions> options;
     if (m_opportunisticTaskScheduler->hasImminentlyScheduledWork())
         options.add(JSC::VM::SchedulerOptions::HasImminentlyScheduledWork);
-    commonVM().performOpportunisticallyScheduledTasks(deadline, options);
+
+    commonVM().performOpportunisticallyScheduledTasks(deadline.approximate<ApproximateTime>(), options);
 
     deleteRemovedNodesAndDetachedRenderers();
 }
@@ -5570,6 +5670,11 @@ void Page::setDefaultSpatialTrackingLabel(const String& label)
     });
 }
 #endif
+
+void Page::setDisplayedTranslationLocaleIdentifier(String&& localeIdentifier)
+{
+    m_displayedTranslationLocaleIdentifier = WTF::move(localeIdentifier);
+}
 
 #if ENABLE(GAMEPAD)
 void Page::gamepadsRecentlyAccessed()

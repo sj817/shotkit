@@ -81,7 +81,11 @@ if (-not $Patch) {
 # ---- 生成 path-scoped patch ----
 $Patch = [IO.Path]::GetFullPath($Patch)
 Write-Host "`n生成 patch: $Patch"
-git -C $ScratchDir diff $Baseline $Target -- @Paths | Set-Content -LiteralPath $Patch -Encoding utf8
+# --binary 不能省：上游有二进制文件（ANGLE 测试数据、字体、图片），没有它 git diff
+# 只写一行「Binary files ... differ」，git apply 到那里就整个失败。
+# --output 让 git 自己写文件：走 PowerShell 管道会被 Set-Content 改成 CRLF，
+# 而 base85 的二进制 hunk 经不起换行符改写。
+git -C $ScratchDir diff --binary --output=$Patch $Baseline $Target -- @Paths
 if ($LASTEXITCODE -ne 0) { throw 'git diff 失败' }
 
 $Changed = git -C $ScratchDir diff --name-only $Baseline $Target -- @Paths

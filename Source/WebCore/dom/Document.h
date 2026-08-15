@@ -3,7 +3,7 @@
  *           (C) 1999 Antti Koivisto (koivisto@kde.org)
  *           (C) 2001 Dirk Mueller (mueller@kde.org)
  *           (C) 2006 Alexey Proskuryakov (ap@webkit.org)
- * Copyright (C) 2004-2025 Apple Inc. All rights reserved.
+ * Copyright (C) 2004-2026 Apple Inc. All rights reserved.
  * Copyright (C) 2008, 2009 Torch Mobile Inc. All rights reserved. (http://www.torchmobile.com/)
  * Copyright (C) 2010 Nokia Corporation and/or its subsidiary(-ies)
  * Copyright (C) 2011 Google Inc. All rights reserved.
@@ -83,6 +83,7 @@
 namespace JSC {
 class CallFrame;
 class InputCursor;
+class JSObject;
 }
 
 namespace WTF {
@@ -116,7 +117,6 @@ class CanvasRenderingContext2D;
 class CaretPosition;
 class CharacterData;
 class Comment;
-class ConstantPropertyMap;
 class ContentVisibilityDocumentState;
 class CustomElementRegistry;
 class DOMImplementation;
@@ -590,8 +590,9 @@ public:
     RefPtr<CustomElementRegistry> customElementRegistryForBindings();
     CustomElementRegistry* NODELETE effectiveGlobalCustomElementRegistry();
     static CustomElementNameValidationStatus validateCustomElementName(const AtomString&);
-    void setActiveCustomElementRegistry(CustomElementRegistry*);
-    CustomElementRegistry* activeCustomElementRegistry() { return m_activeCustomElementRegistry.get(); }
+    CustomElementRegistry* activeCustomElementConstructorRegistry(JSC::JSObject* constructor);
+    void addToActiveCustomElementConstructorMap(JSC::JSObject* constructor, CustomElementRegistry&);
+    void removeFromActiveCustomElementConstructorMap(JSC::JSObject* constructor);
 
     WEBCORE_EXPORT RefPtr<Range> caretRangeFromPoint(int x, int y, HitTestSource = HitTestSource::Script);
     std::optional<BoundaryPoint> caretPositionFromPoint(const LayoutPoint& clientPoint, HitTestSource);
@@ -1246,6 +1247,9 @@ public:
 
     WEBCORE_EXPORT bool isFullyActive() const;
 
+    // https://html.spec.whatwg.org/multipage/interaction.html#fully-active-descendant-of-a-top-level-traversable-with-user-attention
+    bool isFullyActiveAndHasUserAttention() const;
+
     // The full URL corresponding to the "site for cookies" in the Same-Site Cookies spec.,
     // <https://tools.ietf.org/html/draft-ietf-httpbis-cookie-same-site-00>. It is either
     // the URL of the top-level document or the null URL depending on whether the registrable
@@ -1311,6 +1315,7 @@ public:
 #if ENABLE(XSLT)
     void scheduleToApplyXSLTransforms();
     void applyPendingXSLTransformsNowIfScheduled();
+    void logXSLTDeprecationWarningIfNeeded();
     RefPtr<Document> transformSourceDocument() { return m_transformSourceDocument; }
     void setTransformSourceDocument(Document* document) { m_transformSourceDocument = document; }
 
@@ -1540,6 +1545,11 @@ public:
     bool hasHadUserInteraction() const { return static_cast<bool>(m_lastHandledUserGestureTimestamp); }
     void updateLastHandledUserGestureTimestamp(MonotonicTime);
     bool processingUserGestureForMedia() const;
+
+    // Identifies which branch of processingUserGestureForMedia() authorizes media playback.
+    enum class MediaGestureReason : uint8_t { None, ActiveToken, TransientActivation, MediaFinishedGrace, InheritsFromDocumentSetting, InheritedUserGesturesQuirk };
+    MediaGestureReason mediaUserGestureReason() const;
+
     bool hasRecentUserInteractionForNavigationFromJS() const;
     void userActivatedMediaFinishedPlaying() { m_userActivatedMediaFinishedPlayingTimestamp = MonotonicTime::now(); }
 
@@ -1635,6 +1645,14 @@ public:
     Ref<DocumentFragment> documentFragmentForInnerOuterHTML();
 
     void didAssociateFormControl(Element&);
+
+#if ENABLE(AX_CUSTOM_COLOR_MODE)
+    bool addAXCustomColorModeAdjustedElement(Element&);
+    bool isAXCustomColorModeAdjustedElement(const Element&) const;
+#endif
+
+    void adjustStyleColorOptionsIfNeeded(OptionSet<StyleColorOptions>&) const;
+
     bool hasDisabledFieldsetElement() const { return m_disabledFieldsetElementsCount; }
     void addDisabledFieldsetElement() { m_disabledFieldsetElementsCount++; }
     void removeDisabledFieldsetElement() { ASSERT(m_disabledFieldsetElementsCount); m_disabledFieldsetElementsCount--; }
@@ -1828,8 +1846,6 @@ public:
     void attachToCachedFrame(CachedFrameBase&);
     void detachFromCachedFrame(CachedFrameBase&);
 
-    ConstantPropertyMap& constantProperties() const;
-
     void orientationChanged(IntDegrees orientation);
     OrientationNotifier& orientationNotifier();
 
@@ -1870,6 +1886,7 @@ public:
     Vector<Ref<WebAnimation>> matchingAnimations(NOESCAPE const Function<bool(Element&)>&);
     AnimationTimelinesController* timelinesController() const { return m_timelinesController.get(); }
     WEBCORE_EXPORT AnimationTimelinesController& ensureTimelinesController();
+    WEBCORE_EXPORT bool hasProgressBasedScrollDrivenAnimation() const;
     StyleOriginatedTimelinesController* styleOriginatedTimelinesController() { return m_styleOriginatedTimelinesController.get(); }
     StyleOriginatedTimelinesController& ensureStyleOriginatedTimelinesController();
     void keyframesRuleDidChange(const String& name);
@@ -1880,17 +1897,35 @@ public:
     bool hasTopLayerElement() const { return !m_topLayerElements.isEmpty(); }
 
     const OrderedHashSet<Ref<HTMLElement>>& autoPopoverList() const LIFETIME_BOUND { return m_autoPopoverList; }
+    const OrderedHashSet<Ref<HTMLElement>>& hintPopoverList() const LIFETIME_BOUND { return m_hintPopoverList; }
 
     OrderedHashSet<Ref<HTMLDialogElement>>& openDialogsList() { return m_openDialogsList; }
 
     HTMLDialogElement* activeModalDialog() const;
     HTMLElement* NODELETE topmostAutoPopover() const;
+    HTMLElement* NODELETE topmostHintPopover() const;
+    HTMLElement* NODELETE nearestOpenHintAncestor(Element&) const;
     RefPtr<HTMLDialogElement> nearestClickedDialog(const PointerEvent&, Node&) const;
 
-    void hideAllPopoversUntil(HTMLElement*, FocusPreviousElement, FireEvents);
+    void hideAutoPopoversUntil(HTMLElement*, FocusPreviousElement, FireEvents);
+    void closeAllHintPopovers(FocusPreviousElement, FireEvents);
+    void closeHintPopoversUntil(const HTMLElement* endpoint, FocusPreviousElement, FireEvents);
+    void hidePopoversForTopLayerElement(Element&, FireEvents);
     void handlePopoverLightDismiss(const PointerEvent&, Node&);
     void handleDialogLightDismiss(const PointerEvent&, Node&);
-    bool needsPointerEventHandlingForPopoverOrDialog() const { return !m_autoPopoverList.isEmpty() || !m_openDialogsList.isEmpty(); }
+    bool needsPointerEventHandlingForPopoverOrDialog() const { return !m_autoPopoverList.isEmpty() || !m_hintPopoverList.isEmpty() || !m_openDialogsList.isEmpty(); }
+
+    // True while a popover show or hide algorithm is running (including during the beforetoggle
+    // event it dispatches). Showing a popover reentrantly during this window must throw.
+    bool isRunningPopoverShowOrHide() const { return m_popoverShowOrHideDepth; }
+    class PopoverShowOrHideScope {
+    public:
+        explicit PopoverShowOrHideScope(Document& document)
+            : m_document(document) { ++m_document->m_popoverShowOrHideDepth; }
+        ~PopoverShowOrHideScope() { ASSERT(m_document->m_popoverShowOrHideDepth); --m_document->m_popoverShowOrHideDepth; }
+    private:
+        const Ref<Document> m_document;
+    };
 
 #if ENABLE(ATTACHMENT_ELEMENT)
     void registerAttachmentIdentifier(const String&, const AttachmentAssociatedElement&);
@@ -2087,7 +2122,7 @@ public:
     WEBCORE_EXPORT void ariaNotify(const String&);
     WEBCORE_EXPORT void ariaNotify(const String&, const AriaNotifyOptions&);
 
-    std::optional<TextPosition> currentParserSourcePosition() const;
+    WEBCORE_EXPORT std::optional<TextPosition> currentParserSourcePosition() const;
 
     bool shouldUseTouchEventRegions() const;
 
@@ -2101,6 +2136,10 @@ protected:
     void clearXMLVersion() { m_xmlVersion = String(); }
 
 private:
+    enum class PopoverListType : bool { Auto, Hint };
+    void addPopoverToList(PopoverListType, HTMLElement&);
+    void removePopoverFromList(PopoverListType, HTMLElement&);
+
     friend class DocumentParserYieldToken;
     friend class DocumentSyncData;
     friend class IgnoreDestructiveWriteCountIncrementer;
@@ -2425,8 +2464,6 @@ private:
 
     std::optional<HashMap<String, WeakPtr<Element, WeakPtrImplWithEventTargetData>, ASCIICaseInsensitiveHash>> m_accessKeyCache;
 
-    std::unique_ptr<ConstantPropertyMap> m_constantPropertyMap;
-
     RenderPtr<RenderView> m_renderView;
     std::unique_ptr<Style::ComputedStyle> m_initialContainingBlockStyle;
 
@@ -2543,7 +2580,7 @@ private:
 
     WeakListHashSet<ShadowRoot, WeakPtrImplWithEventTargetData> m_inDocumentShadowRoots;
 
-    RefPtr<CustomElementRegistry> m_activeCustomElementRegistry;
+    HashMap<uintptr_t, RefPtr<CustomElementRegistry>> m_activeCustomElementConstructorMap;
 
 #if ENABLE(WIRELESS_PLAYBACK_TARGET)
     using TargetIdToClientMap = HashMap<PlaybackTargetClientContextIdentifier, WeakPtr<MediaPlaybackTargetClient>>;
@@ -2570,6 +2607,9 @@ private:
     Markable<WallTime> m_overrideLastModified;
 
     WeakHashSet<Element, WeakPtrImplWithEventTargetData> m_associatedFormControls;
+#if ENABLE(AX_CUSTOM_COLOR_MODE)
+    WeakHashSet<Element, WeakPtrImplWithEventTargetData> m_axCustomColorModeAdjustedElements;
+#endif
 
     const std::unique_ptr<OrientationNotifier> m_orientationNotifier;
     mutable RefPtr<Logger> m_logger;
@@ -2612,9 +2652,12 @@ private:
 
     OrderedHashSet<Ref<Element>> m_topLayerElements;
     OrderedHashSet<Ref<HTMLElement>> m_autoPopoverList;
+    OrderedHashSet<Ref<HTMLElement>> m_hintPopoverList;
     OrderedHashSet<Ref<HTMLDialogElement>> m_openDialogsList;
+    unsigned m_popoverShowOrHideDepth { 0 };
 
     WeakPtr<HTMLElement, WeakPtrImplWithEventTargetData> m_popoverPointerDownTarget;
+    WeakPtr<HTMLElement, WeakPtrImplWithEventTargetData> m_popoverHintPointerDownTarget;
     WeakPtr<HTMLDialogElement, WeakPtrImplWithEventTargetData> m_dialogPointerDownTarget;
 
 #if ENABLE(WEB_RTC)
@@ -2786,6 +2829,7 @@ private:
 
 #if ENABLE(XSLT)
     bool m_hasPendingXSLTransforms { false };
+    bool m_hasLoggedXSLTDeprecationWarning { false };
 #endif
 
 #if ENABLE(MEDIA_STREAM)

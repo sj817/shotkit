@@ -299,6 +299,11 @@ public:
     LazyClassStructure m_dateTimeFormatStructure;
     LazyClassStructure m_numberFormatStructure;
 
+    // Cached collator object for String#localeCompare
+    WriteBarrier<IntlCollator> m_cachedLocaleCompareCollator;
+    String m_cachedLocaleCompareCollatorLocale;
+    uint64_t m_cachedLocaleCompareCollatorLanguagesEpoch { 0 };
+
     LazyClassStructure m_durationStructure;
     LazyClassStructure m_instantStructure;
     LazyClassStructure m_plainDateStructure;
@@ -318,6 +323,7 @@ public:
     LazyProperty<JSGlobalObject, JSFunction> m_objectProtoToStringFunction;
     LazyProperty<JSGlobalObject, JSFunction> m_arrayProtoToStringFunction;
     LazyProperty<JSGlobalObject, JSFunction> m_arrayProtoValuesFunction;
+    LazyProperty<JSGlobalObject, JSFunction> m_asyncFromSyncIteratorProtoNextFunction;
     LazyProperty<JSGlobalObject, JSFunction> m_mapProtoEntriesFunction;
     LazyProperty<JSGlobalObject, JSFunction> m_setProtoValuesFunction;
     LazyProperty<JSGlobalObject, JSFunction> m_stringProtoSymbolIteratorFunction;
@@ -770,7 +776,7 @@ public:
     JSCallee* globalCallee() LIFETIME_BOUND { return m_globalCallee.get(); }
     JSCallee* evalCallee() LIFETIME_BOUND { return m_evalCallee.get(); }
 
-    // The following accessors return pristine values, even if a script 
+    // The following accessors return primordial values, even if a script
     // replaces the global object's associated property.
 
     GetterSetter* arraySpeciesGetterSetter() const LIFETIME_BOUND { return m_arraySpeciesGetterSetter.get(); }
@@ -785,6 +791,7 @@ public:
     JSIteratorConstructor* iteratorConstructor() const LIFETIME_BOUND { return m_iteratorConstructor.get(); }
 
     IntlCollator* defaultCollator() const LIFETIME_BOUND { return m_defaultCollator.get(this); }
+    IntlCollator* cachedLocaleCompareCollator(JSString* locale);
     bool canDoASCIIUCADUCETLocaleCompare() const { return m_canDoASCIIUCADUCETLocaleCompare; }
     IntlDateTimeFormat* defaultDateTimeFormat() const LIFETIME_BOUND { return m_defaultDateTimeFormat.get(this); }
     IntlDateTimeFormat* defaultDateFormat() const LIFETIME_BOUND { return m_defaultDateFormat.get(this); }
@@ -805,6 +812,7 @@ public:
     JSFunction* arrayProtoToStringFunction() const LIFETIME_BOUND { return m_arrayProtoToStringFunction.get(this); }
     JSFunction* arrayProtoValuesFunction() const LIFETIME_BOUND { return m_arrayProtoValuesFunction.get(this); }
     JSFunction* arrayProtoValuesFunctionConcurrently() const LIFETIME_BOUND { return m_arrayProtoValuesFunction.getConcurrently(); }
+    JSFunction* asyncFromSyncIteratorPrototypeNextFunction() const LIFETIME_BOUND { return m_asyncFromSyncIteratorProtoNextFunction.get(this); }
     JSFunction* mapProtoEntriesFunction() const LIFETIME_BOUND { return m_mapProtoEntriesFunction.get(this); }
     JSFunction* mapProtoEntriesFunctionConcurrently() const LIFETIME_BOUND { return m_mapProtoEntriesFunction.getConcurrently(); }
     JSFunction* setProtoValuesFunction() const LIFETIME_BOUND { return m_setProtoValuesFunction.get(this); }
@@ -1151,10 +1159,14 @@ public:
     template<TypedArrayType type> Structure* resizableOrGrowableSharedTypedArrayStructureWithTypedArrayType() const { return typedArrayStructure(type, /* isResizableOrGrowableShared */ true); }
 
     inline JSObject* typedArrayConstructor(TypedArrayType) const;
+    inline JSObject* typedArrayConstructorConcurrently(TypedArrayType) const;
     inline JSObject* typedArrayPrototype(TypedArrayType) const;
 
     inline JSCell* linkTimeConstant(LinkTimeConstant) const;
     template<typename Type> inline Type linkTimeConstantConcurrently(LinkTimeConstant) const;
+
+    inline JSObject* asyncGeneratorPrototypeNextFunction() const;
+    inline JSObject* asyncIteratorPrototypeSymbolAsyncIteratorFunction() const;
 
     WatchpointSet& masqueradesAsUndefinedWatchpointSet() { return m_masqueradesAsUndefinedWatchpointSet.get(); }
     WatchpointSet& havingABadTimeWatchpointSet() { return m_havingABadTimeWatchpointSet.get(); }

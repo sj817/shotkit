@@ -62,6 +62,23 @@ std::optional<FloatPoint> findIntersection(const FloatPoint& p1, const FloatPoin
     return FloatPoint(p1.x() + param * pxLength, p1.y() + param * pyLength);
 }
 
+std::optional<FloatPoint> findSegmentLineIntersection(const FloatPoint& segmentStart, const FloatPoint& segmentEnd, const FloatPoint& lineA, const FloatPoint& lineB)
+{
+    auto intersection = findIntersection(segmentStart, segmentEnd, lineA, lineB);
+    if (!intersection)
+        return std::nullopt;
+
+    auto segment = segmentEnd - segmentStart;
+    float lengthSquared = segment.diagonalLengthSquared();
+    if (!lengthSquared)
+        return std::nullopt;
+
+    float position = dotProduct(*intersection - segmentStart, segment) / lengthSquared;
+    if (position < 0 || position > 1)
+        return std::nullopt;
+    return intersection;
+}
+
 IntRect unionRect(const Vector<IntRect>& rects)
 {
     IntRect result;
@@ -162,6 +179,18 @@ FloatRect smallestRectWithAspectRatioAroundRect(float aspectRatio, const FloatRe
     return destRect;
 }
 
+FloatRect fullRectFromSubrectAndSize(const FloatSize& naturalSize, const FloatRect& subrect, const FloatRect& destRect)
+{
+    float scaleX = destRect.width() / subrect.width();
+    float scaleY = destRect.height() / subrect.height();
+    return {
+        destRect.x() - subrect.x() * scaleX,
+        destRect.y() - subrect.y() * scaleY,
+        naturalSize.width() * scaleX,
+        naturalSize.height() * scaleY
+    };
+}
+
 FloatSize sizeWithAreaAndAspectRatio(float area, float aspectRatio)
 {
     auto scaledWidth = std::sqrt(area * aspectRatio);
@@ -205,9 +234,19 @@ FloatPoint midPoint(const FloatPoint& first, const FloatPoint& second)
     return { std::midpoint(first.x(), second.x()), std::midpoint(first.y(), second.y()) };
 }
 
+FloatPoint linearInterpolation(const FloatPoint& from, const FloatPoint& to, float t)
+{
+    return { from.x() + (to.x() - from.x()) * t, from.y() + (to.y() - from.y()) * t };
+}
+
 float dotProduct(const FloatSize& u, const FloatSize& v)
 {
     return u.width() * v.width() + u.height() * v.height();
+}
+
+float signedDistanceToLine(const FloatPoint& point, const FloatPoint& lineStart, const FloatPoint& lineEnd)
+{
+    return dotProduct(point - lineStart, (lineEnd - lineStart).perpendicular());
 }
 
 static float NODELETE angleBetweenVectors(const FloatSize& u, const FloatSize& v)
@@ -256,20 +295,17 @@ RotatedRect rotatedBoundingRectWithMinimumAngleOfRotation(const FloatQuad& quad,
 
 float toPositiveAngle(float angle)
 {
-    angle = fmod(angle, 360);
+    angle = std::fmod(angle, 360.0f);
     while (angle < 0)
-        angle += 360.0;
+        angle += 360.0f;
     return angle;
 }
 
 // Compute acute angle from vertical axis
-float toRelatedAcuteAngle(float angle)
+SUPPRESS_NODELETE float toRelatedAcuteAngle(float angle)
 {
-    angle = toPositiveAngle(angle);
-    if (angle < 90)
-        return angle;
-    // FIXME: webkit.org/b/298890 toRelatedAcuteAngle in GeometryUtilities.cpp doesn't handle an angle greater than 270 degrees
-    return std::abs(180 - angle);
+    angle = std::fmod(toPositiveAngle(angle), 180.0f);
+    return std::min(angle, 180.0f - angle);
 }
 
 RectEdges<double> distanceOfPointToSidesOfRect(const FloatRect& box, const FloatPoint& position)

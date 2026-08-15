@@ -27,6 +27,7 @@
 
 #include <WebCore/FindOptions.h>
 #include <WebCore/SimpleRange.h>
+#include <WebCore/TextIterator.h>
 #include <wtf/Expected.h>
 #include <wtf/Function.h>
 #include <wtf/TZoneMalloc.h>
@@ -50,12 +51,20 @@ public:
     WEBCORE_EXPORT Expected<Vector<SimpleRange>, CacheUnusable> findMatches(const std::optional<SimpleRange>&, const String& target, FindOptions, std::optional<unsigned> limit = std::nullopt);
     WEBCORE_EXPORT Expected<unsigned, CacheUnusable> countMatches(const std::optional<SimpleRange>&, const String& target, FindOptions, std::optional<unsigned> limit = std::nullopt);
 
+    WEBCORE_EXPORT bool matchesAreMarked(const String& target, FindOptions, std::optional<unsigned> limit) const;
+    WEBCORE_EXPORT void setMatchesMarked();
+    WEBCORE_EXPORT void clearMatchesMarked();
+
     WEBCORE_EXPORT static void setMaximumRunCountForTesting(std::optional<unsigned>);
 
 private:
     struct TextRun {
-        unsigned offset;
-        SimpleRange range;
+        unsigned offset { 0 };
+        mutable TextIteratorPosition textIteratorPosition;
+
+        void resolveOffsets() const;
+        BoundaryPoint start() const;
+        SimpleRange range() const;
     };
 
     struct TextRunCache {
@@ -85,6 +94,7 @@ private:
     TextRunCache m_docBuffer;
     std::optional<Vector<SimpleRange>> m_matchCache;
     std::optional<size_t> m_countCache;
+    bool m_matchesMarked { false };
 
     struct TextBufferCacheKeys {
         uint64_t domTreeVersion { 0 };

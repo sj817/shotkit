@@ -180,6 +180,8 @@ enum TracePointCode {
     WebXRCPFrameEndSubmissionEnd,
     TextExtractionStart,
     TextExtractionEnd,
+    RemoteLayerTreeAnimationsUpdateStart,
+    RemoteLayerTreeAnimationsUpdateEnd,
 
     GPUProcessRange = 16000,
     WakeUpAndApplyDisplayListStart,
@@ -272,7 +274,7 @@ WTF_EXPORT_PRIVATE uint64_t WTFCurrentContinuousTime(Seconds deltaFromNow);
 WTF_EXTERN_C_END
 
 #define FOR_EACH_WTF_SIGNPOST_NAME(M) \
-    M(AccessibilityIsolatedTreeApplyPendingChanges) \
+    M(AccessibilityIsolatedTreeApplyCommittedChanges) \
     M(InitialAccessibilityIsolatedTreeBuild) \
     M(DataTask) \
     M(NavigationAndPaintTiming) \

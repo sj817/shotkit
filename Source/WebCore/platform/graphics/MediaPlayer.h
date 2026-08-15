@@ -187,6 +187,7 @@ struct MediaPlayerLoadOptions {
     ContentType contentType { };
     bool requiresRemotePlayback { false };
     bool supportsLimitedMatroska { false };
+    bool disableTeardownOnVisibilityChange { false };
     std::optional<bool> supportsProgressMonitoringOverride { };
     VideoRendererPreferences videoRendererPreferences { };
 };
@@ -589,6 +590,7 @@ public:
     WirelessPlaybackTargetType wirelessPlaybackTargetType() const;
 
     String wirelessPlaybackTargetName() const;
+    String wirelessPlaybackRouteName() const;
 
     bool wirelessVideoPlaybackDisabled() const;
     void setWirelessVideoPlaybackDisabled(bool);

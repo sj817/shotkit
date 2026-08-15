@@ -40,8 +40,14 @@ WEBCORE_EXPORT float euclidianDistance(const FloatPoint&, const FloatPoint&);
 
 float NODELETE dotProduct(const FloatSize&, const FloatSize&);
 
-// Find point where lines through the two pairs of points intersect. Returns std::nullopt if the lines are parallel.
+// Which side of the directed line lineStart->lineEnd a point lies on: > 0 to the left of the direction, < 0 to the right, 0 on the line.
+float NODELETE signedDistanceToLine(const FloatPoint&, const FloatPoint& lineStart, const FloatPoint& lineEnd);
+
+// Find where two infinite lines intersect, each given by a pair of points lying on it. Returns std::nullopt if the lines are parallel.
 WEBCORE_EXPORT std::optional<FloatPoint> NODELETE findIntersection(const FloatPoint& p1, const FloatPoint& p2, const FloatPoint& d1, const FloatPoint& d2);
+
+// Find where the segment crosses the infinite line through lineA and lineB. Returns std::nullopt if they are parallel or the crossing lies beyond the segment's ends.
+std::optional<FloatPoint> NODELETE findSegmentLineIntersection(const FloatPoint& segmentStart, const FloatPoint& segmentEnd, const FloatPoint& lineA, const FloatPoint& lineB);
 
 WEBCORE_EXPORT IntRect unionRect(const Vector<IntRect>&);
 WEBCORE_EXPORT IntRect unionRectIgnoringZeroRects(const Vector<IntRect>&);
@@ -57,6 +63,10 @@ WEBCORE_EXPORT FloatRect NODELETE mapRect(const FloatRect&, const FloatRect& src
 WEBCORE_EXPORT FloatRect NODELETE largestRectWithAspectRatioInsideRect(float aspectRatio, const FloatRect&);
 WEBCORE_EXPORT FloatRect NODELETE smallestRectWithAspectRatioAroundRect(float aspectRatio, const FloatRect&);
 
+// Given a natural size and a subrect of it, compute the rect that natural-sized content
+// would occupy such that subrect maps exactly onto destRect. Used by object-view-box rendering.
+FloatRect NODELETE fullRectFromSubrectAndSize(const FloatSize& naturalSize, const FloatRect& subrect, const FloatRect& destRect);
+
 FloatSize NODELETE sizeWithAreaAndAspectRatio(float area, float aspectRatio);
 
 // Compute a rect that encloses all points covered by the given rect if it were rotated a full turn around (0,0).
@@ -66,6 +76,9 @@ bool NODELETE ellipseContainsPoint(const FloatPoint& center, const FloatSize& ra
 float eccentricAngle(FloatPoint, FloatPoint center, float radiusX, float radiusY);
 
 FloatPoint NODELETE midPoint(const FloatPoint&, const FloatPoint&);
+
+// The point a fraction `t` of the way from `from` to `to`: from + t * (to - from). (t = 0.5 is midPoint.)
+FloatPoint NODELETE linearInterpolation(const FloatPoint& from, const FloatPoint& to, float);
 
 // -------------
 // |   h\  |s  |

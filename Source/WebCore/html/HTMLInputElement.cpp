@@ -610,12 +610,8 @@ void HTMLInputElement::updateType(const AtomString& typeAttributeValue)
     bool nowSelectable = m_inputType->supportsSelectionAPI();
     // 9. If previouslySelectable is false and nowSelectable is true, set the element's text entry cursor position to the beginning of the text control, and set its selection direction to "none".
     if (!previouslySelectable && nowSelectable) {
-        TextFieldSelectionDirection direction = SelectionHasNoDirection;
         // https://html.spec.whatwg.org/multipage/form-control-infrastructure.html#set-the-selection-direction
-        RefPtr frame = document().frame();
-        if (isTextField() && frame && frame->editor().behavior().shouldConsiderSelectionAsDirectional())
-            direction = SelectionHasForwardDirection;
-        cacheSelection(0, 0, direction);
+        cacheSelection(0, 0, normalizeSelectionDirection(SelectionHasNoDirection));
     }
 
     updateValidity();
@@ -1409,6 +1405,11 @@ bool HTMLInputElement::willRespondToMouseClickEventsWithEditability(Editability 
     return HTMLTextFormControlElement::willRespondToMouseClickEventsWithEditability(editability);
 }
 
+bool HTMLInputElement::hasActivationBehavior() const
+{
+    return true;
+}
+
 bool HTMLInputElement::isURLAttribute(const Attribute& attribute) const
 {
     return attribute.name() == srcAttr || attribute.name() == formactionAttr || HTMLTextFormControlElement::isURLAttribute(attribute);
@@ -1523,8 +1524,10 @@ void HTMLInputElement::setAutofilled(bool autoFilled)
     if (autoFilled == m_isAutoFilled)
         return;
 
-    if (autoFilled)
+    if (autoFilled) {
         logUserInteraction();
+        didCompleteAutofill();
+    }
 
     Style::PseudoClassChangeInvalidation styleInvalidation(*this, CSSSelector::PseudoClass::Autofill, autoFilled);
     m_isAutoFilled = autoFilled;
@@ -1598,6 +1601,12 @@ void HTMLInputElement::setAutofillVisibility(AutofillVisibility state)
         setAutofilledAndObscured(true);
         break;
     }
+}
+
+void HTMLInputElement::didCompleteAutofill()
+{
+    if (RefPtr page = document().page())
+        page->chrome().client().didCompleteAutofill(*this);
 }
 
 bool HTMLInputElement::alpha()

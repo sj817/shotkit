@@ -43,6 +43,7 @@
 #include <JavaScriptCore/RegularExpression.h>
 #include <wtf/CheckedRef.h>
 #include <wtf/Forward.h>
+#include <wtf/HashSet.h>
 #include <wtf/JSONValues.h>
 #include <wtf/RobinHoodHashMap.h>
 #include <wtf/TZoneMalloc.h>
@@ -93,7 +94,7 @@ public:
     Inspector::Protocol::ErrorStringOr<void> setResourceCachingDisabled(bool) final;
     Inspector::Protocol::ErrorStringOr<void> setClearResourceDataOnNavigate(bool) final;
     void loadResource(const Inspector::Protocol::Network::FrameId&, const String& url, Ref<LoadResourceCallback>&&) final;
-    Inspector::Protocol::ErrorStringOr<String> getSerializedCertificate(const Inspector::Protocol::Network::RequestId&) final;
+    void getSerializedCertificate(const Inspector::Protocol::Network::RequestId&, Ref<GetSerializedCertificateCallback>&&) final;
     Inspector::Protocol::ErrorStringOr<Ref<Inspector::Protocol::Runtime::RemoteObject>> resolveWebSocket(const Inspector::Protocol::Network::RequestId&, const String& objectGroup) final;
     Inspector::Protocol::ErrorStringOr<void> setInterceptionEnabled(bool) final;
     Inspector::Protocol::ErrorStringOr<void> addInterception(const String& url, Inspector::Protocol::Network::NetworkStage, std::optional<bool>&& caseSensitive, std::optional<bool>&& isRegex) final;
@@ -139,7 +140,7 @@ public:
     void interceptResponse(const ResourceResponse&, ResourceLoaderIdentifier, CompletionHandler<void(const ResourceResponse&, RefPtr<FragmentedSharedBuffer>)>&&);
     void interceptRequest(ResourceLoader&, Function<void(const ResourceRequest&)>&&);
 
-    void searchOtherRequests(const JSC::Yarr::RegularExpression&, Ref<JSON::ArrayOf<Inspector::Protocol::Page::SearchResult>>&);
+    void searchOtherRequests(const JSC::Yarr::RegularExpression&, Ref<JSON::ArrayOf<Inspector::Protocol::Page::SearchResult>>&, const HashSet<String>& alreadySearchedURLs);
     void searchInRequest(Inspector::Protocol::ErrorString&, const Inspector::Protocol::Network::RequestId&, const String& query, bool caseSensitive, bool isRegex, RefPtr<JSON::ArrayOf<Inspector::Protocol::GenericTypes::SearchMatch>>&);
 
 protected:

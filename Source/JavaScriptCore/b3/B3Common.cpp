@@ -35,8 +35,6 @@
 
 namespace JSC { namespace B3 {
 
-const char* const tierName = "b3  ";
-
 bool shouldDumpIR(Procedure& procedure, B3CompilationMode mode)
 {
     if (procedure.shouldDumpIR())
@@ -73,11 +71,9 @@ bool shouldSaveIRBeforePhase()
 
 GPRReg extendedOffsetAddrRegister()
 {
-    RELEASE_ASSERT(isARM64() || isRISCV64() || isARM_THUMB2());
+    RELEASE_ASSERT(isARM64() || isRISCV64());
 #if CPU(ARM64) || CPU(RISCV64)
     return MacroAssembler::linkRegister;
-#elif CPU(ARM)
-    return MacroAssembler::dataTempRegister;
 #elif CPU(X86_64)
     return GPRReg::InvalidGPRReg;
 #else

@@ -10,10 +10,14 @@
 #include "include/core/SkPicture.h"
 #include "include/core/SkRasterHandleAllocator.h"
 #include "include/core/SkRefCnt.h"
-#include "include/private/base/SkAssert.h"
+#include "include/core/SkSurface.h"
+#include "include/private/SkAssert.h"
+#include "include/private/SkLog.h"
+#include "include/private/chromium/Slug.h"
 #include "include/utils/SkNWayCanvas.h"
 #include "src/capture/SkCaptureManager.h"
 #include "src/core/SkCanvasPriv.h"
+#include "src/image/SkImage_Base.h"
 
 SkCaptureCanvas::SkCaptureCanvas(SkCanvas* canvas, SkCaptureManager* manager)
         : SkNWayCanvas(canvas->imageInfo().width(), canvas->imageInfo().height()) {
@@ -59,6 +63,32 @@ void SkCaptureCanvas::detachRecordingCanvas() {
 
 void SkCaptureCanvas::onSurfaceDelete() {
     // TODO (b/412351769): signal to the capture manager that this canvas's surface has been deleted
+}
+
+sk_sp<SkSurface> SkCaptureCanvas::onNewSurface(const SkImageInfo& info,
+                                               const SkSurfaceProps& props) {
+    return fBaseCanvas->onNewSurface(info, props);
+}
+
+bool SkCaptureCanvas::onPeekPixels(SkPixmap* pixmap) {
+    return fBaseCanvas->peekPixels(pixmap);
+}
+
+bool SkCaptureCanvas::onAccessTopLayerPixels(SkPixmap* pixmap) {
+    return fBaseCanvas->onAccessTopLayerPixels(pixmap);
+}
+
+SkImageInfo SkCaptureCanvas::onImageInfo() const {
+    return fBaseCanvas->imageInfo();
+}
+
+bool SkCaptureCanvas::onGetProps(SkSurfaceProps* props, bool top) const {
+    return fBaseCanvas->onGetProps(props, top);
+}
+
+sk_sp<sktext::gpu::Slug> SkCaptureCanvas::onConvertGlyphRunListToSlug(
+        const sktext::GlyphRunList& glyphRunList, const SkPaint& paint) {
+    return fBaseCanvas->onConvertGlyphRunListToSlug(glyphRunList, paint);
 }
 
 //////////////////// Function forwarding ///////////////////////
@@ -199,6 +229,13 @@ void SkCaptureCanvas::onDrawImage2(const SkImage* image,
                                    const SkPaint* paint) {
     this->pollCapturingStatus();
     this->SkNWayCanvas::onDrawImage2(image, left, top, sampling, paint);
+    for (const auto& storage : as_IB(image)->getPixelStorages()) {
+        if (storage) {
+            // TODO (b/412351769): Track image metadata in the capture manager.
+            SKIA_LOG_D("SkCaptureCanvas::onDrawImage2: StorageID=%u, ContentID=%u\n",
+                     storage->getPixelStorageId(), storage->getContentId());
+        }
+    }
 }
 
 void SkCaptureCanvas::onDrawImageRect2(const SkImage* image,
@@ -209,6 +246,13 @@ void SkCaptureCanvas::onDrawImageRect2(const SkImage* image,
                                        SrcRectConstraint constraint) {
     this->pollCapturingStatus();
     this->SkNWayCanvas::onDrawImageRect2(image, src, dst, sampling, paint, constraint);
+    for (const auto& storage : as_IB(image)->getPixelStorages()) {
+        if (storage) {
+            // TODO (b/412351769): Track image metadata in the capture manager.
+            SKIA_LOG_D("SkCaptureCanvas::onDrawImageRect2: StorageID=%u, ContentID=%u\n",
+                     storage->getPixelStorageId(), storage->getContentId());
+        }
+    }
 }
 
 void SkCaptureCanvas::onDrawImageLattice2(const SkImage* image,
@@ -218,6 +262,13 @@ void SkCaptureCanvas::onDrawImageLattice2(const SkImage* image,
                                           const SkPaint* paint) {
     this->pollCapturingStatus();
     this->SkNWayCanvas::onDrawImageLattice2(image, lattice, dst, filter, paint);
+    for (const auto& storage : as_IB(image)->getPixelStorages()) {
+        if (storage) {
+            // TODO (b/412351769): Track image metadata in the capture manager.
+            SKIA_LOG_D("SkCaptureCanvas::onDrawImageLattice2: StorageID=%u, ContentID=%u\n",
+                     storage->getPixelStorageId(), storage->getContentId());
+        }
+    }
 }
 
 void SkCaptureCanvas::onDrawAtlas2(const SkImage* image,
@@ -231,6 +282,13 @@ void SkCaptureCanvas::onDrawAtlas2(const SkImage* image,
                                    const SkPaint* paint) {
     this->pollCapturingStatus();
     this->SkNWayCanvas::onDrawAtlas2(image, xform, tex, colors, count, bmode, sampling, cull, paint);
+    for (const auto& storage : as_IB(image)->getPixelStorages()) {
+        if (storage) {
+            // TODO (b/412351769): Track image metadata in the capture manager.
+            SKIA_LOG_D("SkCaptureCanvas::onDrawAtlas2: StorageID=%u, ContentID=%u\n",
+                     storage->getPixelStorageId(), storage->getContentId());
+        }
+    }
 }
 
 void SkCaptureCanvas::onDrawGlyphRunList(const sktext::GlyphRunList& list, const SkPaint& paint) {
@@ -308,8 +366,4 @@ void SkCaptureCanvas::onDrawEdgeAAImageSet2(const ImageSetEntry set[],
     this->pollCapturingStatus();
     this->SkNWayCanvas::onDrawEdgeAAImageSet2(
             set, count, dstClips, preViewMatrices, sampling, paint, constraint);
-}
-
-SkSurface* SkCaptureCanvas::getBaseCanvasSurface() const {
-    return fBaseCanvas->getSurface();
 }

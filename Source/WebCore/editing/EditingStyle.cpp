@@ -97,6 +97,7 @@ static constexpr std::array editingProperties {
     CSSPropertyTextTransform,
     CSSPropertyTextWrapMode,
     CSSPropertyWhiteSpaceCollapse,
+    CSSPropertyWhiteSpaceTrim,
     CSSPropertyWidows,
     CSSPropertyWordSpacing,
 #if ENABLE(CSS_TAP_HIGHLIGHT_COLOR)
@@ -638,7 +639,7 @@ void EditingStyle::extractFontSizeDelta()
     if (!primitiveValue->isPx())
         return;
 
-    m_fontSizeDelta = Style::deprecatedToStyleFromCSSValue<Style::Length<CSS::All, float>>(*primitiveValue)->resolveZoom(Style::ZoomNeeded { });
+    m_fontSizeDelta = Style::deprecatedToStyleFromCSSValue<Style::Length<CSS::All, float>>(*primitiveValue)->resolveZoom(Style::ZoomFactor::none());
     mutableStyle->removeProperty(CSSPropertyWebkitFontSizeDelta);
 }
 
@@ -1010,7 +1011,7 @@ bool EditingStyle::conflictsWithInlineStyleOfElement(StyledElement& element, Ref
         auto propertyID = property.id();
 
         // We don't override whitespace property of a tab span because that would collapse the tab into a space.
-        if ((propertyID == CSSPropertyWhiteSpaceCollapse || propertyID == CSSPropertyTextWrapMode) && tabSpanNode(&element))
+        if ((propertyID == CSSPropertyWhiteSpaceCollapse || propertyID == CSSPropertyTextWrapMode || propertyID == CSSPropertyWhiteSpaceTrim) && tabSpanNode(&element))
             continue;
 
         if (propertyID == CSSPropertyWebkitTextDecorationsInEffect && inlineStyle->getPropertyCSSValue(CSSPropertyTextDecorationLine)) {
@@ -1506,15 +1507,15 @@ void EditingStyle::removeStyleInContextNotOverridenByMatchedRules(StyledElement&
         // If white-space differs from context, do not remove white-space longhand values.
         // They are necessary for reconstructing the corresponding white-space shorthand value.
         Ref mutableStyle = *m_mutableStyle;
-        auto whiteSpaceCollapse = mutableStyle->getPropertyCSSValue(CSSPropertyWhiteSpaceCollapse);
-        auto contextWhiteSpaceCollapse = computedStyleMutableStyle->getPropertyCSSValue(CSSPropertyWhiteSpaceCollapse);
+        auto matchesContext = [&](CSSPropertyID propertyID) {
+            // Compare by value, not by identity: white-space-trim is a list value for anything but 'none'.
+            return arePointingToEqualData(mutableStyle->getPropertyCSSValue(propertyID), computedStyleMutableStyle->getPropertyCSSValue(propertyID));
+        };
 
-        auto textWrapMode = mutableStyle->getPropertyCSSValue(CSSPropertyTextWrapMode);
-        auto contextTextWrapMode = computedStyleMutableStyle->getPropertyCSSValue(CSSPropertyTextWrapMode);
-
-        if (whiteSpaceCollapse != contextWhiteSpaceCollapse || textWrapMode != contextTextWrapMode) {
+        if (!matchesContext(CSSPropertyWhiteSpaceCollapse) || !matchesContext(CSSPropertyTextWrapMode) || !matchesContext(CSSPropertyWhiteSpaceTrim)) {
             computedStyleMutableStyle->removeProperty(CSSPropertyWhiteSpaceCollapse);
             computedStyleMutableStyle->removeProperty(CSSPropertyTextWrapMode);
+            computedStyleMutableStyle->removeProperty(CSSPropertyWhiteSpaceTrim);
         }
 
         RefPtr<EditingStyle> computedStyleOfElement;
@@ -1958,6 +1959,7 @@ StyleChange::StyleChange(EditingStyle* style, const Position& position)
         if (parentTabSpanNode(positionDeprecatedNode.get()) || tabSpanNode(positionDeprecatedNode.get())) {
             mutableStyle->removeProperty(CSSPropertyWhiteSpaceCollapse);
             mutableStyle->removeProperty(CSSPropertyTextWrapMode);
+            mutableStyle->removeProperty(CSSPropertyWhiteSpaceTrim);
         }
     }
 
@@ -2120,7 +2122,7 @@ static bool NODELETE isCSSValueLength(CSSPrimitiveValue& value)
 int legacyFontSizeFromCSSValue(Document& document, CSSValue& value, bool shouldUseFixedFontDefaultSize, LegacyFontSizeMode mode)
 {
     if (RefPtr primitiveValue = dynamicDowncast<CSSPrimitiveValue>(value); primitiveValue && isCSSValueLength(*primitiveValue)) {
-        int pixelFontSize = Style::deprecatedToStyleFromCSSValue<Style::Length<CSS::Nonnegative, int>>(*primitiveValue)->resolveZoom(Style::ZoomNeeded { });
+        int pixelFontSize = Style::deprecatedToStyleFromCSSValue<Style::Length<CSS::Nonnegative, int>>(*primitiveValue)->resolveZoom(Style::ZoomFactor::none());
         int legacyFontSize = Style::legacyFontSizeForPixelSize(pixelFontSize, shouldUseFixedFontDefaultSize, document);
         // Use legacy font size only if pixel value matches exactly to that of legacy font size.
         int cssPrimitiveEquivalent = legacyFontSize - 1 + CSSValueXSmall;
