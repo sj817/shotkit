@@ -109,25 +109,55 @@ jobs:
           # The windows-11-arm hosted image carries fewer preinstalled tools
           # than windows-2022; install anything the WebKit build needs that is
           # missing. x64 tools run under emulation where no arm64 build exists.
-          $missing = @()
-          if (-not (Get-Command clang-cl.exe -ErrorAction SilentlyContinue)) { $missing += 'llvm' }
-          if (-not (Get-Command ruby.exe -ErrorAction SilentlyContinue)) { $missing += 'ruby' }
-          if (-not (Get-Command perl.exe -ErrorAction SilentlyContinue)) { $missing += 'strawberryperl' }
-          if (-not (Get-Command cmake.exe -ErrorAction SilentlyContinue)) { $missing += 'cmake' }
-          if (-not (Get-Command ninja.exe -ErrorAction SilentlyContinue)) { $missing += 'ninja' }
-          if ($missing) { choco install @missing -y --no-progress }
-          foreach ($candidate in @(
-            'C:\Program Files\LLVM\bin',
-            'C:\Strawberry\perl\bin',
-            'C:\Program Files\CMake\bin'
-          ) + @(Get-ChildItem 'C:\tools\ruby*\bin' -ErrorAction SilentlyContinue | ForEach-Object FullName)) {
+          # choco 装出来的东西未必落在当前 shell 的 PATH 上（clang-cl 在 LLVM\bin，
+          # perl 在 Strawberry\perl\bin），所以探测与重试校验都要带上这些目录。
+          function Update-ToolPath {
+            $dirs = @(
+              'C:\Program Files\LLVM\bin',
+              'C:\Strawberry\perl\bin',
+              'C:\Program Files\CMake\bin'
+            ) + @(Get-ChildItem 'C:\tools\ruby*\bin' -ErrorAction SilentlyContinue | ForEach-Object FullName)
+            $env:Path = (@([Environment]::GetEnvironmentVariable('Path', 'Machine'),
+                           [Environment]::GetEnvironmentVariable('Path', 'User')) +
+                         @($dirs | Where-Object { Test-Path $_ })) -join ';'
+            return $dirs
+          }
+          $packageExe = @{ llvm = 'clang-cl.exe'; ruby = 'ruby.exe'; strawberryperl = 'perl.exe'
+                           cmake = 'cmake.exe'; ninja = 'ninja.exe' }
+          Update-ToolPath | Out-Null
+          $missing = @($packageExe.Keys | Where-Object {
+            -not (Get-Command $packageExe[$_] -ErrorAction SilentlyContinue)
+          })
+          # community.chocolatey.org 会间歇性 503。choco 在单个包失败时仍以 0 退出
+          # （2026-08-15 实测日志写着「Chocolatey installed 1/1 packages」），所以重试
+          # 必须按「包是否真的装上」判定，不能看退出码。
+          for ($attempt = 1; $missing -and $attempt -le 3; $attempt++) {
+            if ($attempt -gt 1) { Start-Sleep -Seconds (20 * $attempt) }
+            choco install @missing -y --no-progress
+            Update-ToolPath | Out-Null
+            $missing = @($missing | Where-Object {
+              -not (Get-Command $packageExe[$_] -ErrorAction SilentlyContinue)
+            })
+          }
+          if ($missing) { throw "choco 连续 3 次未能装上：$($missing -join ', ')" }
+          foreach ($candidate in Update-ToolPath) {
             if (Test-Path $candidate) { $candidate | Out-File -FilePath $env:GITHUB_PATH -Encoding utf8 -Append }
           }
 
       - name: Install parser generator tools
         shell: pwsh
         run: |
-          choco install gperf winflexbison3 -y --no-progress
+          # 同上：按产物判定重试。2026-08-15 这里真的被 503 拦过——gperf 装上了、
+          # winflexbison3 没有，choco 照样退 0，直到下面 Get-Command win_bison.exe 才炸。
+          for ($attempt = 1; $attempt -le 3; $attempt++) {
+            if ((Get-Command gperf.exe -ErrorAction SilentlyContinue) -and
+                (Get-Command win_bison.exe -ErrorAction SilentlyContinue) -and
+                (Get-Command win_flex.exe -ErrorAction SilentlyContinue)) { break }
+            if ($attempt -gt 1) { Start-Sleep -Seconds (20 * $attempt) }
+            choco install gperf winflexbison3 -y --no-progress
+            $env:Path = [Environment]::GetEnvironmentVariable('Path', 'Machine') + ';' +
+                        [Environment]::GetEnvironmentVariable('Path', 'User')
+          }
           $shim = Join-Path $env:RUNNER_TEMP 'webkit-tools'
           New-Item -ItemType Directory -Force -Path $shim | Out-Null
           Copy-Item (Get-Command win_bison.exe).Source (Join-Path $shim 'bison.exe')

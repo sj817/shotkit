@@ -97,7 +97,7 @@ git apply --3way ../upstream.patch
     并在 deviations.md 里删除该行、在提交信息里说明；
   - 上游把这块重写了 → 重新实现意图，更新 deviations.md 的「改动」列。
 
-## 6. 三类隐性断裂（不会以冲突形式出现）
+## 6. 隐性断裂（不会以冲突形式出现）
 
 这是最容易漏的部分。补丁干净应用**不等于**同步成功：
 
@@ -119,6 +119,40 @@ git apply --3way ../upstream.patch
    > `PlatformCocoa.cmake`（引入 `Cocoa` 端口），我们 5 个 `PlatformShot.cmake` 的
    > `include(PlatformMac.cmake)` 全部失效。Windows 本地构建完全无感——它走
    > `PlatformWin.cmake` 分支——只有 macOS CI 报错。**跨平台的偏离必须靠 CI 兜底。**
+
+5. **同步过来的文件引用了不在路径域内的文件** → 第 4 类的镜像：这次冲突的不是「我们的
+   文件指向失效的上游文件」，而是「上游文件指向路径域外的上游文件」。
+   查：patch 里新增的 `include`/脚本调用是否落在 `paths.txt` 内。
+
+   > 2026-08-15：根 `CMakeLists.txt`（在域内）把 `CMAKE_Swift_COMPILER` 指向
+   > `Tools/Scripts/swift/swiftc-wrapper.sh`，上游把它改成了 `.py`，而 `Tools/`
+   > 整体不在域内 → macOS 构建 exit 127。修法是把 `Tools/Scripts/swift` 补进域。
+
+6. **上游把 CMake 特性开关「注销」，改由 `Platform*.h` 按 SDK 判定** → 我们用
+   `WEBKIT_OPTION_DEFAULT_PORT_VALUE(... OFF)` 关掉的东西会被悄悄打开。
+   查：patch 是否新增/扩充了 `WEBKIT_OPTION_OWNED_BY_PLATFORM_H(...)` 列表。
+
+   > 2026-08-15：`OptionsCocoa.cmake` 用新引入的 `WEBKIT_OPTION_OWNED_BY_PLATFORM_H`
+   > 一次注销了 17 个 ApplePay 子特性（`unset(... CACHE)` + 从
+   > `_WEBKIT_CONFIG_FILE_VARIABLES` 移除），于是 `cmakeconfig.h` 不再写
+   > `#define ENABLE_APPLE_PAY_COUPON_CODE 0`。而 `PlatformEnableCocoa.h` 里这些
+   > 子特性挂的是 `HAVE(PASSKIT_*)` 而**不是** `ENABLE(APPLE_PAY)`——父特性关、子特性
+   > 开，`ApplePayCouponCodeUpdate.h` 就去引用 `#if ENABLE(APPLE_PAY)` 里才有的
+   > `ApplePayLineItem`。上游自己永远碰不到，因为 Cocoa 的 `ENABLE_APPLE_PAY` 是 ON。
+   > 修法见 `OptionsShot.cmake` 的 APPLE 分支：`add_definitions` 与
+   > `SET_AND_EXPOSE_TO_BUILD` 两份视图都要补齐（前者管 C++，后者管 cmakeconfig.h
+   > 与 Swift 平台参数生成）。
+
+7. **上游用上了比我们 CI 工具链更新的语言/编译器语义** → 上游 CI 绿、我们红，且只在
+   最旧的那条工具链上红。
+   查：编译错误里出现上游未改动过的头文件时，先比对编译器版本再考虑改代码。
+
+   > 2026-08-15：上游给 `LayoutRect::infiniteRect()` 加了 `constexpr`，但它调用的
+   > 构造函数不是 constexpr。C++23 的 P2448R2 允许这种写法，clang 据此把
+   > `-Winvalid-constexpr` 降为默认忽略——**但那是 clang 19 才做的**。
+   > Ubuntu 24.04 自带 clang 18.1.3 仍按老规则报 error，Windows(clang-cl 20) 与
+   > macOS(Xcode) 都不报。为一条纯咨询性诊断改上游头文件会变成永久偏离，所以在
+   > `OptionsShot.cmake` 里关掉该诊断，并注明 Linux CI 升到 clang 19+ 后可删。
 
 **内容对等校验**（第 2 节的不变量）：
 

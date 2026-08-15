@@ -15,9 +15,41 @@ if (APPLE)
     set(WEBKIT_PLATFORM_NAME "MacOSX")
     # PlatformEnableCocoa derives these as ON on macOS even when their parent
     # feature is OFF. Shot has no media, payment, or notification surface.
+    #
+    # 2026-08-15 上游同步：这个坑扩大了一圈。上游新增 WEBKIT_OPTION_OWNED_BY_PLATFORM_H
+    # （WebKitFeatures.cmake:51），OptionsCocoa 用它把 17 个 ApplePay 子特性从 CMake 选项
+    # 里注销——unset CACHE 并从 _WEBKIT_CONFIG_FILE_VARIABLES 移除，改由 PlatformEnableCocoa.h
+    # 按 SDK 判定。而那些判定挂的是 HAVE(PASSKIT_*)，不是 ENABLE(APPLE_PAY)：
+    #     #if !defined(ENABLE_APPLE_PAY_COUPON_CODE) && HAVE(PASSKIT_COUPON_CODE)
+    #     #define ENABLE_APPLE_PAY_COUPON_CODE 1
+    # 注销前 cmakeconfig.h 会写 `#define ... 0`，!defined() 为假，子特性跟着父特性关；
+    # 注销后这个 #define 没了，HAVE() 直接赢 —— 父特性关、子特性开，于是
+    # ApplePayCouponCodeUpdate.h 引用 #if ENABLE(APPLE_PAY) 里才有的 ApplePayLineItem。
+    # 上游自己永远碰不到，因为 Cocoa 的 ENABLE_APPLE_PAY 是 ON。
+    # 下面这份清单 = OptionsCocoa.cmake 的 WEBKIT_OPTION_OWNED_BY_PLATFORM_H 列表中的
+    # ApplePay 项，逐条对齐；上游再往那个列表里加 ApplePay 子特性时这里要跟着加。
+    # 同列表里的另两项不必处理：MEDIA_SOURCE_IN_WORKERS 正确地挂在 ENABLE(MEDIA_SOURCE)
+    # 上（我们已关），PREDEFINED_COLOR_SPACE_DISPLAY_P3 是上游 Cocoa 的既定默认。
     add_definitions(
         -DENABLE_APPLE_PAY=0
         -DENABLE_APPLE_PAY_AMS_UI=0
+        -DENABLE_APPLE_PAY_AUTOMATIC_RELOAD_LINE_ITEM=0
+        -DENABLE_APPLE_PAY_AUTOMATIC_RELOAD_PAYMENTS=0
+        -DENABLE_APPLE_PAY_COUPON_CODE=0
+        -DENABLE_APPLE_PAY_DEFERRED_LINE_ITEM=0
+        -DENABLE_APPLE_PAY_DEFERRED_PAYMENTS=0
+        -DENABLE_APPLE_PAY_DELEGATED_REQUEST=0
+        -DENABLE_APPLE_PAY_DISBURSEMENTS=0
+        -DENABLE_APPLE_PAY_INSTALLMENTS=0
+        -DENABLE_APPLE_PAY_LATER_AVAILABILITY=0
+        -DENABLE_APPLE_PAY_MERCHANT_CATEGORY_CODE=0
+        -DENABLE_APPLE_PAY_MULTI_MERCHANT_PAYMENTS=0
+        -DENABLE_APPLE_PAY_PAYMENT_ORDER_DETAILS=0
+        -DENABLE_APPLE_PAY_RECURRING_LINE_ITEM=0
+        -DENABLE_APPLE_PAY_RECURRING_PAYMENTS=0
+        -DENABLE_APPLE_PAY_SELECTED_SHIPPING_METHOD=0
+        -DENABLE_APPLE_PAY_SHIPPING_CONTACT_EDITING_MODE=0
+        -DENABLE_APPLE_PAY_SHIPPING_METHOD_DATE_COMPONENTS_RANGE=0
         -DENABLE_COCOA_WEBM_PLAYER=0
         -DENABLE_DECLARATIVE_WEB_PUSH=0
         -DENABLE_IMAGE_ANALYSIS=0
@@ -213,6 +245,26 @@ if (APPLE)
     # Swift platform-argument generation reads cmakeconfig.h rather than the
     # directory compile definitions above. Keep both language views identical.
     SET_AND_EXPOSE_TO_BUILD(ENABLE_APPLE_PAY_AMS_UI OFF)
+    # 与上面 add_definitions 的 ApplePay 清单一一对应。SET_AND_EXPOSE_TO_BUILD 只是
+    # set() + 追加进 _WEBKIT_CONFIG_FILE_VARIABLES，不要求该名字仍是 WEBKIT_OPTION，
+    # 所以能把 OWNED_BY_PLATFORM_H 注销掉的条目重新写回 cmakeconfig.h。
+    SET_AND_EXPOSE_TO_BUILD(ENABLE_APPLE_PAY_AUTOMATIC_RELOAD_LINE_ITEM OFF)
+    SET_AND_EXPOSE_TO_BUILD(ENABLE_APPLE_PAY_AUTOMATIC_RELOAD_PAYMENTS OFF)
+    SET_AND_EXPOSE_TO_BUILD(ENABLE_APPLE_PAY_COUPON_CODE OFF)
+    SET_AND_EXPOSE_TO_BUILD(ENABLE_APPLE_PAY_DEFERRED_LINE_ITEM OFF)
+    SET_AND_EXPOSE_TO_BUILD(ENABLE_APPLE_PAY_DEFERRED_PAYMENTS OFF)
+    SET_AND_EXPOSE_TO_BUILD(ENABLE_APPLE_PAY_DELEGATED_REQUEST OFF)
+    SET_AND_EXPOSE_TO_BUILD(ENABLE_APPLE_PAY_DISBURSEMENTS OFF)
+    SET_AND_EXPOSE_TO_BUILD(ENABLE_APPLE_PAY_INSTALLMENTS OFF)
+    SET_AND_EXPOSE_TO_BUILD(ENABLE_APPLE_PAY_LATER_AVAILABILITY OFF)
+    SET_AND_EXPOSE_TO_BUILD(ENABLE_APPLE_PAY_MERCHANT_CATEGORY_CODE OFF)
+    SET_AND_EXPOSE_TO_BUILD(ENABLE_APPLE_PAY_MULTI_MERCHANT_PAYMENTS OFF)
+    SET_AND_EXPOSE_TO_BUILD(ENABLE_APPLE_PAY_PAYMENT_ORDER_DETAILS OFF)
+    SET_AND_EXPOSE_TO_BUILD(ENABLE_APPLE_PAY_RECURRING_LINE_ITEM OFF)
+    SET_AND_EXPOSE_TO_BUILD(ENABLE_APPLE_PAY_RECURRING_PAYMENTS OFF)
+    SET_AND_EXPOSE_TO_BUILD(ENABLE_APPLE_PAY_SELECTED_SHIPPING_METHOD OFF)
+    SET_AND_EXPOSE_TO_BUILD(ENABLE_APPLE_PAY_SHIPPING_CONTACT_EDITING_MODE OFF)
+    SET_AND_EXPOSE_TO_BUILD(ENABLE_APPLE_PAY_SHIPPING_METHOD_DATE_COMPONENTS_RANGE OFF)
     SET_AND_EXPOSE_TO_BUILD(ENABLE_COCOA_WEBM_PLAYER OFF)
     SET_AND_EXPOSE_TO_BUILD(ENABLE_DECLARATIVE_WEB_PUSH OFF)
     SET_AND_EXPOSE_TO_BUILD(ENABLE_DOM_AUDIO_SESSION OFF)
@@ -235,6 +287,20 @@ endif ()
 
 # CSS 选择器 JIT 无 CMake 变量，用编译定义覆盖 PlatformEnable.h 默认（回退解释执行）。
 add_definitions(-DENABLE_CSS_SELECTOR_JIT=0 -DSHOT_DISABLE_HTTP3=1)
+
+# 2026-08-15 上游同步：上游把 LayoutRect::infiniteRect()/renderableInfiniteRect() 标成
+# constexpr，但它们调用的 4 参构造函数不是 constexpr。C++23 的 P2448R2 明确允许这种
+# 「永远无法常量求值的 constexpr 函数」（退化成普通函数调用，无行为差异），clang 也
+# 据此把 -Winvalid-constexpr 从 default-error 降级为默认忽略——但那是 clang 19 才做的。
+# Ubuntu 24.04 自带 clang 18.1.3 仍按老规则报错，而我们的 Windows(clang-cl 20) 与
+# macOS(Xcode) 工具链都不报，上游 CI 同理。与其为一条纯咨询性诊断改上游头文件（那会
+# 变成一条永久的同步偏离），不如在端口这一层关掉它。等 Linux CI 的 clang 升到 19+
+# 之后可以删掉这段。
+include(CheckCXXCompilerFlag)
+check_cxx_compiler_flag(-Winvalid-constexpr SHOT_HAS_WINVALID_CONSTEXPR)
+if (SHOT_HAS_WINVALID_CONSTEXPR)
+    add_compile_options("$<$<COMPILE_LANGUAGE:CXX>:-Wno-invalid-constexpr>")
+endif ()
 
 # ---- 体积极致化（AGENTS.md 4.5①）：死代码消除三件套 ----
 # ① 关掉层间 dllexport：bmalloc/WTF/JSC/PAL/WebCore 全是 OBJECT 静态汇入 libshot，层间无

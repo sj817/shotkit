@@ -176,7 +176,40 @@ if ($Idl) { Write-Host "IDL 改动 $($Idl.Count) 个 -> 复查 shot/degenerate-b
 if ($Changed -contains 'Source/WebCore/Sources.txt') { Write-Host "Sources.txt 有改动 -> 复查 Source/WebCore/ShotPruning.cmake 的裁剪规则是否失配" }
 $ExportMacros = $Changed | Where-Object { $_ -match 'ExportMacros\.h|BExport\.h|JSBase\.h' }
 if ($ExportMacros) { Write-Host "导出宏文件有改动 -> 复查 SHOT_NO_DLLEXPORT / JS_NO_EXPORT 的 #if 分支插入点" }
-if (-not $Idl -and -not $ExportMacros -and ($Changed -notcontains 'Source/WebCore/Sources.txt')) {
+
+# README 第 6 节第 6 类：上游把特性开关从 CMake 注销、交给 Platform*.h 按 SDK 判定。
+# 被注销的开关不再进 cmakeconfig.h，我们 WEBKIT_OPTION_DEFAULT_PORT_VALUE(... OFF)
+# 关掉的东西会被 PlatformEnable*.h 的 HAVE(...) 分支重新打开，而且不产生任何冲突。
+# 这是唯一能在应用补丁前静态发现的一类，所以直接比对新旧的注销名单。
+function Get-PlatformHOwnedOptions([string]$Rev) {
+    $names = @()
+    # 按 rev 实际存在的文件来取，不要写死路径：Options*.cmake 会增删（这次就新增了
+    # OptionsCocoa.cmake），而 git show 一个不存在的路径在 PowerShell 7.4+ 下会因为
+    # $PSNativeCommandUseErrorActionPreference 默认为真、配合脚本顶部的 Stop 直接抛。
+    $files = git -C $ScratchDir ls-tree -r --name-only $Rev Source/cmake/ |
+        Where-Object { $_ -like 'Source/cmake/Options*.cmake' }
+    foreach ($file in $files) {
+        $text = (git -C $ScratchDir show "${Rev}:${file}") -join "`n"
+        foreach ($m in [regex]::Matches($text, '(?s)WEBKIT_OPTION_OWNED_BY_PLATFORM_H\((.*?)\)')) {
+            $names += $m.Groups[1].Value -split '\s+' | Where-Object { $_ -match '^\w+$' }
+        }
+    }
+    return $names | Sort-Object -Unique
+}
+$OwnedBefore = Get-PlatformHOwnedOptions $Baseline
+$OwnedAfter = Get-PlatformHOwnedOptions $Target
+$NewlyRetired = $OwnedAfter | Where-Object { $_ -notin $OwnedBefore }
+if ($NewlyRetired) {
+    Write-Host "上游新注销了 $($NewlyRetired.Count) 个 CMake 特性开关（WEBKIT_OPTION_OWNED_BY_PLATFORM_H）："
+    $NewlyRetired | ForEach-Object { Write-Host "  ! $_" }
+    Write-Host "  -> 逐个查 Source/WTF/wtf/PlatformEnable*.h 里它的门控条件。"
+    Write-Host "     门控挂在父特性上（如 ENABLE(APPLE_PAY)）即安全；挂在 HAVE(...)/PLATFORM(...)"
+    Write-Host "     上且我们关掉了父特性的，必须在 OptionsShot.cmake 的对应分支显式补 0"
+    Write-Host "     （add_definitions 与 SET_AND_EXPOSE_TO_BUILD 两份视图都要补）。"
+}
+
+if (-not $Idl -and -not $ExportMacros -and -not $NewlyRetired -and
+    ($Changed -notcontains 'Source/WebCore/Sources.txt')) {
     Write-Host "未命中已知的隐性断裂点（仍建议按 README 第 6 节做内容对等校验）"
 }
 
