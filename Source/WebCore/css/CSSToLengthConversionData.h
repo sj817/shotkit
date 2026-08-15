@@ -31,16 +31,11 @@
 
 #pragma once
 
-#include <WebCore/CSSPrimitiveNumericRange.h>
 #include <WebCore/CSSPropertyNames.h>
 #include <WebCore/Element.h>
-#include <optional>
-#include <wtf/Assertions.h>
 
 namespace WebCore {
 
-class Element;
-class FloatSize;
 class FontCascade;
 class RenderView;
 
@@ -51,79 +46,32 @@ class ComputedStyle;
 
 class CSSToLengthConversionData {
 public:
-    CSSToLengthConversionData();
     CSSToLengthConversionData(const CSSToLengthConversionData&);
     CSSToLengthConversionData(CSSToLengthConversionData&&);
 
-    // This is used during style building. The 'zoom' property is taken into account.
-    CSSToLengthConversionData(const Style::ComputedStyle&, Style::BuilderState&);
-    // This constructor ignores the `zoom` property.
-    CSSToLengthConversionData(const Style::ComputedStyle&, const Style::ComputedStyle* rootStyle, const Style::ComputedStyle* parentStyle, const RenderView*, const Element* elementForContainerUnitResolution = nullptr, CSS::RangeZoomOptions = CSS::RangeZoomOptions::Default);
-
-    // Used for resolutions that don't take place during normal style resolution.
-    static std::optional<CSSToLengthConversionData> tryCreateForNonStyleBuildingResolution(Element&);
-    static std::optional<CSSToLengthConversionData> tryCreateForNonStyleBuildingResolution(Element*);
+    explicit CSSToLengthConversionData(const Style::ComputedStyle&, Style::BuilderState&);
+    explicit CSSToLengthConversionData(const Style::ComputedStyle&, const Style::ComputedStyle* rootStyle, const Style::ComputedStyle* parentStyle, const RenderView*, const Element* elementForContainerUnitResolution);
 
     WEBCORE_EXPORT ~CSSToLengthConversionData();
 
-    const Style::ComputedStyle* style() const { return m_style; }
+    const Style::ComputedStyle& style() const { return m_style; }
     const Style::ComputedStyle* rootStyle() const { return m_rootStyle; }
     const Style::ComputedStyle* parentStyle() const { return m_parentStyle; }
-    float NODELETE zoom() const;
-    CSS::RangeZoomOptions rangeZoomOption() const { return m_rangeZoomOption; }
-    bool computingFontSize() const { return m_propertyToCompute == CSSPropertyFontSize; }
-    bool computingLineHeight() const { return m_propertyToCompute == CSSPropertyLineHeight; }
-    CSSPropertyID propertyToCompute() const { return m_propertyToCompute.value_or(CSSPropertyInvalid); }
-    bool NODELETE evaluationTimeZoomEnabled() const;
     const RenderView* renderView() const { return m_renderView; }
     const Element* elementForContainerUnitResolution() const { return m_elementForContainerUnitResolution.get(); }
-
-    const FontCascade& NODELETE fontCascadeForFontUnits() const;
-
-    FloatSize defaultViewportFactor() const;
-    FloatSize smallViewportFactor() const;
-    FloatSize largeViewportFactor() const;
-    FloatSize dynamicViewportFactor() const;
-
-    CSSToLengthConversionData copyForFontSize() const
-    {
-        CSSToLengthConversionData copy(*this);
-        copy.m_zoom = 1.f;
-        copy.m_propertyToCompute = CSSPropertyFontSize;
-        return copy;
-    };
-
-    CSSToLengthConversionData copyWithAdjustedZoom(float zoom, CSS::RangeZoomOptions rangeZoomOption = CSS::RangeZoomOptions::Default) const
-    {
-        CSSToLengthConversionData copy(*this);
-        copy.m_zoom = zoom;
-        copy.m_rangeZoomOption = rangeZoomOption;
-        return copy;
-    }
-
-    CSSToLengthConversionData copyForLineHeight(float zoom) const
-    {
-        CSSToLengthConversionData copy(*this);
-        copy.m_zoom = zoom;
-        copy.m_propertyToCompute = CSSPropertyLineHeight;
-        copy.m_rangeZoomOption = CSS::RangeZoomOptions::Unzoomed;
-        return copy;
-    }
-
-    void NODELETE setUsesContainerUnits() const;
-
+    CSSPropertyID property() const { return m_property; }
     Style::BuilderState* styleBuilderState() const { return m_styleBuilderState.get(); }
 
 private:
-    const Style::ComputedStyle* m_style { nullptr };
+    friend class Style::BuilderState;
+
+    const Style::ComputedStyle& m_style;
     const Style::ComputedStyle* m_rootStyle { nullptr };
     const Style::ComputedStyle* m_parentStyle { nullptr };
     const RenderView* m_renderView { nullptr };
     RefPtr<const Element> m_elementForContainerUnitResolution;
-    std::optional<float> m_zoom;
-    std::optional<CSSPropertyID> m_propertyToCompute;
+    CSSPropertyID m_property { CSSPropertyInvalid };
     CheckedPtr<Style::BuilderState> m_styleBuilderState;
-    CSS::RangeZoomOptions m_rangeZoomOption { CSS::RangeZoomOptions::Default };
 };
 
 } // namespace WebCore

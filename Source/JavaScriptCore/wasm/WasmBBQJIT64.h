@@ -26,7 +26,6 @@
 #pragma once
 
 #if ENABLE(WEBASSEMBLY_BBQJIT)
-#if USE(JSVALUE64)
 
 #include "WasmBBQJIT.h"
 #include "WasmCallingConvention.h"
@@ -40,20 +39,16 @@
 
 namespace JSC { namespace Wasm { namespace BBQJITImpl {
 
-ALWAYS_INLINE bool BBQJIT::typeNeedsGPR2(TypeKind)
-{
-    return false;
-}
-
 template<typename Functor>
 auto BBQJIT::emitCheckAndPrepareAndMaterializePointerApply(Value pointer, uint64_t uoffset, uint32_t sizeOfOperation, uint8_t memoryIndex, Functor&& functor) -> decltype(auto)
 {
-    if (WTF::sumOverflows<uint64_t>(static_cast<uint64_t>(sizeOfOperation), uoffset)) {
+    if (m_info.memory(memoryIndex).doesAccessOverflow(uoffset, sizeOfOperation)) {
         recordJumpToThrowException(ExceptionType::OutOfBoundsMemoryAccess, m_jit.jump());
         return functor(CCallHelpers::Address(wasmBaseMemoryPointer, 0));
     }
 
     uint64_t boundary = static_cast<uint64_t>(sizeOfOperation) + uoffset - 1;
+    Width accessWidth = widthForBytes(sizeOfOperation);
 
     ScratchScope<1, 0> scratches(*this);
     Location pointerLocation;
@@ -81,14 +76,15 @@ auto BBQJIT::emitCheckAndPrepareAndMaterializePointerApply(Value pointer, uint64
             recordJumpToThrowException(ExceptionType::OutOfBoundsMemoryAccess, m_jit.jump());
         else {
             uint64_t finalOffset = constantPointer + uoffset;
-            if (finalOffset <= static_cast<uint64_t>(std::numeric_limits<int32_t>::max()) && B3::Air::Arg::isValidAddrForm(B3::Air::Move, static_cast<int32_t>(finalOffset), Width::Width128)) {
-                switch (memoryIndex ? MemoryMode::BoundsChecking : m_mode) {
+            if (finalOffset <= static_cast<uint64_t>(std::numeric_limits<int32_t>::max()) && B3::Air::Arg::isValidAddrForm(B3::Air::Move, static_cast<int32_t>(finalOffset), accessWidth)) {
+                switch (m_info.memoryModeForAccess(memoryIndex, m_mode)) {
                 case MemoryMode::BoundsChecking: {
                     m_jit.move(TrustedImmPtr(constantPointer + boundary), wasmScratchGPR);
                     recordJumpToThrowException(ExceptionType::OutOfBoundsMemoryAccess, m_jit.branchPtr(RelationalCondition::AboveOrEqual, wasmScratchGPR, boundsCheckingSizeRegister));
                     break;
                 }
                 case MemoryMode::Signaling: {
+                    RELEASE_ASSERT(!m_info.memory(memoryIndex).isMemory64());
                     // FIXME: it seems like this check is covered by the constantPointer + boundary >= maximum check below?
                     if (uoffset >= Memory::fastMappedRedzoneBytes()) {
                         uint64_t maximum = m_info.memory(memoryIndex).maximum() ? m_info.memory(memoryIndex).maximum().bytes() : std::numeric_limits<uint32_t>::max();
@@ -108,8 +104,7 @@ auto BBQJIT::emitCheckAndPrepareAndMaterializePointerApply(Value pointer, uint64
     ASSERT(pointerLocation.isGPR());
 
     // FIXME: for clarity we should probably rename m_mode to m_memory0Mode or something similar
-    // conservatively force bounds checking for nonzero memories
-    switch (memoryIndex ? MemoryMode::BoundsChecking : m_mode) {
+    switch (m_info.memoryModeForAccess(memoryIndex, m_mode)) {
     case MemoryMode::BoundsChecking: {
         // We're not using signal handling only when the memory is not shared.
         // Regardless of signaling, we must check that no memory access exceeds the current memory size.
@@ -130,7 +125,7 @@ auto BBQJIT::emitCheckAndPrepareAndMaterializePointerApply(Value pointer, uint64
         break;
     }
     case MemoryMode::Signaling: {
-        RELEASE_ASSERT(!m_info.memory(memoryIndex).isMemory64());
+        RELEASE_ASSERT_WITH_SECURITY_IMPLICATION(!m_info.memory(memoryIndex).isMemory64());
         // We've virtually mapped 4GiB+redzone for this memory. Only the user-allocated pages are addressable, contiguously in range [0, current],
         // and everything above is mapped PROT_NONE. We don't need to perform any explicit bounds check in the 4GiB range because WebAssembly register
         // memory accesses are 32-bit. However WebAssembly register + offset accesses perform the addition in 64-bit which can push an access above
@@ -142,7 +137,7 @@ auto BBQJIT::emitCheckAndPrepareAndMaterializePointerApply(Value pointer, uint64
         // than the declared 'maximum' will trap, so we can compare against that number. If there was no declared 'maximum' then we still know that
         // any access equal to or greater than 4GiB will trap, no need to add the redzone.
         if (uoffset >= Memory::fastMappedRedzoneBytes()) {
-            RELEASE_ASSERT(!m_info.memory(memoryIndex).isMemory64());
+            RELEASE_ASSERT_WITH_SECURITY_IMPLICATION(!m_info.memory(memoryIndex).isMemory64());
             uint64_t maximum = m_info.memory(memoryIndex).maximum() ? m_info.memory(memoryIndex).maximum().bytes() : std::numeric_limits<uint32_t>::max();
             m_jit.zeroExtend32ToWord(pointerLocation.asGPR(), wasmScratchGPR);
             if (boundary)
@@ -153,7 +148,7 @@ auto BBQJIT::emitCheckAndPrepareAndMaterializePointerApply(Value pointer, uint64
     }
     }
 
-    bool canUseOffsetForm = uoffset <= static_cast<uint64_t>(std::numeric_limits<int32_t>::max()) && B3::Air::Arg::isValidAddrForm(B3::Air::Move, static_cast<int32_t>(uoffset), Width::Width128);
+    bool canUseOffsetForm = uoffset <= static_cast<uint64_t>(std::numeric_limits<int32_t>::max()) && B3::Air::Arg::isValidAddrForm(B3::Air::Move, static_cast<int32_t>(uoffset), accessWidth);
 #if CPU(ARM64)
     if (canUseOffsetForm) {
         if (m_info.memory(memoryIndex).isMemory64())
@@ -345,73 +340,92 @@ void BBQJIT::emitModOrDiv(Value& lhs, Location lhsLocation, Value& rhs, Location
             }
 
             // Fall through to general case.
-        } else if (isPowerOfTwo<size_t>(divisor)) {
-            if constexpr (IsMod) {
-                if constexpr (isSigned) {
-                    // This constructs an extra operand with log2(divisor) bits equal to the sign bit of the dividend. If the dividend
-                    // is positive, this is zero and adding it achieves nothing; but if the dividend is negative, this is equal to the
-                    // divisor minus one, which is the exact amount of bias we need to get the correct result. Computing this for both
-                    // positive and negative dividends lets us elide branching, but more importantly allows us to save a register by
-                    // not needing an extra multiplySub at the end.
-                    if constexpr (is32) {
-                        m_jit.rshift32(lhsLocation.asGPR(), TrustedImm32(31), wasmScratchGPR);
-                        m_jit.urshift32(wasmScratchGPR, TrustedImm32(32 - WTF::fastLog2(static_cast<unsigned>(divisor))), wasmScratchGPR);
-                        m_jit.add32(wasmScratchGPR, lhsLocation.asGPR(), resultLocation.asGPR());
-                    } else {
-                        m_jit.rshift64(lhsLocation.asGPR(), TrustedImm32(63), wasmScratchGPR);
-                        m_jit.urshift64(wasmScratchGPR, TrustedImm32(64 - WTF::fastLog2(static_cast<uint64_t>(divisor))), wasmScratchGPR);
-                        m_jit.add64(wasmScratchGPR, lhsLocation.asGPR(), resultLocation.asGPR());
+        } else {
+            using UnsignedInt = std::make_unsigned_t<IntType>;
+            bool divisorIsNegative = isSigned && divisor < 0;
+            UnsignedInt magnitude = divisorIsNegative
+                ? static_cast<UnsignedInt>(WTF::negate(static_cast<IntType>(divisor)))
+                : static_cast<UnsignedInt>(divisor);
+
+            if (isPowerOfTwo(magnitude)) {
+                unsigned shiftAmount = WTF::fastLog2(magnitude);
+
+                if constexpr (IsMod) {
+                    if constexpr (isSigned) {
+                        // This constructs an extra operand with log2(divisor) bits equal to the sign bit of the dividend. If the dividend
+                        // is positive, this is zero and adding it achieves nothing; but if the dividend is negative, this is equal to the
+                        // divisor minus one, which is the exact amount of bias we need to get the correct result. Computing this for both
+                        // positive and negative dividends lets us elide branching, but more importantly allows us to save a register by
+                        // not needing an extra multiplySub at the end.
+                        if constexpr (is32) {
+                            m_jit.rshift32(lhsLocation.asGPR(), TrustedImm32(31), wasmScratchGPR);
+                            m_jit.urshift32(wasmScratchGPR, TrustedImm32(32 - shiftAmount), wasmScratchGPR);
+                            m_jit.add32(wasmScratchGPR, lhsLocation.asGPR(), resultLocation.asGPR());
+                        } else {
+                            m_jit.rshift64(lhsLocation.asGPR(), TrustedImm32(63), wasmScratchGPR);
+                            m_jit.urshift64(wasmScratchGPR, TrustedImm32(64 - shiftAmount), wasmScratchGPR);
+                            m_jit.add64(wasmScratchGPR, lhsLocation.asGPR(), resultLocation.asGPR());
+                        }
+
+                        lhsLocation = resultLocation;
                     }
 
-                    lhsLocation = resultLocation;
-                }
+                    if constexpr (is32)
+                        m_jit.and32(Imm32(magnitude - 1), lhsLocation.asGPR(), resultLocation.asGPR());
+                    else
+                        m_jit.and64(TrustedImm64(magnitude - 1), lhsLocation.asGPR(), resultLocation.asGPR());
 
-                if constexpr (is32)
-                    m_jit.and32(Imm32(static_cast<uint32_t>(divisor) - 1), lhsLocation.asGPR(), resultLocation.asGPR());
-                else
-                    m_jit.and64(TrustedImm64(static_cast<uint64_t>(divisor) - 1), lhsLocation.asGPR(), resultLocation.asGPR());
+                    if constexpr (isSigned) {
+                        // The extra operand we computed is still in wasmScratchGPR - now we can subtract it from the result to get the
+                        // correct answer.
+                        if constexpr (is32)
+                            m_jit.sub32(resultLocation.asGPR(), wasmScratchGPR, resultLocation.asGPR());
+                        else
+                            m_jit.sub64(resultLocation.asGPR(), wasmScratchGPR, resultLocation.asGPR());
+                    }
+                    return;
+                }
 
                 if constexpr (isSigned) {
-                    // The extra operand we computed is still in wasmScratchGPR - now we can subtract it from the result to get the
-                    // correct answer.
+                    // If we are doing signed division, we need to bias the dividend for negative numbers.
                     if constexpr (is32)
-                        m_jit.sub32(resultLocation.asGPR(), wasmScratchGPR, resultLocation.asGPR());
+                        m_jit.add32(TrustedImm32(magnitude - 1), lhsLocation.asGPR(), wasmScratchGPR);
                     else
-                        m_jit.sub64(resultLocation.asGPR(), wasmScratchGPR, resultLocation.asGPR());
+                        m_jit.add64(TrustedImm64(magnitude - 1), lhsLocation.asGPR(), wasmScratchGPR);
+
+                    // moveConditionally seems to be faster than a branch here, even if it's well predicted.
+                    if (is32)
+                        m_jit.moveConditionally32(RelationalCondition::GreaterThanOrEqual, lhsLocation.asGPR(), TrustedImm32(0), lhsLocation.asGPR(), wasmScratchGPR, wasmScratchGPR);
+                    else
+                        m_jit.moveConditionally64(RelationalCondition::GreaterThanOrEqual, lhsLocation.asGPR(), TrustedImm32(0), lhsLocation.asGPR(), wasmScratchGPR, wasmScratchGPR);
+                    lhsLocation = Location::fromGPR(wasmScratchGPR);
                 }
+
+                // Emit the actual division instruction: arithmetic shift if signed,
+                // logical shift if unsigned
+                if constexpr (isSigned) {
+                    if constexpr (is32)
+                        m_jit.rshift32(lhsLocation.asGPR(), m_jit.trustedImm32ForShift(Imm32(shiftAmount)), resultLocation.asGPR());
+                    else
+                        m_jit.rshift64(lhsLocation.asGPR(), TrustedImm32(shiftAmount), resultLocation.asGPR());
+                } else {
+                    if constexpr (is32)
+                        m_jit.urshift32(lhsLocation.asGPR(), m_jit.trustedImm32ForShift(Imm32(shiftAmount)), resultLocation.asGPR());
+                    else
+                        m_jit.urshift64(lhsLocation.asGPR(), TrustedImm32(shiftAmount), resultLocation.asGPR());
+                }
+
+                if constexpr (isSigned) {
+                    if (divisorIsNegative) {
+                        if constexpr (is32)
+                            m_jit.neg32(resultLocation.asGPR(), resultLocation.asGPR());
+                        else
+                            m_jit.neg64(resultLocation.asGPR(), resultLocation.asGPR());
+                    }
+                }
+
                 return;
             }
-
-            if constexpr (isSigned) {
-                // If we are doing signed division, we need to bias the dividend for negative numbers.
-                if constexpr (is32)
-                    m_jit.add32(TrustedImm32(static_cast<int32_t>(divisor) - 1), lhsLocation.asGPR(), wasmScratchGPR);
-                else
-                    m_jit.add64(TrustedImm64(divisor - 1), lhsLocation.asGPR(), wasmScratchGPR);
-
-                // moveConditionally seems to be faster than a branch here, even if it's well predicted.
-                if (is32)
-                    m_jit.moveConditionally32(RelationalCondition::GreaterThanOrEqual, lhsLocation.asGPR(), TrustedImm32(0), lhsLocation.asGPR(), wasmScratchGPR, wasmScratchGPR);
-                else
-                    m_jit.moveConditionally64(RelationalCondition::GreaterThanOrEqual, lhsLocation.asGPR(), TrustedImm32(0), lhsLocation.asGPR(), wasmScratchGPR, wasmScratchGPR);
-                lhsLocation = Location::fromGPR(wasmScratchGPR);
-            }
-
-            // Emit the actual division instruction: arithmetic shift if signed,
-            // logical shift if unsigned
-            if constexpr (isSigned) {
-                if constexpr (is32)
-                    m_jit.rshift32(lhsLocation.asGPR(), m_jit.trustedImm32ForShift(Imm32(WTF::fastLog2(static_cast<unsigned>(divisor)))), resultLocation.asGPR());
-                else
-                    m_jit.rshift64(lhsLocation.asGPR(), TrustedImm32(WTF::fastLog2(static_cast<uint64_t>(divisor))), resultLocation.asGPR());
-            } else {
-                if constexpr (is32)
-                    m_jit.urshift32(lhsLocation.asGPR(), m_jit.trustedImm32ForShift(Imm32(WTF::fastLog2(static_cast<unsigned>(divisor)))), resultLocation.asGPR());
-                else
-                    m_jit.urshift64(lhsLocation.asGPR(), TrustedImm32(WTF::fastLog2(static_cast<uint64_t>(divisor))), resultLocation.asGPR());
-            }
-
-            return;
         }
         // TODO: try generating integer reciprocal instead.
         checkedForNegativeOne = true;
@@ -654,5 +668,4 @@ void BBQJIT::emitCCall(Func function, std::span<const Value> arguments, Value& r
 
 } } } // namespace JSC::Wasm::BBQJITImpl
 
-#endif // USE(JSVALUE64)
 #endif // ENABLE(WEBASSEMBLY_BBQJIT)

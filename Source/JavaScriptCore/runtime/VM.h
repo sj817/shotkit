@@ -46,11 +46,11 @@ WTF_ALLOW_UNSAFE_BUFFER_USAGE_BEGIN
 #include <JavaScriptCore/NumericStrings.h>
 #include <JavaScriptCore/SmallStrings.h>
 #include <JavaScriptCore/StringReplaceCache.h>
-#include <JavaScriptCore/StringSplitCache.h>
 #include <JavaScriptCore/StrongForward.h>
 #include <JavaScriptCore/VMThreadContext.h>
 #include <JavaScriptCore/WeakGCMap.h>
 #include <JavaScriptCore/WriteBarrier.h>
+#include <wtf/ApproximateTime.h>
 #include <wtf/BumpPointerAllocator.h>
 #include <wtf/CheckedArithmetic.h>
 #include <wtf/Compiler.h>
@@ -131,6 +131,7 @@ class JSPropertyNameEnumerator;
 class JITSizeStatistics;
 class JITThunks;
 class MegamorphicCache;
+class MicrotaskCallCache;
 class MicrotaskQueue;
 class NativeExecutable;
 class Debugger;
@@ -148,6 +149,7 @@ class SourceProvider;
 class SourceProviderCache;
 enum class SourceTaintedOrigin : uint8_t;
 class StackFrame;
+class StringSplitCache;
 class Structure;
 class Symbol;
 class TypedArrayController;
@@ -356,7 +358,7 @@ public:
         NeedStopTheWorld = 1 << 1, // FIXME rdar://161576886
     };
 
-    bool hasAnyEntryScopeServiceRequest() { return m_entryScopeServicesRawBits; }
+    bool hasAnyEntryScopeServiceRequest() { return m_entryScopeServicesRawBits || hasTimeZoneChange() || hasLanguageChange(); }
     void executeEntryScopeServicesOnEntry();
     void executeEntryScopeServicesOnExit();
 
@@ -372,7 +374,7 @@ public:
     enum class SchedulerOptions : uint8_t {
         HasImminentlyScheduledWork = 1 << 0,
     };
-    JS_EXPORT_PRIVATE void performOpportunisticallyScheduledTasks(MonotonicTime deadline, OptionSet<SchedulerOptions>);
+    JS_EXPORT_PRIVATE void performOpportunisticallyScheduledTasks(ApproximateTime deadline, OptionSet<SchedulerOptions>);
 
     Structure* cellButterflyStructure(IndexingType indexingType) { return rawImmutableButterflyStructure(indexingType).get(); }
 
@@ -592,6 +594,7 @@ public:
     WriteBarrier<JSSentinel> m_fastSetValuesSentinel;
     WriteBarrier<JSSentinel> m_fastSetEntriesSentinel;
     WriteBarrier<JSSentinel> m_fastStringValuesSentinel;
+    WriteBarrier<JSSentinel> m_fastAsyncGeneratorSentinel;
 
     WriteBarrier<JSCell> m_cachedSortScratch;
     WriteBarrier<JSCell> m_sortScratchSentinel;
@@ -620,7 +623,6 @@ public:
     Ref<AtomStringImpl> lastAtomizedIdentifierAtomStringImpl { *static_cast<AtomStringImpl*>(StringImpl::empty()) };
     JSONAtomStringCache jsonAtomStringCache;
     KeyAtomStringCache keyAtomStringCache;
-    StringSplitCache stringSplitCache;
     Vector<unsigned> stringSplitIndice;
     StringReplaceCache stringReplaceCache;
 
@@ -640,6 +642,7 @@ public:
     WriteBarrier<JSBigInt> m_nextCachedBigIntDivisor;
     Vector<UCPURegister> m_bigIntCachedInverse;
     int m_bigIntDivisorCount { 0 };
+    UCPURegister m_bigIntFoldFactor { 0 };
 
     JSCell* orderedHashTableDeletedValue()
     {
@@ -661,6 +664,7 @@ public:
     JSSentinel* fastSetValuesSentinel() { return m_fastSetValuesSentinel.get(); }
     JSSentinel* fastSetEntriesSentinel() { return m_fastSetEntriesSentinel.get(); }
     JSSentinel* fastStringValuesSentinel() { return m_fastStringValuesSentinel.get(); }
+    JSSentinel* fastAsyncGeneratorSentinel() { return m_fastAsyncGeneratorSentinel.get(); }
 
     inline JSPropertyNameEnumerator* emptyPropertyNameEnumerator();
 
@@ -905,9 +909,6 @@ public:
     Interpreter interpreter;
     VMEntryScope* entryScope { nullptr };
 
-    JSObject* stringRecursionCheckFirstObject { nullptr };
-    UncheckedKeyHashSet<JSObject*> stringRecursionCheckVisitedObjects;
-
     DateCache dateCache;
 
     std::unique_ptr<Profiler::Database> m_perBytecodeProfiler;
@@ -928,6 +929,13 @@ public:
     ALWAYS_INLINE MegamorphicCache* megamorphicCache() { return m_megamorphicCache.getIfExists(); }
     MegamorphicCache& ensureMegamorphicCache() { return m_megamorphicCache.get(*this); }
 
+    LazyUniqueRef<VM, StringSplitCache> m_stringSplitCache;
+    ALWAYS_INLINE StringSplitCache* stringSplitCache() { return m_stringSplitCache.getIfExists(); }
+    StringSplitCache& ensureStringSplitCache() { return m_stringSplitCache.get(*this); }
+
+    const UniqueRef<MicrotaskCallCache> m_syncResumeCallCache;
+    MicrotaskCallCache& syncResumeCallCache() { return m_syncResumeCallCache.get(); }
+
     enum class StructureChainIntegrityEvent : uint8_t {
         Add,
         Remove,
@@ -944,6 +952,7 @@ public:
 #endif
 
     bool hasTimeZoneChange() { return dateCache.hasTimeZoneChange(); }
+    JS_EXPORT_PRIVATE bool hasLanguageChange();
 
     RegExpCache* regExpCache() LIFETIME_BOUND { return m_regExpCache.get(); }
 
@@ -1100,6 +1109,7 @@ public:
 #endif
 
     void beginMarking();
+    void reconcileWeakReferencesAtGCEnd();
     DECLARE_VISIT_AGGREGATE;
 
     void NODELETE addDebugger(Debugger&);

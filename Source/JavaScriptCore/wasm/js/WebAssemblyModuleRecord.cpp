@@ -66,7 +66,7 @@ WebAssemblyModuleRecord* WebAssemblyModuleRecord::create(JSGlobalObject* globalO
 }
 
 WebAssemblyModuleRecord::WebAssemblyModuleRecord(VM& vm, Structure* structure, const Identifier& moduleKey)
-    : Base(vm, structure, moduleKey)
+    : Base(vm, structure, moduleKey, SourceProviderSourceType::WebAssembly)
 {
 }
 
@@ -207,7 +207,7 @@ void WebAssemblyModuleRecord::initializeImports(JSGlobalObject* globalObject, JS
             value = object->get(globalObject, fieldName);
             RETURN_IF_EXCEPTION(scope, void());
         } else {
-            AbstractModuleRecord* importedModule = hostResolveImportedModule(globalObject, moduleName);
+            AbstractModuleRecord* importedModule = hostResolveImportedModule(globalObject, moduleName, ScriptFetchParameters::Type::JavaScript);
             RETURN_IF_EXCEPTION(scope, void());
             Resolution resolution = importedModule->resolveExport(globalObject, fieldName);
             RETURN_IF_EXCEPTION(scope, void());
@@ -308,7 +308,7 @@ void WebAssemblyModuleRecord::initializeImports(JSGlobalObject* globalObject, JS
                     if (globalValue->global()->mutability() != Wasm::Immutable)
                         return exception(createJSWebAssemblyLinkError(globalObject, vm, importFailMessage(import, "imported global"_s, "must be a same mutability"_s)));
                     const auto& declaredGlobalType = moduleInformation.globals[import.kindIndex].type;
-                    switch (declaredGlobalType.kind) {
+                    switch (declaredGlobalType.kind()) {
                     case Wasm::TypeKind::I32:
                     case Wasm::TypeKind::I64:
                     case Wasm::TypeKind::F32:
@@ -336,18 +336,20 @@ void WebAssemblyModuleRecord::initializeImports(JSGlobalObject* globalObject, JS
                             }
 
                             if (Wasm::isRefWithTypeIndex(declaredGlobalType) && !value.isNull()) {
-                                Wasm::TypeIndex paramIndex = global.type.index;
+                                Wasm::TypeIndex paramIndex = global.type.index();
                                 Wasm::TypeIndex argIndex = (wasmFunction ? wasmFunction->rtt() : wasmWrapperFunction->rtt())->asTypeIndex();
                                 if (paramIndex != argIndex)
                                     return exception(createJSWebAssemblyLinkError(globalObject, vm, importFailMessage(import, "imported global"_s, "Argument value did not match the reference type"_s)));
                             }
 
                             m_instance->setGlobal(import.kindIndex, value);
+                        } else if (Wasm::isExnref(declaredGlobalType)) {
+                            m_instance->setGlobal(import.kindIndex, globalValue->global()->getReference());
                         } else {
                             auto global = globalValue->global()->get(globalObject);
                             RETURN_IF_EXCEPTION(scope, void());
                             value = Wasm::internalizeExternref(global);
-                            if (!Wasm::TypeInformation::isReferenceValueAssignable(value, declaredGlobalType.isNullable(), declaredGlobalType.index))
+                            if (!Wasm::TypeInformation::isReferenceValueAssignable(value, declaredGlobalType.isNullable(), declaredGlobalType.index()))
                                 return exception(createJSWebAssemblyLinkError(globalObject, vm, importFailMessage(import, "imported global"_s, "Argument value did not match the reference type"_s)));
                             m_instance->setGlobal(import.kindIndex, value);
                         }
@@ -366,7 +368,7 @@ void WebAssemblyModuleRecord::initializeImports(JSGlobalObject* globalObject, JS
                     }
 
                     // iii. Append ToWebAssemblyValue(v) to imports.
-                    switch (globalType.kind) {
+                    switch (globalType.kind()) {
                     case Wasm::TypeKind::I32:
                         m_instance->setGlobal(import.kindIndex, value.toInt32(globalObject));
                         break;
@@ -399,7 +401,7 @@ void WebAssemblyModuleRecord::initializeImports(JSGlobalObject* globalObject, JS
                             }
 
                             if (Wasm::isRefWithTypeIndex(globalType) && !value.isNull()) {
-                                Wasm::TypeIndex paramIndex = global.type.index;
+                                Wasm::TypeIndex paramIndex = global.type.index();
                                 Wasm::TypeIndex argIndex = (wasmFunction ? wasmFunction->rtt() : wasmWrapperFunction->rtt())->asTypeIndex();
                                 if (paramIndex != argIndex)
                                     return exception(createJSWebAssemblyLinkError(globalObject, vm, importFailMessage(import, "imported global"_s, "Argument value did not match the reference type"_s)));
@@ -410,7 +412,7 @@ void WebAssemblyModuleRecord::initializeImports(JSGlobalObject* globalObject, JS
                             return exception(createJSWebAssemblyLinkError(globalObject, vm, importFailMessage(import, "imported global"_s, "cannot be exnref"_s)));
                         else {
                             value = Wasm::internalizeExternref(value);
-                            if (!Wasm::TypeInformation::isReferenceValueAssignable(value, global.type.isNullable(), global.type.index))
+                            if (!Wasm::TypeInformation::isReferenceValueAssignable(value, global.type.isNullable(), global.type.index()))
                                 return exception(createJSWebAssemblyLinkError(globalObject, vm, importFailMessage(import, "imported global"_s, "Argument value did not match the reference type"_s)));
                             m_instance->setGlobal(import.kindIndex, value);
                         }
@@ -437,13 +439,13 @@ void WebAssemblyModuleRecord::initializeImports(JSGlobalObject* globalObject, JS
             if (!table)
                 return exception(createJSWebAssemblyLinkError(globalObject, vm, importFailMessage(import, "Table import"_s, "is not an instance of WebAssembly.Table"_s)));
 
-            uint32_t expectedInitial = moduleInformation.tables[import.kindIndex].initial();
-            uint32_t actualInitial = table->length();
+            uint64_t expectedInitial = moduleInformation.tables[import.kindIndex].initial();
+            uint64_t actualInitial = table->length();
             if (actualInitial < expectedInitial)
                 return exception(createJSWebAssemblyLinkError(globalObject, vm, importFailMessage(import, "Table import"_s, "provided an 'initial' that is too small"_s)));
 
-            if (std::optional<uint32_t> expectedMaximum = moduleInformation.tables[import.kindIndex].maximum()) {
-                std::optional<uint32_t> actualMaximum = table->maximum();
+            if (std::optional<uint64_t> expectedMaximum = moduleInformation.tables[import.kindIndex].maximum()) {
+                std::optional<uint64_t> actualMaximum = table->maximum();
                 if (!actualMaximum)
                     return exception(createJSWebAssemblyLinkError(globalObject, vm, importFailMessage(import, "Table import"_s, "does not have a 'maximum' but the module requires that it does"_s)));
                 if (*actualMaximum > *expectedMaximum)
@@ -454,6 +456,9 @@ void WebAssemblyModuleRecord::initializeImports(JSGlobalObject* globalObject, JS
             auto actualType = table->table()->wasmType();
             if (!Wasm::isSubtype(actualType, expectedType) || !Wasm::isSubtype(expectedType, actualType))
                 return exception(createJSWebAssemblyLinkError(globalObject, vm, importFailMessage(import, "Table import"_s, "provided a 'type' that is wrong"_s)));
+
+            if (table->table()->addressType() != moduleInformation.tables[import.kindIndex].addressType())
+                return exception(createJSWebAssemblyLinkError(globalObject, vm, importFailMessage(import, "Table import"_s, "provided an 'address' that is different from the module's declared 'address' import table attribute"_s)));
 
             // ii. Append v to tables.
             // iii. Append v.[[Table]] to imports.
@@ -501,7 +506,7 @@ void WebAssemblyModuleRecord::initializeImports(JSGlobalObject* globalObject, JS
                 return exception(createJSWebAssemblyLinkError(globalObject, vm, importFailMessage(import, "Memory import"_s, "provided a 'shared' that is different from the module's declared 'shared' import memory attribute"_s)));
 
             if (memory->memory().addressType() != moduleInformation.memory(import.kindIndex).addressType())
-                return exception(createJSWebAssemblyLinkError(globalObject, vm, importFailMessage(import, "Memory import"_s, "provided an 'index' that is different from the module's declared 'index' import memory attribute"_s)));
+                return exception(createJSWebAssemblyLinkError(globalObject, vm, importFailMessage(import, "Memory import"_s, "provided an 'address' that is different from the module's declared 'address' import memory attribute"_s)));
 
             // ii. Append v to memories.
             // iii. Append v.[[Memory]] to imports.
@@ -527,7 +532,6 @@ void WebAssemblyModuleRecord::initializeExports(JSGlobalObject* globalObject)
         throwException(globalObject, scope, error);
     };
 
-    // FIXME(wasm-multimemory): will need to change this to make BBQ/OMG work with multiple memories
     // FIXME(wasm-multimemory): should we get rid of hasMemoryImport()?
     if (moduleInformation.hasMemoryImport()) {
         // Usually at this point the module's code block in any memory mode should be
@@ -709,7 +713,7 @@ void WebAssemblyModuleRecord::initializeExports(JSGlobalObject* globalObject)
         }
         case Wasm::ExternalKind::Global: {
             const Wasm::GlobalInformation& global = moduleInformation.globals[exp.kindIndex];
-            switch (global.type.kind) {
+            switch (global.type.kind()) {
             case Wasm::TypeKind::Externref:
             case Wasm::TypeKind::Funcref:
             case Wasm::TypeKind::Ref:
@@ -723,7 +727,7 @@ void WebAssemblyModuleRecord::initializeExports(JSGlobalObject* globalObject)
                 // But we need to create a binding just to export it. This binding is not actually connected. But this is OK since it is immutable.
                 if (global.bindingMode == Wasm::GlobalInformation::BindingMode::EmbeddedInInstance) {
                     RefPtr<Wasm::Global> globalRef;
-                    if (global.type.kind == Wasm::TypeKind::V128) {
+                    if (global.type.kind() == Wasm::TypeKind::V128) {
                         v128_t initialValue = m_instance->loadV128Global(exp.kindIndex);
                         globalRef = Wasm::Global::create(global.type, global.mutability, initialValue);
                     } else {
@@ -842,16 +846,23 @@ JSValue WebAssemblyModuleRecord::evaluate(JSGlobalObject* globalObject)
             // We could also evaluate the vector of expressions here, but we have nowhere safe to
             // store the resulting references so we defer that until table init.
             const auto& offset = *element.offsetIfActive;
-            uint32_t elementIndex = 0;
-            if (offset.isGlobalImport())
-                elementIndex = static_cast<uint32_t>(m_instance->loadI32Global(offset.globalImportIndex()));
-            else if (offset.isConst())
-                elementIndex = offset.constValue();
-            else {
+            const bool isTable64 = moduleInformation.table(*element.tableIndexIfActive).addressType().is64Bit();
+            uint64_t elementIndex = 0;
+            if (offset.isGlobalImport()) {
+                if (isTable64)
+                    elementIndex = static_cast<uint64_t>(m_instance->loadI64Global(offset.globalImportIndex()));
+                else
+                    elementIndex = static_cast<uint32_t>(m_instance->loadI32Global(offset.globalImportIndex()));
+            } else if (offset.isConst()) {
+                if (isTable64)
+                    elementIndex = offset.constValue();
+                else
+                    elementIndex = static_cast<uint32_t>(offset.constValue());
+            } else {
                 uint64_t result;
-                evaluateConstantExpression(globalObject, moduleInformation.constantExpressions[offset.constantExpressionIndex()], moduleInformation, Wasm::Types::I32, result);
+                evaluateConstantExpression(globalObject, moduleInformation.constantExpressions[offset.constantExpressionIndex()], moduleInformation, isTable64 ? Wasm::Types::I64 : Wasm::Types::I32, result);
                 RETURN_IF_EXCEPTION(scope, void());
-                elementIndex = static_cast<uint32_t>(result);
+                elementIndex = isTable64 ? result : static_cast<uint32_t>(result);
             }
 
             if (fn(element, *element.tableIndexIfActive, elementIndex) == IterationStatus::Done)
@@ -871,16 +882,23 @@ JSValue WebAssemblyModuleRecord::evaluate(JSGlobalObject* globalObject)
             uint8_t* memory = static_cast<uint8_t*>(wasmMemory.basePointer());
             uint64_t sizeInBytes = wasmMemory.size();
 
+            const bool isMemory64 = moduleInformation.memory(segment->memoryIndex()).isMemory64();
             uint64_t offset = 0;
-            if (segment->offsetIfActive()->isGlobalImport())
-                offset = static_cast<uint64_t>(m_instance->loadI32Global(segment->offsetIfActive()->globalImportIndex()));
-            else if (segment->offsetIfActive()->isConst())
-                offset = segment->offsetIfActive()->constValue();
-            else {
+            if (segment->offsetIfActive()->isGlobalImport()) {
+                if (isMemory64)
+                    offset = static_cast<uint64_t>(m_instance->loadI64Global(segment->offsetIfActive()->globalImportIndex()));
+                else
+                    offset = static_cast<uint32_t>(m_instance->loadI32Global(segment->offsetIfActive()->globalImportIndex()));
+            } else if (segment->offsetIfActive()->isConst()) {
+                if (isMemory64)
+                    offset = segment->offsetIfActive()->constValue();
+                else
+                    offset = static_cast<uint32_t>(segment->offsetIfActive()->constValue());
+            } else {
                 uint64_t result;
-                evaluateConstantExpression(globalObject, moduleInformation.constantExpressions[segment->offsetIfActive()->constantExpressionIndex()], moduleInformation, Wasm::Types::I32, result);
+                evaluateConstantExpression(globalObject, moduleInformation.constantExpressions[segment->offsetIfActive()->constantExpressionIndex()], moduleInformation, isMemory64 ? Wasm::Types::I64 : Wasm::Types::I32, result);
                 RETURN_IF_EXCEPTION(scope, void());
-                offset = result;
+                offset = isMemory64 ? result : static_cast<uint32_t>(result);
             }
 
             if (fn(memory, sizeInBytes, segment, offset) == IterationStatus::Done)
@@ -892,14 +910,15 @@ JSValue WebAssemblyModuleRecord::evaluate(JSGlobalObject* globalObject)
     };
 
     // Validation of all element ranges comes before all Table and Memory initialization.
-    forEachActiveElement([&](const Wasm::Element& element, uint32_t tableIndex, uint32_t elementIndex) {
-        int64_t lastWrittenIndex = static_cast<int64_t>(elementIndex) + static_cast<int64_t>(element.initTypes.size()) - 1;
-        if (lastWrittenIndex >= m_instance->table(tableIndex)->length()) [[unlikely]] {
+    forEachActiveElement([&](const Wasm::Element& element, uint32_t tableIndex, uint64_t elementIndex) {
+        uint64_t tableLength = m_instance->table(tableIndex)->length();
+        uint64_t segmentLength = element.initTypes.size();
+        if (elementIndex > tableLength || segmentLength > tableLength - elementIndex) [[unlikely]] {
             exception = JSValue(throwException(globalObject, scope, createJSWebAssemblyRuntimeError(globalObject, vm, "Element is trying to set an out of bounds table index"_s)));
             return IterationStatus::Done;
         }
 
-        m_instance->initElementSegment(tableIndex, element, elementIndex, 0U, element.length());
+        m_instance->initElementSegment(tableIndex, element, static_cast<uint32_t>(elementIndex), 0U, element.length());
         return IterationStatus::Continue;
     });
 

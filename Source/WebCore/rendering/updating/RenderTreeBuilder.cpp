@@ -150,7 +150,7 @@ static void getInlineRun(RenderObject* start, RenderObject* boundary, RenderObje
     auto* curr = start;
     bool sawInline;
     do {
-        while (curr && !(curr->isInline() || curr->isFloatingOrOutOfFlowPositioned()))
+        while (curr && (!(curr->isInline() || curr->isFloatingOrOutOfFlowPositioned()) || curr->isExcludedMarker()))
             curr = curr->nextSibling();
 
         inlineRunStart = inlineRunEnd = curr;
@@ -161,7 +161,7 @@ static void getInlineRun(RenderObject* start, RenderObject* boundary, RenderObje
         sawInline = curr->isInline();
 
         curr = curr->nextSibling();
-        while (curr && (curr->isInline() || curr->isFloatingOrOutOfFlowPositioned()) && (curr != boundary)) {
+        while (curr && (curr->isInline() || curr->isFloatingOrOutOfFlowPositioned()) && !curr->isExcludedMarker() && (curr != boundary)) {
             inlineRunEnd = curr;
             if (curr->isInline())
                 sawInline = true;
@@ -437,11 +437,8 @@ RenderPtr<RenderObject> RenderTreeBuilder::detach(RenderElement& parent, RenderO
 void RenderTreeBuilder::attachToRenderElement(RenderElement& parent, RenderPtr<RenderObject> child, RenderObject* beforeChild)
 {
     if (tableBuilder().childRequiresTable(parent, *child)) {
-        RenderTable* table;
-        auto* afterChild = dynamicDowncast<RenderTable>(beforeChild ? beforeChild->previousSibling() : parent.lastChild());
-        if (afterChild && afterChild->isAnonymous() && !afterChild->isBeforeContent())
-            table = afterChild;
-        else {
+        auto* table = dynamicDowncast<RenderTable>(beforeChild ? beforeChild->previousSibling() : parent.lastChild());
+        if (!table || !table->isAnonymous() || table->isBeforeContent()) {
             auto newTable = Table::createAnonymousTableWithStyle(protect(parent.document()), parent.style());
             table = newTable.get();
             attach(parent, WTF::move(newTable), beforeChild);
@@ -773,7 +770,7 @@ void RenderTreeBuilder::createAnonymousWrappersForInlineContent(RenderBlock& par
     }
 #ifndef NDEBUG
     for (RenderObject* c = parent.firstChild(); c; c = c->nextSibling())
-        ASSERT(!c->isInline());
+        ASSERT(!c->isInline() || c->isExcludedMarker());
 #endif
     parent.repaint();
 }

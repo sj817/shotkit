@@ -53,11 +53,23 @@ struct CalendarFieldsIn {
     std::optional<int32_t> eraYear;
 };
 
+struct TimeFieldsIn {
+    std::optional<double> hour;
+    std::optional<double> minute;
+    std::optional<double> second;
+    std::optional<double> millisecond;
+    std::optional<double> microsecond;
+    std::optional<double> nanosecond;
+};
+
 // Result of calendar field resolution: ISO date + calendar ID.
 struct ResolvedCalendarDate {
     ISO8601::PlainDate isoDate;
     CalendarID calendarId { 0 };
 };
+
+enum class ResolveType : uint8_t { Date, YearMonth, MonthDay };
+JS_EXPORT_PRIVATE TemporalResult<void> nonISOResolveFields(CalendarID, CalendarFieldsIn&, ResolveType);
 
 JS_EXPORT_PRIVATE TemporalResult<ResolvedCalendarDate> dateFromFields(CalendarID, const CalendarFieldsIn&, TemporalOverflow);
 
@@ -65,9 +77,15 @@ JS_EXPORT_PRIVATE TemporalResult<ResolvedCalendarDate> yearMonthFromFields(Calen
 
 JS_EXPORT_PRIVATE TemporalResult<ResolvedCalendarDate> monthDayFromFields(CalendarID, const CalendarFieldsIn&, TemporalOverflow);
 
+JS_EXPORT_PRIVATE TemporalResult<CalendarFieldsIn> isoDateToFields(CalendarID, const ISO8601::PlainDate&, ResolveType);
+
+JS_EXPORT_PRIVATE CalendarFieldsIn calendarMergeFields(CalendarID, const CalendarFieldsIn&, const CalendarFieldsIn& additionalFields);
+
 JS_EXPORT_PRIVATE TemporalResult<ResolvedCalendarDate> plainYearMonthWith(CalendarID, const ISO8601::PlainDate& currentISODate, const CalendarFieldsIn& partialFields, TemporalOverflow);
 
 JS_EXPORT_PRIVATE TemporalResult<ResolvedCalendarDate> plainDateWith(CalendarID, const ISO8601::PlainDate& currentISODate, const CalendarFieldsIn& partialFields, TemporalOverflow);
+
+JS_EXPORT_PRIVATE TemporalResult<ResolvedCalendarDate> plainMonthDayWith(CalendarID, const ISO8601::PlainDate& currentISODate, const CalendarFieldsIn& partialFields, TemporalOverflow);
 
 JS_EXPORT_PRIVATE TemporalResult<ISO8601::Duration> differenceYearMonth(CalendarID, const ISO8601::PlainDate& thisISODate, const ISO8601::PlainDate& otherISODate, TemporalUnit largestUnit);
 

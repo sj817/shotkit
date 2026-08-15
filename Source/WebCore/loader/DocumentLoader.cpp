@@ -193,7 +193,7 @@ DocumentLoader::DocumentLoader(ResourceRequest&& request, SubstituteData&& subst
     , m_originalRequestCopy(originalRequest.isNull() ? request : WTF::move(originalRequest))
     , m_request(WTF::move(request))
     , m_substituteResourceDeliveryTimer(*this, &DocumentLoader::substituteResourceDeliveryTimerFired)
-    , m_originalSubstituteDataWasValid(substituteData.isValid())
+    , m_originalSubstituteDataWasValid(m_substituteData.isValid())
 {
 }
 
@@ -430,6 +430,13 @@ bool DocumentLoader::isLoading() const
     return isLoadingMainResource() || !m_subresourceLoaders.isEmpty() || !m_plugInStreamLoaders.isEmpty();
 }
 
+static void hideRedirectTimingForNoReferrerNavigation(const DocumentLoader& loader, NetworkLoadMetrics& metrics)
+{
+    // https://html.spec.whatwg.org/C#initialise-the-document-object step 15.3 resets redirectCount in case of "no-referrer".
+    if (loader.triggeringAction().requester() && loader.request().httpReferrer().isEmpty())
+        metrics.redirectCount = 0;
+}
+
 void DocumentLoader::notifyFinished(CachedResource& resource, const NetworkLoadMetrics& fetchMetrics, LoadWillContinueInAnotherProcess loadWillContinueInAnotherProcess)
 {
     ASSERT(isMainThread());
@@ -447,6 +454,8 @@ void DocumentLoader::notifyFinished(CachedResource& resource, const NetworkLoadM
     }
     if (!metrics)
         metrics = Box<NetworkLoadMetrics>::create(fetchMetrics);
+
+    hideRedirectTimingForNoReferrerNavigation(*this, *metrics);
 
     if (RefPtr document = this->document()) {
         if (RefPtr window = document->window())
@@ -1389,6 +1398,7 @@ void DocumentLoader::commitData(const SharedBuffer& data)
                     || source == ResourceResponse::Source::MemoryCacheAfterValidation;
                 if (RefPtr frameLoader = this->frameLoader())
                     finalMetrics.fromPrefetch = frameLoader->documentPrefetcher().wasPrefetched(url());
+                hideRedirectTimingForNoReferrerNavigation(*this, finalMetrics);
                 protect(window->performance())->addNavigationTiming(*this, document, protect(*m_mainResource), timing(), finalMetrics);
             }
         }
@@ -1496,33 +1506,14 @@ void DocumentLoader::applyPoliciesToSettings()
     if (!m_frame->isMainFrame())
         return;
 
-#if ENABLE(MEDIA_SOURCE)
-    m_frame->settings().setMediaSourceEnabled(m_mediaSourcePolicy == MediaSourcePolicy::Default ? Settings::platformDefaultMediaSourceEnabled() : m_mediaSourcePolicy == MediaSourcePolicy::Enable);
-#endif
-#if ENABLE(WEBKIT_OVERFLOW_SCROLLING_CSS_PROPERTY)
-    if (m_legacyOverflowScrollingTouchPolicy == LegacyOverflowScrollingTouchPolicy::Disable)
-        m_frame->settings().setLegacyOverflowScrollingTouchEnabled(false);
-#endif
-#if ENABLE(TEXT_AUTOSIZING)
-    m_frame->settings().setIdempotentModeAutosizingOnlyHonorsPercentages(m_idempotentModeAutosizingOnlyHonorsPercentages);
-#endif
-
-    if (m_pushAndNotificationsEnabledPolicy != PushAndNotificationsEnabledPolicy::UseGlobalPolicy) {
-        bool enabled = m_pushAndNotificationsEnabledPolicy == PushAndNotificationsEnabledPolicy::Yes;
-        m_frame->settings().setPushAPIEnabled(enabled);
-#if ENABLE(NOTIFICATIONS)
-        m_frame->settings().setNotificationsEnabled(enabled);
-#endif
-#if ENABLE(NOTIFICATION_EVENT)
-        m_frame->settings().setNotificationEventEnabled(enabled);
-#endif
-#if PLATFORM(IOS)
-        m_frame->settings().setAppBadgeEnabled(enabled);
-#endif
-    }
-
-    if (m_inlineMediaPlaybackPolicy != InlineMediaPlaybackPolicy::Default)
-        m_frame->settings().setInlineMediaPlaybackRequiresPlaysInlineAttribute(m_inlineMediaPlaybackPolicy == InlineMediaPlaybackPolicy::RequiresPlaysInlineAttribute);
+    m_frame->settings().applyMainFrameWebsitePolicies({
+        m_mediaSourcePolicy,
+        m_legacyOverflowScrollingTouchPolicy,
+        m_pushAndNotificationsEnabledPolicy,
+        m_inlineMediaPlaybackPolicy,
+        m_globalPrivacyControlEnabled,
+        m_idempotentModeAutosizingOnlyHonorsPercentages
+    });
 }
 
 ColorSchemePreference NODELETE DocumentLoader::colorSchemePreference() const
@@ -1809,10 +1800,12 @@ RefPtr<ArchiveResource> DocumentLoader::subresource(const URL& url) const
 {
     if (!isCommitted())
         return nullptr;
-    
-    RefPtr resource = m_cachedResourceLoader->cachedResource(url);
+
+    auto resourceURL = MemoryCache::removeFragmentIdentifierIfNeeded(url);
+
+    RefPtr resource = m_cachedResourceLoader->cachedResource(resourceURL);
     if (!resource || !resource->isLoaded())
-        return archiveResourceForURL(url);
+        return archiveResourceForURL(resourceURL);
 
     if (resource->type() == CachedResource::Type::MainResource)
         return nullptr;
@@ -1821,7 +1814,7 @@ RefPtr<ArchiveResource> DocumentLoader::subresource(const URL& url) const
     if (!data)
         return nullptr;
 
-    return ArchiveResource::create(data.get(), url, resource->response());
+    return ArchiveResource::create(data.get(), resourceURL, resource->response());
 }
 
 Vector<Ref<ArchiveResource>> DocumentLoader::subresources() const
@@ -2176,7 +2169,10 @@ void DocumentLoader::startLoadingMainResource()
     RefPtr frame = m_frame.get();
     m_canUseServiceWorkers = canUseServiceWorkers(frame.get());
     m_mainDocumentError = ResourceError();
-    timing().markStartTime();
+    if (m_originalNavigationStartTime)
+        timing().setStartTime(m_originalNavigationStartTime);
+    else
+        timing().markStartTime();
     ASSERT(!m_mainResource);
     ASSERT(!m_loadingMainResource);
     m_loadingMainResource = true;

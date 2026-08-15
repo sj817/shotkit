@@ -30,6 +30,7 @@ set(WTF_PUBLIC_HEADERS
     BloomFilter.h
     BooleanLattice.h
     Borrow.h
+    BorrowedBytes.h
     Box.h
     BoxPtr.h
     Brigand.h
@@ -208,6 +209,7 @@ set(WTF_PUBLIC_HEADERS
     NoLock.h
     NoTailCalls.h
     NoVirtualDestructorBase.h
+    Nonallocatable.h
     Noncopyable.h
     Nonmovable.h
     NotFound.h
@@ -836,10 +838,10 @@ set(WTF_INTERFACE_DEPENDENCIES WTF_CopyHeaders)
 
 WEBKIT_FRAMEWORK_DECLARE(WTF)
 WEBKIT_INCLUDE_CONFIG_FILES_IF_EXISTS()
+WEBKIT_ADD_TARGET_THREAD_SAFETY_WARNINGS(WTF)
 WEBKIT_ADD_TARGET_UNSAFE_BUFFER_WARNINGS(WTF)
 
 WEBKIT_COPY_FILES(WTF_CopyHeaders
-    PRUNE_STALE
     DESTINATION ${WTF_HEADERS_DIR}
     FILES ${WTF_PUBLIC_HEADERS}
 )
@@ -860,6 +862,11 @@ if (NOT APPLE AND SWIFT_REQUIRED)
 endif ()
 
 WEBKIT_FRAMEWORK(WTF)
+
+# WTF is statically linked into JavaScriptCore, so it uses JSC's PGO profile.
+if (USE_APPLE_INTERNAL_SDK)
+    WEBKIT_TARGET_USE_PGO(WTF PROFILE JavaScriptCore)
+endif ()
 
 if (MSVC)
     set(CMAKE_SHARED_LINKER_FLAGS "${CMAKE_SHARED_LINKER_FLAGS} /SUBSYSTEM:WINDOWS")

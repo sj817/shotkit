@@ -109,30 +109,86 @@ jobs:
           # The windows-11-arm hosted image carries fewer preinstalled tools
           # than windows-2022; install anything the WebKit build needs that is
           # missing. x64 tools run under emulation where no arm64 build exists.
-          $missing = @()
-          if (-not (Get-Command clang-cl.exe -ErrorAction SilentlyContinue)) { $missing += 'llvm' }
-          if (-not (Get-Command ruby.exe -ErrorAction SilentlyContinue)) { $missing += 'ruby' }
-          if (-not (Get-Command perl.exe -ErrorAction SilentlyContinue)) { $missing += 'strawberryperl' }
-          if (-not (Get-Command cmake.exe -ErrorAction SilentlyContinue)) { $missing += 'cmake' }
-          if (-not (Get-Command ninja.exe -ErrorAction SilentlyContinue)) { $missing += 'ninja' }
-          if ($missing) { choco install @missing -y --no-progress }
-          foreach ($candidate in @(
-            'C:\Program Files\LLVM\bin',
-            'C:\Strawberry\perl\bin',
-            'C:\Program Files\CMake\bin'
-          ) + @(Get-ChildItem 'C:\tools\ruby*\bin' -ErrorAction SilentlyContinue | ForEach-Object FullName)) {
+          # choco 装出来的东西未必落在当前 shell 的 PATH 上（clang-cl 在 LLVM\bin，
+          # perl 在 Strawberry\perl\bin），所以探测与重试校验都要带上这些目录。
+          function Update-ToolPath {
+            $dirs = @(
+              'C:\Program Files\LLVM\bin',
+              'C:\Strawberry\perl\bin',
+              'C:\Program Files\CMake\bin'
+            ) + @(Get-ChildItem 'C:\tools\ruby*\bin' -ErrorAction SilentlyContinue | ForEach-Object FullName)
+            $env:Path = (@([Environment]::GetEnvironmentVariable('Path', 'Machine'),
+                           [Environment]::GetEnvironmentVariable('Path', 'User')) +
+                         @($dirs | Where-Object { Test-Path $_ })) -join ';'
+            return $dirs
+          }
+          $packageExe = @{ llvm = 'clang-cl.exe'; ruby = 'ruby.exe'; strawberryperl = 'perl.exe'
+                           cmake = 'cmake.exe'; ninja = 'ninja.exe' }
+          Update-ToolPath | Out-Null
+          $missing = @($packageExe.Keys | Where-Object {
+            -not (Get-Command $packageExe[$_] -ErrorAction SilentlyContinue)
+          })
+          # community.chocolatey.org 会间歇性 503。choco 在单个包失败时仍以 0 退出
+          # （2026-08-15 实测日志写着「Chocolatey installed 1/1 packages」），所以重试
+          # 必须按「包是否真的装上」判定，不能看退出码。
+          for ($attempt = 1; $missing -and $attempt -le 3; $attempt++) {
+            if ($attempt -gt 1) { Start-Sleep -Seconds (20 * $attempt) }
+            choco install @missing -y --no-progress
+            Update-ToolPath | Out-Null
+            $missing = @($missing | Where-Object {
+              -not (Get-Command $packageExe[$_] -ErrorAction SilentlyContinue)
+            })
+          }
+          if ($missing) { throw "choco 连续 3 次未能装上：$($missing -join ', ')" }
+          foreach ($candidate in Update-ToolPath) {
             if (Test-Path $candidate) { $candidate | Out-File -FilePath $env:GITHUB_PATH -Encoding utf8 -Append }
           }
 
       - name: Install parser generator tools
         shell: pwsh
         run: |
-          choco install gperf winflexbison3 -y --no-progress
+          # 同上：按产物判定重试。2026-08-15 这里真的被 503 拦过——gperf 装上了、
+          # winflexbison3 没有，choco 照样退 0，直到下面 Get-Command win_bison.exe 才炸。
+          for ($attempt = 1; $attempt -le 3; $attempt++) {
+            if ((Get-Command gperf.exe -ErrorAction SilentlyContinue) -and
+                (Get-Command win_bison.exe -ErrorAction SilentlyContinue) -and
+                (Get-Command win_flex.exe -ErrorAction SilentlyContinue)) { break }
+            if ($attempt -gt 1) { Start-Sleep -Seconds (20 * $attempt) }
+            choco install gperf winflexbison3 -y --no-progress
+            $env:Path = [Environment]::GetEnvironmentVariable('Path', 'Machine') + ';' +
+                        [Environment]::GetEnvironmentVariable('Path', 'User')
+          }
+          # gperf 没有同等的上游 Release 可回落；显式报错好过让 CMake 在几分钟后
+          # 以「Could NOT find Gperf (missing: GPERF_EXECUTABLE)」结尾。
+          if (-not (Get-Command gperf.exe -ErrorAction SilentlyContinue)) {
+            throw 'choco 连续 3 次未能装上 gperf（community.chocolatey.org 故障？）'
+          }
           $shim = Join-Path $env:RUNNER_TEMP 'webkit-tools'
           New-Item -ItemType Directory -Force -Path $shim | Out-Null
-          Copy-Item (Get-Command win_bison.exe).Source (Join-Path $shim 'bison.exe')
-          Copy-Item (Get-Command win_flex.exe).Source (Join-Path $shim 'flex.exe')
+          if ((Get-Command win_bison.exe -ErrorAction SilentlyContinue) -and
+              (Get-Command win_flex.exe -ErrorAction SilentlyContinue)) {
+            Copy-Item (Get-Command win_bison.exe).Source (Join-Path $shim 'bison.exe')
+            Copy-Item (Get-Command win_flex.exe).Source (Join-Path $shim 'flex.exe')
+          } else {
+            # 回落到上游 Release。2026-08-15 community.chocolatey.org 连续 503/504 挂了
+            # 一个多小时，跨掉两轮 CI，重试完全无效。choco 的 winflexbison3 包本身就是
+            # 转包 lexxmark/winflexbison 的 Release 产物，直接取源头少一个故障域。
+            # 版本与 SHA256 都钉死；bison 靠可执行文件所在目录找 m4 骨架，所以整包解压
+            # 到 shim 目录后就地改名，让 data/ 与 bison.exe 同级。
+            Write-Host '::warning::chocolatey 未能提供 win_flex/win_bison，回落到 lexxmark/winflexbison Release'
+            $zip = Join-Path $env:RUNNER_TEMP 'win_flex_bison.zip'
+            $url = 'https://github.com/lexxmark/winflexbison/releases/download/v2.5.25/win_flex_bison-2.5.25.zip'
+            $expected = '8D324B62BE33604B2C45AD1DD34AB93D722534448F55A16CA7292DE32B6AC135'
+            Invoke-WebRequest -Uri $url -OutFile $zip
+            $actual = (Get-FileHash -LiteralPath $zip -Algorithm SHA256).Hash
+            if ($actual -ne $expected) { throw "win_flex_bison-2.5.25.zip 校验失败：期望 $expected，实得 $actual" }
+            Expand-Archive -LiteralPath $zip -DestinationPath $shim -Force
+            Copy-Item (Join-Path $shim 'win_bison.exe') (Join-Path $shim 'bison.exe')
+            Copy-Item (Join-Path $shim 'win_flex.exe') (Join-Path $shim 'flex.exe')
+          }
           $shim | Out-File -FilePath $env:GITHUB_PATH -Encoding utf8 -Append
+          & (Join-Path $shim 'bison.exe') --version | Select-Object -First 1
+          & (Join-Path $shim 'flex.exe') --version
           ruby --version
           perl --version
           python --version
@@ -256,6 +312,68 @@ jobs:
         continue-on-error: true
         shell: bash
         run: sccache --show-stats
+
+      # 2026-08-15 首次上游同步后，Windows arm64 的冒烟测试以 0xC0000005（访问违例）
+      # 崩在第一次出图，x64 同样的输入正常。远程调试没有交互式手段，所以用一个分段
+      # 阶梯把故障面切开：无参（只考验 DLL 加载与静态初始化）→ 空文档（渲染管线，
+      # 无字体无文本）→ 纯 ASCII（字体与文本整形）→ 带 CSS 与非 ASCII 字形。
+      # 每级只报退出码不失败，真正的门禁仍是后面的冒烟步骤。
+      # 顺带开 WER LocalDumps，崩了就尽力用 cdb 打一份栈回来。
+      - name: Diagnose renderer crash (arm64 triage, non-fatal)
+        if: matrix.arch == 'arm64'
+        shell: pwsh
+        continue-on-error: true
+        timeout-minutes: 10
+        run: |
+          $ErrorActionPreference = 'Continue'
+          $bin = Join-Path $env:GITHUB_WORKSPACE 'WebKitBuild\shot\bin'
+          $cli = Join-Path $bin 'shotcli.exe'
+          $dumps = Join-Path $env:RUNNER_TEMP 'crashdumps'
+          New-Item -ItemType Directory -Force -Path $dumps | Out-Null
+          # DontShowUI 必须先设：崩溃进程若停在 WER 对话框上会把 runner 挂到超时，
+          # 这一条比转储本身更要紧。
+          Set-ItemProperty -Path 'HKLM:\SOFTWARE\Microsoft\Windows\Windows Error Reporting' `
+            -Name DontShowUI -Value 1 -Type DWord -ErrorAction SilentlyContinue
+          $wer = 'HKLM:\SOFTWARE\Microsoft\Windows\Windows Error Reporting\LocalDumps\shotcli.exe'
+          New-Item -Path $wer -Force | Out-Null
+          Set-ItemProperty -Path $wer -Name DumpFolder -Value $dumps -Type ExpandString
+          Set-ItemProperty -Path $wer -Name DumpType -Value 2 -Type DWord
+
+          $cases = @(
+            @{ name = '0 无参（DLL 加载 + 静态初始化）'; html = $null },
+            @{ name = '1 空文档（渲染管线，无字体无文本）'; html = '<!doctype html><html><body></body></html>' },
+            @{ name = '2 纯 ASCII 文本（字体与文本整形）';  html = '<!doctype html><body>hello' },
+            @{ name = '3 带 CSS 与非 ASCII 字形';           html = '<!doctype html><meta charset=utf-8><style>body{background:#eef2f7;font:32px sans-serif}</style><h1>ShotKit CI ✓</h1>' }
+          )
+          foreach ($c in $cases) {
+            if ($null -eq $c.html) {
+              & $cli 2>&1 | Out-String | Write-Host
+            } else {
+              $f = Join-Path $env:RUNNER_TEMP 'diag.html'
+              $c.html | Set-Content -LiteralPath $f -Encoding utf8NoBOM
+              & $cli --html $f --out (Join-Path $env:RUNNER_TEMP 'diag.png') --width 64 --height 64 2>&1 |
+                Out-String | Write-Host
+            }
+            $code = $LASTEXITCODE
+            $tag = if ($code -eq -1073741819) { '访问违例 0xC0000005' } elseif ($code -eq 0) { 'OK' } else { "退出码 $code" }
+            Write-Host "[阶梯] $($c.name) -> $tag"
+          }
+
+          $found = @(Get-ChildItem $dumps -Filter *.dmp -ErrorAction SilentlyContinue)
+          Write-Host "崩溃转储: $($found.Count) 个"
+          if ($found) {
+            $cdb = @(
+              'C:\Program Files (x86)\Windows Kits\10\Debuggers\arm64\cdb.exe',
+              'C:\Program Files (x86)\Windows Kits\10\Debuggers\x64\cdb.exe',
+              'C:\Program Files\Windows Kits\10\Debuggers\arm64\cdb.exe'
+            ) | Where-Object { Test-Path $_ } | Select-Object -First 1
+            if ($cdb) {
+              & $cdb -z $found[0].FullName -c '.symfix; .reload; !analyze -v; kb; q' 2>&1 |
+                Select-Object -First 200 | Out-String | Write-Host
+            } else {
+              Write-Host 'runner 上没有 cdb.exe，只能靠上面的阶梯定位'
+            }
+          }
 
       - name: Smoke test PNG and WebP
         shell: pwsh

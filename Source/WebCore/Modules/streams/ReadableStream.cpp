@@ -160,11 +160,6 @@ ExceptionOr<Ref<ReadableStream>> ReadableStream::createFromByteUnderlyingSource(
     return { WTF::move(readableStream) };
 }
 
-ExceptionOr<Ref<InternalReadableStream>> ReadableStream::createInternalReadableStream(JSDOMGlobalObject& globalObject, Ref<ReadableStreamSource>&& source)
-{
-    return InternalReadableStream::createFromUnderlyingSource(globalObject, toJSNewlyCreated(&globalObject, &globalObject, WTF::move(source)), JSC::jsUndefined(), { });
-}
-
 ExceptionOr<Ref<ReadableStream>> ReadableStream::create(JSDOMGlobalObject& globalObject, Ref<ReadableStreamSource>&& source, std::optional<double> highWaterMark)
 {
     return createFromJSValues(globalObject, toJSNewlyCreated(&globalObject, &globalObject, WTF::move(source)), JSC::jsUndefined(), highWaterMark);
@@ -531,12 +526,12 @@ Ref<DOMPromise> ReadableStream::cancel(JSDOMGlobalObject& globalObject, JSC::JSV
 
     if (RefPtr internalStream = m_internalReadableStream) {
         auto result = internalStream->cancel(globalObject, reason);
-        if (!result) {
-            deferred->reject(Exception { ExceptionCode::ExistingExceptionError });
+        if (result.hasException()) {
+            deferred->reject(result.releaseException());
             return promise;
         }
 
-        auto* jsPromise = dynamicDowncast<JSC::JSPromise>(result);
+        auto* jsPromise = dynamicDowncast<JSC::JSPromise>(result.releaseReturnValue());
         if (!jsPromise)
             return promise;
 

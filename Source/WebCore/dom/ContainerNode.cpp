@@ -1432,6 +1432,23 @@ void ContainerNode::replaceChildrenWithoutValidityCheck(NodeVector&& newChildren
     dispatchSubtreeModifiedEvent();
 }
 
+static void runMovingStepsForShadowIncludingInclusiveDescendants(Node& root, Node& movedNode, ContainerNode& oldParent, bool newParentIsConnected)
+{
+    for (RefPtr inclusiveDescendant = &root; inclusiveDescendant; inclusiveDescendant = NodeTraversal::next(*inclusiveDescendant, &root)) {
+        bool isSubtreeRoot = inclusiveDescendant.get() == &movedNode;
+
+        inclusiveDescendant->movingSteps(isSubtreeRoot, oldParent);
+
+        if (newParentIsConnected) {
+            if (RefPtr element = dynamicDowncast<Element>(*inclusiveDescendant); element && element->isDefinedCustomElement())
+                CustomElementReactionQueue::enqueueConnectedMoveCallbackIfNeeded(*element);
+        }
+
+        if (RefPtr shadowRoot = inclusiveDescendant->shadowRoot())
+            runMovingStepsForShadowIncludingInclusiveDescendants(*shadowRoot, movedNode, oldParent, newParentIsConnected);
+    }
+}
+
 // https://dom.spec.whatwg.org/#dom-parentnode-movebefore
 ExceptionOr<void> ContainerNode::moveBefore(Node& node, RefPtr<Node>&& refChild)
 {
@@ -1501,6 +1518,8 @@ ExceptionOr<void> ContainerNode::moveBefore(Node& node, RefPtr<Node>&& refChild)
         }
 
         node.updateAncestorConnectedSubframeCountForRemoval();
+        // FIXME(319588): Handle inspector DOM breakpoints (e.g. InspectorInstrumentation::willRemoveDOMNode)
+        InspectorInstrumentation::didRemoveDOMNode(nodeDocument, node);
         node.setParentNode(nullptr);
 
         // FIXME(281223): Handle slot assignments and live ranges.
@@ -1509,6 +1528,8 @@ ExceptionOr<void> ContainerNode::moveBefore(Node& node, RefPtr<Node>&& refChild)
             insertBeforeCommon(*refChild, node);
         else
             appendChildCommon(node);
+        // FIXME(319588): Handle inspector DOM breakpoints (e.g. InspectorInstrumentation::willInsertDOMNode)
+        InspectorInstrumentation::didInsertDOMNode(protect(document()), node);
 
         node.setTreeScopeRecursively(treeScope());
         node.updateAncestorConnectedSubframeCountForInsertion();
@@ -1517,17 +1538,7 @@ ExceptionOr<void> ContainerNode::moveBefore(Node& node, RefPtr<Node>&& refChild)
 
     auto newParentIsConnected = isConnected();
 
-    // FIXME(281223): Need to recurse into shadow trees.
-    for (RefPtr inclusiveDescendant = &node; inclusiveDescendant; inclusiveDescendant = NodeTraversal::next(*inclusiveDescendant, &node)) {
-        bool isSubtreeRoot = inclusiveDescendant.get() == &node;
-
-        inclusiveDescendant->movingSteps(isSubtreeRoot, *oldParent);
-
-        if (newParentIsConnected) {
-            if (RefPtr element = dynamicDowncast<Element>(*inclusiveDescendant); element && element->isDefinedCustomElement())
-                CustomElementReactionQueue::enqueueConnectedMoveCallbackIfNeeded(*element);
-        }
-    }
+    runMovingStepsForShadowIncludingInclusiveDescendants(node, node, *oldParent, newParentIsConnected);
 
     // FIXME: Add a new type for ChildChange.
 

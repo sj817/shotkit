@@ -25,7 +25,6 @@ Modules/webaudio/AudioSummingJunction.cpp
 Modules/webaudio/AudioWorkletMessagingProxy.cpp
 Modules/webaudio/AudioWorkletNode.cpp
 Modules/webaudio/BaseAudioContext.h
-Modules/webaudio/ChannelMergerNode.cpp
 Modules/webaudio/ConvolverNode.cpp
 Modules/webaudio/DefaultAudioDestinationNode.cpp
 Modules/webaudio/DynamicsCompressorNode.cpp
@@ -59,7 +58,6 @@ accessibility/AccessibilityRenderObject.cpp
 animation/BlendingKeyframes.cpp
 animation/KeyframeEffect.cpp
 animation/StyleOriginatedAnimation.cpp
-animation/ViewTimeline.cpp
 animation/WebAnimation.cpp
 bindings/js/DOMPromiseProxy.h
 bindings/js/JSAudioBufferSourceNodeCustom.cpp
@@ -156,7 +154,6 @@ editing/ApplyStyleCommand.cpp
 editing/BreakBlockquoteCommand.cpp
 editing/CompositeEditCommand.cpp
 editing/DeleteSelectionCommand.cpp
-editing/EditCommand.cpp
 editing/Editor.cpp
 editing/FrameSelection.cpp
 editing/ReplaceSelectionCommand.cpp
@@ -172,7 +169,6 @@ html/CachedHTMLCollection.h
 html/CachedHTMLCollectionInlines.h
 html/CollectionTraversalInlines.h
 html/CustomPaintCanvas.cpp
-html/FileInputType.cpp
 html/HTMLCanvasElement.cpp
 html/HTMLInputElement.cpp
 html/HTMLLinkElement.cpp
@@ -195,7 +191,6 @@ html/canvas/PlaceholderRenderingContext.cpp
 inspector/DOMEditor.cpp
 inspector/InspectorAuditAccessibilityObject.cpp
 inspector/InspectorCanvas.cpp
-inspector/InspectorCanvas.h
 inspector/InspectorCanvasCallTracer.cpp
 inspector/InspectorOverlay.cpp
 inspector/InspectorResourceUtilities.cpp
@@ -216,7 +211,6 @@ inspector/agents/InspectorPageAgent.cpp
 inspector/agents/InspectorTimelineAgent.cpp
 inspector/agents/InspectorWorkerAgent.cpp
 inspector/agents/page/PageConsoleAgent.cpp
-inspector/agents/page/PageDOMDebuggerAgent.cpp
 inspector/agents/page/PageNetworkAgent.cpp
 inspector/agents/page/PageRuntimeAgent.cpp
 inspector/agents/worker/ServiceWorkerAgent.cpp
@@ -275,6 +269,7 @@ platform/graphics/DisplayRefreshMonitorManager.h
 platform/graphics/ImageBackingStore.h
 [ iOS ] platform/graphics/avfoundation/SampleBufferDisplayLayer.h
 platform/graphics/avfoundation/objc/MediaPlayerPrivateMediaStreamAVFObjC.mm
+platform/graphics/ca/FrameProcessIndicators.cpp
 platform/graphics/ca/GraphicsLayerCA.cpp
 platform/graphics/ca/TileGrid.cpp
 [ Mac ] platform/graphics/cocoa/ImageAdapterCocoa.mm
@@ -305,6 +300,7 @@ platform/mediastream/RealtimeOutgoingAudioSource.h
 platform/mediastream/RealtimeOutgoingVideoSource.cpp
 platform/mediastream/cocoa/RealtimeOutgoingAudioSourceCocoa.cpp
 platform/mock/MockRealtimeVideoSource.cpp
+platform/network/cf/FormDataStreamCFNet.mm
 platform/network/cocoa/ResourceHandleCocoa.mm
 platform/network/cocoa/WebCoreResourceHandleAsOperationQueueDelegate.mm
 [ macOS ] rendering/AttachmentLayout.mm
@@ -325,7 +321,6 @@ rendering/RenderGeometryMap.cpp
 rendering/RenderImage.cpp
 rendering/RenderImageResource.h
 rendering/RenderLayer.cpp
-rendering/RenderLayer.h
 rendering/RenderLayerBacking.cpp
 rendering/RenderLayerBacking.h
 rendering/RenderLayerBackingSVGAdditions.cpp
@@ -358,6 +353,7 @@ rendering/svg/legacy/LegacyRenderSVGImage.cpp
 rendering/svg/legacy/LegacyRenderSVGResourceFilter.cpp
 rendering/svg/legacy/LegacyRenderSVGRoot.cpp
 rendering/svg/legacy/SVGResourcesCache.cpp
+rendering/updating/RenderTreeBuilderList.cpp
 rendering/updating/RenderTreeBuilderMathML.cpp
 rendering/updating/RenderTreeBuilderMultiColumn.cpp
 rendering/updating/RenderTreeBuilderTable.cpp
@@ -369,7 +365,6 @@ style/ChildChangeInvalidation.h
 style/ElementRuleCollector.cpp
 style/RuleData.h
 style/RuleSet.cpp
-style/RuleSetBuilder.cpp
 style/StyleAdjuster.cpp
 style/StyleDocumentScope.cpp
 style/StyleExtractorCustom.h
@@ -384,6 +379,7 @@ style/computed/StyleComputedStyleBase.cpp
 style/values/filter-effects/StyleFilterReference.cpp
 style/values/images/kinds/StyleCachedImage.cpp
 style/values/images/kinds/StyleCursorImage.cpp
+style/values/primitives/StyleLengthResolution.cpp
 style/values/primitives/StylePrimitiveData.cpp
 style/values/transforms/StyleRotate.h
 style/values/transforms/StyleScale.h

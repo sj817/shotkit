@@ -27,14 +27,26 @@
 #include "StylePendingResources.h"
 
 #include "CSSCursorImageValue.h"
+#include "CachedImage.h"
+#include "CachedResourceLoader.h"
+#include "CachedResourceRequest.h"
+#include "CachedResourceRequestInitiatorTypes.h"
+#include "Document.h"
 #include "DocumentResourceLoader.h"
 #include "DocumentView.h"
 #include "NodeInlinesLight.h"
+#include "ResourceRequest.h"
+#include "SVGDocumentExtensions.h"
+#include "SVGElement.h"
 #include "SVGURIReference.h"
 #include "Settings.h"
+#include "StyleClipPath.h"
 #include "StyleComputedStyle+GettersInlines.h"
 #include "StyleCursor.h"
+#include "StyleFilter.h"
+#include "StyleFilterReference.h"
 #include "StyleImage.h"
+#include "StyleSVGMarkerResource.h"
 
 namespace WebCore {
 namespace Style {
@@ -68,6 +80,68 @@ static void loadPendingImage(Document& document, const Image* image, const Eleme
     }
 
     const_cast<Image&>(*image).load(protect(document.cachedResourceLoader()), options);
+}
+
+static void loadExternalSVGResource(Document& document, const Element* element, const WTF::URL& url)
+{
+    if (url.isNull())
+        return;
+
+    if (!url.protocolIsData() && !SVGURIReference::isExternalURIReference(url.string(), document))
+        return;
+
+    auto documentURL = url;
+    documentURL.removeFragmentIdentifier();
+
+    CheckedRef extensions = document.svgExtensions();
+    if (extensions->hasExternalSVGResource(documentURL))
+        return;
+
+    // The resource is fetched as an image, so it is subject to img-src CSP unless it lives in a user-agent
+    // shadow tree (matching loadPendingImage).
+    bool isInUserAgentShadowTree = element && element->isInUserAgentShadowTree();
+    auto options = CachedResourceLoader::defaultCachedResourceOptions();
+    options.mode = FetchOptions::Mode::SameOrigin;
+    options.sameOriginDataURLFlag = SameOriginDataURLFlag::Set;
+    options.contentSecurityPolicyImposition = isInUserAgentShadowTree ? ContentSecurityPolicyImposition::SkipPolicyCheck : ContentSecurityPolicyImposition::DoPolicyCheck;
+    options.shouldEnableContentExtensionsCheck = isInUserAgentShadowTree ? ShouldEnableContentExtensionsCheck::No : ShouldEnableContentExtensionsCheck::Yes;
+
+    CachedResourceRequest request(ResourceRequest(WTF::URL { documentURL }), options);
+    request.setInitiatorType(cachedResourceRequestInitiatorTypes().css);
+    RefPtr cachedImage = protect(document.cachedResourceLoader())->requestImage(WTF::move(request)).value_or(nullptr);
+    if (!cachedImage)
+        return;
+    extensions->addExternalSVGResource(documentURL, *cachedImage, document);
+}
+
+static void loadPendingExternalSVGPaint(Document& document, const Element* element, const Style::SVGPaint& paint)
+{
+    if (auto url = paint.tryAnyURL())
+        loadExternalSVGResource(document, element, url->resolved);
+}
+
+static void loadPendingExternalSVGMarker(Document& document, const Element* element, const Style::SVGMarkerResource& marker)
+{
+    if (auto url = marker.tryURL())
+        loadExternalSVGResource(document, element, url->resolved);
+}
+
+static void loadPendingExternalSVGClipPath(Document& document, const Element* element, const Style::ClipPath& clipPath)
+{
+    if (auto referencePath = clipPath.tryReference())
+        loadExternalSVGResource(document, element, referencePath->url().resolved);
+}
+
+static void loadPendingExternalSVGFilter(Document& document, const Element* element, const Style::Filter& filter)
+{
+    if (filter.size() != 1)
+        return;
+    WTF::switchOn(filter.first(),
+        [&](const Style::FilterReference& filterReference) {
+            loadExternalSVGResource(document, element, filterReference.url.resolved);
+        },
+        [](const auto&) { }
+    );
 }
 
 void loadPendingResources(Style::ComputedStyle& style, Document& document, const Element* element)
@@ -107,7 +181,22 @@ void loadPendingResources(Style::ComputedStyle& style, Document& document, const
     if (RefPtr shapeValueImage = style.shapeOutside().image())
         loadPendingImage(document, shapeValueImage.get(), element, LoadPolicy::Anonymous);
 
-    // Are there other pseudo-elements that need resource loading? 
+    if (document.settings().svgExternalResourcesEnabled()) {
+        // Paint servers and markers resolve through SVGResources, which only applies to SVG elements.
+        if (element && is<SVGElement>(*element)) {
+            loadPendingExternalSVGPaint(document, element, style.fill());
+            loadPendingExternalSVGPaint(document, element, style.stroke());
+
+            loadPendingExternalSVGMarker(document, element, style.markerStart());
+            loadPendingExternalSVGMarker(document, element, style.markerMid());
+            loadPendingExternalSVGMarker(document, element, style.markerEnd());
+        }
+
+        loadPendingExternalSVGClipPath(document, element, style.clipPath());
+        loadPendingExternalSVGFilter(document, element, style.filter());
+    }
+
+    // Are there other pseudo-elements that need resource loading?
     if (CheckedPtr firstLineStyle = style.pseudoElementStyle({ PseudoElementType::FirstLine }))
         loadPendingResources(*firstLineStyle, document, element);
 }

@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2006-2024 Apple Inc. All rights reserved.
+ * Copyright (C) 2006-2026 Apple Inc. All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
  * modification, are permitted provided that the following conditions
@@ -27,6 +27,7 @@
 
 #include "AffineTransform.h"
 #include "CanvasDirection.h"
+#include "CanvasElementImage.h"
 #include "CanvasFillRule.h"
 #include "CanvasLineCap.h"
 #include "CanvasLineJoin.h"
@@ -50,12 +51,16 @@
 #include "PlatformLayer.h"
 #include "StyleFilter.h"
 #include "Timer.h"
+#include "TypedArrayPixelBuffer.h"
 #include <wtf/Vector.h>
 #include <wtf/text/WTFString.h>
 
+namespace JSC {
+struct Uint8ClampedAdaptor;
+}
+
 namespace WebCore {
 
-class ByteArrayPixelBuffer;
 class CachedImage;
 class CanvasLayerContextSwitcher;
 class CanvasGradient;
@@ -212,6 +217,11 @@ public:
     ExceptionOr<void> drawImage(CanvasImageSource&&, float dx, float dy, float dw, float dh);
     ExceptionOr<void> drawImage(CanvasImageSource&&, float sx, float sy, float sw, float sh, float dx, float dy, float dw, float dh);
 
+    ExceptionOr<Ref<DOMMatrix>> drawElementImage(CanvasElementImageSource&&, float dx, float dy);
+    ExceptionOr<Ref<DOMMatrix>> drawElementImage(CanvasElementImageSource&&, float dx, float dy, float dw, float dh);
+    ExceptionOr<Ref<DOMMatrix>> drawElementImage(CanvasElementImageSource&&, float sx, float sy, float sw, float sh, float dx, float dy);
+    ExceptionOr<Ref<DOMMatrix>> drawElementImage(CanvasElementImageSource&&, float sx, float sy, float sw, float sh, float dx, float dy, float dw, float dh);
+
     void clearCanvas();
 
     using StyleVariant = Variant<String, Ref<CanvasGradient>, Ref<CanvasPattern>>;
@@ -325,6 +335,9 @@ public:
 
         String unparsedFont;
         FontProxy font;
+        // The font description `unparsedFont` was resolved against. Relative values in the font
+        // shorthand depend on it, so `font` is stale once it no longer matches the canvas element.
+        FontCascadeDescription fontResolutionBase;
 
         RefPtr<CanvasLayerContextSwitcher> targetSwitcher;
 
@@ -399,6 +412,7 @@ protected:
     void NODELETE updateStateTransform(const AffineTransform&);
 
     RefPtr<ImageBuffer> allocateImageBuffer() const;
+    RefPtr<ImageBuffer> createCompatibleImageBuffer(GraphicsContext&, const FloatSize&) const;
     bool hasCreatedImageBuffer() const { return m_hasCreatedImageBuffer; }
     ImageBuffer* buffer() const;
     RefPtr<ImageBuffer> makeRenderingResultsAvailable(ShouldApplyPostProcessingToDirtyRect = ShouldApplyPostProcessingToDirtyRect::Yes);
@@ -411,9 +425,9 @@ private:
     struct CachedContentsUnknown {
     };
     struct CachedContentsImageData {
-        CachedContentsImageData(CanvasRenderingContext2DBase&, Ref<ByteArrayPixelBuffer>);
+        CachedContentsImageData(CanvasRenderingContext2DBase&, Ref<ArrayPixelBuffer>);
 
-        Ref<ByteArrayPixelBuffer> imageData;
+        Ref<ArrayPixelBuffer> imageData;
         DeferrableOneShotTimer evictionTimer;
     };
 
@@ -500,13 +514,20 @@ private:
 
     FloatPoint textOffset(float width, TextDirection);
 
-    RefPtr<ByteArrayPixelBuffer> cacheImageDataIfPossible(const ImageData&, const IntRect& sourceRect, const IntPoint& destinationPosition);
-    RefPtr<ImageData> makeImageDataIfContentsCached(const IntRect& sourceRect, PredefinedColorSpace) const;
+    RefPtr<ArrayPixelBuffer> cacheImageDataIfPossible(const ImageData&, const IntRect& sourceRect, const IntPoint& destinationPosition);
+    RefPtr<ImageData> makeImageDataIfContentsCached(const IntRect& sourceRect, PixelFormat, PredefinedColorSpace) const;
     void evictCachedImageData();
 
     static constexpr unsigned MaxSaveCount = 1024 * 16;
     mutable RefPtr<ImageBuffer> m_buffer;
-    Vector<State, 1> m_stateStack; // References go m_stateStack -> targetSwitcher -> m_buffer, so destroy state stack first.
+
+    // When layers are opened, m_stateStack contains target switchers where the top
+    // targetSwitcher on the stack draws to the targetSwitcher under it, ... until
+    // it eventually draws to m_buffer. So m_stateStack has to be freed in the stack
+    // order (top in stack/last in vector first, bottom in stack/first in vector last),
+    // then m_buffer can be freed after.
+    Vector<State, 1> m_stateStack;
+
     FloatRect m_dirtyRect;
     unsigned m_unrealizedSaveCount { 0 };
     bool m_usesCSSCompatibilityParseMode;

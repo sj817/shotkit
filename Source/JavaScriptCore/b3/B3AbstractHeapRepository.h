@@ -38,6 +38,7 @@ namespace JSC::B3 {
     macro(TypedArrayProperties) \
     macro(JSCellHeaderAndNamedProperties) \
     macro(OrderedHashTableData) \
+    macro(VM_heapState) \
 
 // macro(name, offset, mutability)
 #define FOR_EACH_ABSTRACT_FIELD(macro) \
@@ -93,6 +94,7 @@ namespace JSC::B3 {
     macro(JSArrayBufferView_mode, JSArrayBufferView::offsetOfMode(), Mutability::Mutable) \
     macro(JSArrayBufferView_vector, JSArrayBufferView::offsetOfVector(), Mutability::Mutable) \
     macro(JSBigInt_length, JSBigInt::offsetOfLength(), Mutability::Immutable) \
+    macro(JSBigInt_data, JSBigInt::offsetOfData(), Mutability::Immutable) \
     macro(JSBoundFunction_targetFunction, JSBoundFunction::offsetOfTargetFunction(), Mutability::Mutable) \
     macro(JSBoundFunction_boundThis, JSBoundFunction::offsetOfBoundThis(), Mutability::Mutable) \
     macro(JSBoundFunction_boundArg0, JSBoundFunction::offsetOfBoundArgs() + sizeof(WriteBarrier<Unknown>) * 0, Mutability::Mutable) \
@@ -358,8 +360,10 @@ public:
     void decorateFencedAccess(const AbstractHeap*, Value*);
     void decorateWasmStructGet(const AbstractHeap*, Value*);
     void decorateWasmStructSet(const AbstractHeap*, Value*);
+    void decorateWasmStructNew(const AbstractHeap*, Value*);
     void decorateWasmArrayGet(const AbstractHeap*, Value*);
     void decorateWasmArraySet(const AbstractHeap*, Value*);
+    void decorateWasmArrayNew(const AbstractHeap*, Value*);
     void decorateWasmArrayLength(const AbstractHeap*, Value*);
 
     void computeRangesAndDecorateInstructions();
@@ -391,8 +395,10 @@ private:
     Vector<HeapForValue> m_heapForFencedAccess;
     Vector<HeapForValue> m_heapForWasmStructGet;
     Vector<HeapForValue> m_heapForWasmStructSet;
+    Vector<HeapForValue> m_heapForWasmStructNew;
     Vector<HeapForValue> m_heapForWasmArrayGet;
     Vector<HeapForValue> m_heapForWasmArraySet;
+    Vector<HeapForValue> m_heapForWasmArrayNew;
     Vector<HeapForValue> m_heapForWasmArrayLength;
 };
 

@@ -96,6 +96,10 @@ class WebAnimation;
 class AttachmentAssociatedElement;
 #endif
 
+#if ENABLE(SPATIAL_PORTAL)
+class SpatialPortalController;
+#endif
+
 enum CSSPropertyID : uint16_t;
 
 enum class AnimationImpact : uint8_t;
@@ -105,7 +109,7 @@ enum class FullscreenNavigationUI : uint8_t;
 enum class FullscreenKeyboardLock : uint8_t;
 enum class IsSyntheticClick : bool { No, Yes };
 enum class ParserContentPolicy : uint8_t;
-enum class PopoverState : uint8_t { None, Auto, Manual };
+enum class PopoverState : uint8_t { None, Auto, Manual, Hint };
 enum class ResolveURLs : uint8_t { No, NoExcludingURLsForPrivacy, Yes, YesExcludingURLsForPrivacy };
 enum class SelectionRestorationMode : uint8_t;
 enum class ShadowRootDelegatesFocus : bool { No, Yes };
@@ -857,6 +861,7 @@ public:
 
     bool NODELETE hasDisplayContents() const;
     bool NODELETE hasDisplayNone() const;
+    bool computedStyleIsDisplayNone();
     void storeDisplayContentsOrNoneStyle(std::unique_ptr<Style::ComputedStyle>);
     void clearDisplayContentsOrNoneStyle();
 
@@ -922,6 +927,13 @@ public:
 
     bool NODELETE shouldNotifyTextManipulationControllerIfDisplayed() const;
     void NODELETE clearShouldNotifyTextManipulationControllerIfDisplayed();
+
+#if ENABLE(SPATIAL_PORTAL)
+    SpatialPortalController& ensureSpatialPortalController();
+    WEBCORE_EXPORT SpatialPortalController* spatialPortalController() const;
+    void clearSpatialPortalController();
+    WEBCORE_EXPORT bool establishesSpatialPortal() const;
+#endif
 
 protected:
     Element(const QualifiedName&, Document&, OptionSet<TypeFlag>);

@@ -97,6 +97,7 @@
 #include "PositionInlines.h"
 #include "ProgressTracker.h"
 #include "Range.h"
+#include "RemoteFrame.h"
 #include "RenderElementInlines.h"
 #include "RenderImage.h"
 #include "RenderImageResource.h"
@@ -117,6 +118,7 @@
 #include "SharedBuffer.h"
 #include "TextCheckerClient.h"
 #include "TextCheckingHelper.h"
+#include "TextControlInnerElements.h"
 #include "TextIterator.h"
 #include "UserGestureIndicator.h"
 #include "VisibleUnits.h"
@@ -592,7 +594,19 @@ FloatRect AccessibilityObject::convertFrameToSpace(const FloatRect& frameRect, A
 
         auto geometry = rootScrollView->frameGeometry();
 
-        auto scaledRect = geometry.screenTransform.mapRect(FloatRect(snappedFrameRect));
+        // The top-level page scroll view's own frame is in view/device space (the viewport). Every other
+        // object's frame is content-space. screenTransform is the content->screen page-zoom scale, so
+        // applying it to the already-device-space viewport double-scales it (viewport * pageZoom),
+        // shrinking the frame that Voice Control, Switch Control, etc. clips its set of visible elements
+        // against. Skip the transform for the top page scroll view's own frame only.
+        //
+        // Guard on "no ancestor scroll view" -- NOT isRoot(), which is also true for local iframe roots under
+        // ACCESSIBILITY_LOCAL_FRAME -- so iframe scroll views (content-space elementRect) are still scaled.
+        // No-op at page zoom 1.0 (screenTransform is identity).
+        const bool isTopPageScrollViewOwnFrame = this == rootScrollView.get() && !parentAccessibilityScrollView;
+        auto scaledRect = isTopPageScrollViewOwnFrame
+            ? FloatRect(snappedFrameRect)
+            : geometry.screenTransform.mapRect(FloatRect(snappedFrameRect));
 
         auto screenPosition = geometry.screenPosition;
 
@@ -903,6 +917,14 @@ std::optional<SimpleRange> AccessibilityObject::selectionRange() const
     Ref document = *frame->document();
     return { { { document.get(), 0 }, { document.get(), 0 } } };
 }
+
+#if ENABLE(WRITING_TOOLS)
+bool AccessibilityObject::writingToolsAvailable() const
+{
+    RefPtr page = this->page();
+    return page && page->chrome().client().writingToolsAvailable();
+}
+#endif // ENABLE(WRITING_TOOLS)
 
 std::optional<SimpleRange> AccessibilityObject::simpleRange() const
 {
@@ -1603,6 +1625,73 @@ bool AccessibilityObject::press()
     return pressElement->accessKeyAction(true) || pressElement->dispatchSimulatedClick(nullptr, SendMouseUpDownEvents);
 }
 
+bool AccessibilityObject::pressPreservingFocus()
+{
+    RefPtr document = this->document();
+    RefPtr page = document ? document->page() : nullptr;
+    WeakPtr cache = axObjectCache();
+    if (!cache || !document || !page) {
+        // Without a cache to suppress notifications through, or a document / page to reason about
+        // focus within, there's nothing to preserve, so just perform the press.
+        return press();
+    }
+
+    // The focus we want to preserve is the page's focused element, which need not live in the
+    // action target's document. If it's in a remote (out-of-process) frame we can't reach it as an
+    // Element at all. If it's in a different local frame, we can't cleanly suppress its notifications
+    // from here (a cross-document focus change fires onFocusChange on both documents' caches). In
+    // either case, fall back to a plain press, which may move focus to the target as it did before
+    // this change.
+    // FIXME: Preserve focus across frames (local *and* remote) too.
+    auto& focusController = page->focusController();
+    if (is<RemoteFrame>(focusController.focusedFrame()))
+        return press();
+    RefPtr focusedLocalFrame = focusController.localFocusedFrame();
+    RefPtr originalFocusedElement = focusedLocalFrame ? focusedLocalFrame->document()->focusedElement() : nullptr;
+    if (originalFocusedElement && &originalFocusedElement->document() != document.get())
+        return press();
+
+    RefPtr actionTarget = dynamicDowncast<Element>(node());
+    cache->beginSuppressingFocusChange(actionTarget.get());
+    bool result = press();
+
+    if (!cache) {
+        // press() can run author script that tears down the cache, in which case the WeakPtr is nulled
+        // and there's nothing left to clean up.
+        return result;
+    }
+    cache->endSuppressingFocusChange();
+
+    if (!actionTarget || document->focusedElement() != actionTarget) {
+        // Pressing didn't move focus, or author script moved it somewhere else (which we don't
+        // want to overwrite).
+        return result;
+    }
+
+    // Pressing the action target moved focus onto it. Restore focus to where it was (the original
+    // element, or nothing if nothing was focused). We suppress that notification too, since as far
+    // as assistive technology is concerned, focus never left where it was before the action.
+    cache->beginSuppressingFocusChange(originalFocusedElement.get());
+    if (originalFocusedElement)
+        originalFocusedElement->focus();
+    else
+        document->setFocusedElement(nullptr);
+
+    if (!cache) {
+        // focus() / setFocusedElement() can also run author script that tears down the cache.
+        return result;
+    }
+    cache->endSuppressingFocusChange();
+
+    // If focus didn't end up where we intended (e.g. author script disconnected the origin during
+    // the press so it couldn't take focus back), surface the real focus now so assistive technology
+    // moves to it, rather than being left pointed at the stale origin whose focus change we suppressed above.
+    if (RefPtr currentFocusedElement = document->focusedElement(); currentFocusedElement && currentFocusedElement != originalFocusedElement)
+        cache->onFocusChange(nullptr, currentFocusedElement.get());
+
+    return result;
+}
+
 bool AccessibilityObject::performShowMenuAction()
 {
 #if ENABLE(CONTEXT_MENUS) && USE(ACCESSIBILITY_CONTEXT_MENUS)
@@ -1962,8 +2051,19 @@ std::optional<SimpleRange> AccessibilityObject::rangeForCharacterRange(const Cha
 VisiblePositionRange AccessibilityObject::lineRangeForPosition(const VisiblePosition& visiblePosition) const
 {
     auto start = startOfLine(visiblePosition);
-    if (start.isNull())
+    if (start.isNull()) {
+        // An out-of-flow (floated or positioned) replaced element generates no inline line
+        // box, so startOfLine() is null and the caret has no line to read. Give it a line of
+        // its own by selecting the element's node. Select the node itself, not its contents,
+        // which are empty for a replaced element, so that reading the line emits the element's
+        // object-replacement attachment.
+        CheckedPtr renderer = this->renderer();
+        if (RefPtr node = this->node(); node && renderer && isReplacedElement()
+            && isRendererReplacedElement(renderer.get())
+            && renderer->isFloatingOrOutOfFlowPositioned())
+            return makeVisiblePositionRange(makeRangeSelectingNode(*node));
         return { };
+    }
 
     // Move from the given visiblePosition forward until it hits the start of the next line or cross over a line break.
     auto end = visiblePosition;
@@ -2013,6 +2113,42 @@ bool AccessibilityObject::replacedNodeNeedsCharacter(Node& replacedNode)
 
     return true;
 }
+
+#if ENABLE(ACCESSIBILITY_ISOLATED_TREE)
+bool AccessibilityObject::isReplacedElementForTextEmission() const
+{
+    // This is the unignored half of replacedNodeNeedsCharacter, so that the AX-thread text walks
+    // can apply the ignored check themselves: an ignored replaced element (e.g. a <legend>) emits
+    // no U+FFFC, but its block boundaries still don't emit newlines.
+    RefPtr node = this->node();
+    return node && !node->isTextNode() && isRendererReplacedElement(node->renderer());
+}
+
+bool AccessibilityObject::isInUserAgentShadowTree() const
+{
+    RefPtr node = this->node();
+    return node && node->isInUserAgentShadowTree();
+}
+
+bool AccessibilityObject::isCollapsedTrailingLineBreak() const
+{
+    // True for the <br> that HTMLTextFormControlElement::setInnerTextValue appends to a text
+    // control's inner text when its value ends in a line break, so that the empty final line gets a
+    // line box.
+    //
+    // This <br> is rendered but is not part of the value: innerTextValueFrom() strips one trailing
+    // newline, which stripTrailingNewline() in HTMLTextFormControlElement.cpp explains is always
+    // collapsed out by rendering. So no main-thread position lies past it, and the value's character
+    // count and line ranges don't count it. Text runs model rendered text instead, so this <br> does
+    // carry a "\n" run — which is why the AX-thread implementations of those answers must not count
+    // it or step over it.
+    RefPtr node = this->node();
+    if (!node || !node->hasTagName(brTag))
+        return false;
+    RefPtr parent = node->parentNode();
+    return is<TextControlInnerTextElement>(parent) && parent->lastChild() == node;
+}
+#endif // ENABLE(ACCESSIBILITY_ISOLATED_TREE)
 
 #if ENABLE(MODEL_ELEMENT_ACCESSIBILITY)
 

@@ -707,7 +707,6 @@ WEBKIT_FRAMEWORK_DECLARE(bmalloc)
 WEBKIT_INCLUDE_CONFIG_FILES_IF_EXISTS()
 
 WEBKIT_COPY_FILES(bmalloc_CopyHeaders
-    PRUNE_STALE
     DESTINATION ${bmalloc_HEADERS_DIR}
     FILES ${bmalloc_PUBLIC_HEADERS}
     FLATTENED
@@ -715,7 +714,6 @@ WEBKIT_COPY_FILES(bmalloc_CopyHeaders
 
 if (bmalloc_PRIVATE_FRAMEWORK_HEADERS_DIR)
     WEBKIT_COPY_FILES(bmalloc_CopyPrivateHeaders
-        PRUNE_STALE
         DESTINATION ${bmalloc_PRIVATE_HEADERS_DIR}
         FILES ${bmalloc_PRIVATE_HEADERS}
         FLATTENED
@@ -723,6 +721,11 @@ if (bmalloc_PRIVATE_FRAMEWORK_HEADERS_DIR)
 endif ()
 
 WEBKIT_FRAMEWORK(bmalloc)
+
+# bmalloc is statically linked into JavaScriptCore, so it uses JSC's PGO profile.
+if (USE_APPLE_INTERNAL_SDK)
+    WEBKIT_TARGET_USE_PGO(bmalloc PROFILE JavaScriptCore)
+endif ()
 
 # Only build mbmalloc on platforms that MallocBench supports
 if (DEVELOPER_MODE AND (APPLE OR HAVE_MALLOC_TRIM))

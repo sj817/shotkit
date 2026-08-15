@@ -45,8 +45,14 @@ public:
     {
     }
     
-    void operator()(Node*, Edge edge)
+    void operator()(Node* node, Edge edge)
     {
+        if (edge->isTuple()) {
+            ASSERT(node->op() == ExtractFromTuple && edge.useKind() == UntypedUse);
+            m_maySeeEmptyChild |= !!(m_state.forTupleNode(edge, node->extractOffset()).m_type & SpecEmpty);
+            return;
+        }
+
         m_maySeeEmptyChild |= !!(m_state.forNode(edge).m_type & SpecEmpty);
 
         switch (edge.useKind()) {
@@ -280,7 +286,6 @@ bool safeToExecute(AbstractStateType& state, Graph& graph, Node* node, bool igno
     case IsCallable:
     case IsConstructor:
     case IsCellWithType:
-    case IsTypedArrayView:
     case ArrayIsArray:
     case HasStructureWithFlags:
     case TypeOf:
@@ -707,9 +712,11 @@ bool safeToExecute(AbstractStateType& state, Graph& graph, Node* node, bool igno
     case ToNumber:
     case ToNumeric:
     case ToObject:
+    case OpenAsyncFromSyncIterator:
     case CallNumberConstructor:
     case NumberToStringWithRadix:
     case SetFunctionName:
+    case EnqueueAsyncGeneratorDriver:
     case NewStringObject:
     case NewRegExpUntyped:
     case InByVal:

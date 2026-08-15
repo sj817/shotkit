@@ -5,6 +5,7 @@
  * found in the LICENSE file.
  */
 
+#include "include/core/SkContext.h"
 #include "include/gpu/ganesh/gl/GrGLDirectContext.h"
 
 #include "include/gpu/ganesh/GrContextOptions.h"
@@ -23,14 +24,14 @@
 #include <utility>
 
 #if defined(GPU_TEST_UTILS)
-#   include "src/base/SkRandom.h"
+#   include "src/core/SkRandom.h"
 #   if defined(SK_ENABLE_SCOPED_LSAN_SUPPRESSIONS)
 #       include <sanitizer/lsan_interface.h>
 #   endif
 #endif
 
 #if defined(SK_DISABLE_LEGACY_GL_MAKE_NATIVE_INTERFACE)
-#include "include/private/base/SkAssert.h"
+#include "include/private/SkAssert.h"
 #endif
 
 namespace GrDirectContexts {
@@ -110,3 +111,11 @@ sk_sp<GrDirectContext> MakeGL(sk_sp<const GrGLInterface> glInterface,
 }
 
 }  // namespace GrDirectContexts
+
+namespace SkContexts {
+
+std::unique_ptr<SkContext> MakeGanesh(sk_sp<const GrGLInterface>, const SkContextOptions& options) {
+    return nullptr;
+}
+
+}  // namespace SkContexts

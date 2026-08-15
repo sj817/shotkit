@@ -69,7 +69,28 @@ WEBKIT_LIBRARY_DECLARE(libshot)
 target_compile_definitions(libshot PRIVATE BUILDING_LIBSHOT=1)
 WEBKIT_LIBRARY(libshot)
 if (WIN32)
-    target_link_options(libshot PRIVATE "/DELAYLOAD:libEGL.dll" "/DELAYLOAD:libGLESv2.dll")
+    # ICU i18n 与这两个 ANGLE 库是同一种形态：链接期可达、运行期不可达。
+    # 2026-08-15 上游同步后 shot.dll 对 icuin<N>.dll 只有 **一个** 导入符号
+    # udat_close —— IntlDateTimeFormat 那几个 std::unique_ptr<UDateFormat> 成员的
+    # 析构器，被 JSCell 静态方法表取地址钉住（同偏离清单里 ShadowRealm 那条的机制）。
+    # 整个 Intl 日期格式化代码本身是死的：真活着的话 udat_open/udat_format/udatpg_*
+    # 会一起出现在导入表里，实测没有。SHOT_NO_SCRIPT 下 JS 永不执行 ⇒
+    # IntlDateTimeFormat 永不构造 ⇒ 该析构器永不运行。
+    # 延迟加载让它退出直接导入闭包，collect-dist.ps1 随之不再分发 icuin<N>.dll，
+    # 拿回 2.86 MiB（M2「斩链二期」消掉过一次，这次被上游 Temporal 重构带了回来）。
+    # 已核实 icuuc77.dll 自身不依赖 icuin77.dll，所以它只由 shot.dll 这一个导入拽入。
+    string(REGEX MATCH "^[0-9]+" _shot_icu_major "${ICU_VERSION}")
+    if (NOT _shot_icu_major)
+        # 不给静默失配的机会：取不到主版本号就说明 DLL 名会写错，
+        # 那样 /DELAYLOAD 会静默失效、icuin 悄悄回到分发包里。
+        message(FATAL_ERROR "无法从 ICU_VERSION='${ICU_VERSION}' 解析主版本号，/DELAYLOAD 的 DLL 名会失配")
+    endif ()
+    target_link_options(libshot PRIVATE
+        "/DELAYLOAD:libEGL.dll"
+        "/DELAYLOAD:libGLESv2.dll"
+        "/DELAYLOAD:icuin${_shot_icu_major}.dll"
+    )
+    unset(_shot_icu_major)
 endif ()
 
 

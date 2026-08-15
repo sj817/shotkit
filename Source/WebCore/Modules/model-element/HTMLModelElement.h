@@ -72,6 +72,10 @@ class Model;
 class ModelPlayerProvider;
 class MouseRelatedEvent;
 
+#if ENABLE(SPATIAL_PORTAL)
+class SpatialPortalController;
+#endif
+
 template<typename IDLType> class DOMPromiseDeferred;
 template<typename IDLType> class DOMPromiseProxy;
 template<typename IDLType> class DOMPromiseProxyWithResolveCallback;
@@ -99,6 +103,13 @@ public:
     bool complete() const { return m_dataComplete; }
 
     void configureGraphicsLayer(GraphicsLayer&, Color backgroundColor);
+
+#if ENABLE(SPATIAL_PORTAL)
+    void didFinishLoadingInsidePortal();
+    void didFailLoadingInsidePortal(const ResourceError&);
+    void spatialPortalContextDidChange();
+    SpatialPortalController* lastRegisteredPortalController() const;
+#endif
 
     std::optional<PlatformLayerIdentifier> layerID() const;
 
@@ -170,6 +181,7 @@ public:
     void setPaused(bool, DOMPromiseDeferred<void>&&);
     double currentTime() const;
     void setCurrentTime(double);
+    void applyInitialAnimationState(ModelPlayer&);
 #endif
 
 #if ENABLE(MODEL_ELEMENT_STAGE_MODE)
@@ -243,6 +255,7 @@ private:
     // Rendering overrides.
     RenderPtr<RenderElement> createElementRenderer(Style::ComputedStyle&&, const RenderTreePosition&) final;
     bool isReplaced(const Style::ComputedStyle* = nullptr) const final { return true; }
+    bool rendererIsNeeded(const Style::ComputedStyle&) final;
     void didAttachRenderers() final;
     void willDetachRenderers() final;
 
@@ -251,18 +264,21 @@ private:
     void notifyFinished(CachedResource&, const NetworkLoadMetrics&, LoadWillContinueInAnotherProcess) final;
 
     // ModelPlayerClient overrides.
-    void didFinishLoading(ModelPlayer&) final;
-    void didFailLoading(ModelPlayer&, const ResourceError&) final;
+    void didFinishLoading(ModelPlayer&, NodeIdentifier) final;
+    void didFailLoading(ModelPlayer&, NodeIdentifier, const ResourceError&) final;
 #if ENABLE(MODEL_PROCESS)
     void didConvertModelData(ModelPlayer&, Ref<SharedBuffer>&& convertedData, const String& convertedMIMEType) final;
 #endif
     void didUnload(ModelPlayer&) final;
     void didUpdate(ModelPlayer&) final;
 #if ENABLE(MODEL_ELEMENT_ENTITY_TRANSFORM)
-    void didUpdateEntityTransform(ModelPlayer&, const TransformationMatrix&) final;
+    void didUpdateEntityTransform(ModelPlayer&, NodeIdentifier, const TransformationMatrix&) final;
+#endif
+#if ENABLE(SPATIAL_PORTAL)
+    void didUpdatePortalTransform(ModelPlayer&, const TransformationMatrix&) final { }
 #endif
 #if ENABLE(MODEL_ELEMENT_BOUNDING_BOX)
-    void didUpdateBoundingBox(ModelPlayer&, const FloatPoint3D&, const FloatPoint3D&) final;
+    void didUpdateBoundingBox(ModelPlayer&, NodeIdentifier, const FloatPoint3D&, const FloatPoint3D&) final;
 #endif
 #if ENABLE(MODEL_ELEMENT_ENVIRONMENT_MAP)
     void didFinishEnvironmentMapLoading(ModelPlayer&, bool succeeded) final;
@@ -291,6 +307,13 @@ private:
     LayoutSize contentSize() const;
     bool modelContainerSizeIsEmpty() const;
 
+#if ENABLE(SPATIAL_PORTAL)
+    RefPtr<const Element> findPortalAncestor() const;
+    SpatialPortalController* findPortalController() const;
+    void updateSpatialPortalController();
+    bool isInsidePortal() const;
+#endif
+
     void reportExtraMemoryCost();
 
 #if ENABLE(MODEL_ELEMENT_ANIMATIONS_CONTROL)
@@ -298,6 +321,8 @@ private:
     void updateAutoplay();
     bool loop() const;
     void updateLoop();
+    // A <model> inside a spatial portal has no player of its own; the portal owns one.
+    ModelPlayer* modelPlayerForAnimation() const;
 #endif
 
 #if ENABLE(MODEL_ELEMENT_ENVIRONMENT_MAP)
@@ -326,6 +351,7 @@ private:
     void sourceRequestResource();
     bool shouldDeferLoading() const;
     bool NODELETE isModelDeferred() const;
+    bool hasLiveModelPlayer() const;
     bool isModelLoading() const;
     bool isModelLoaded() const;
     bool isModelUnloading() const;
@@ -354,6 +380,10 @@ private:
     RefPtr<ModelPlayer> m_modelPlayer;
     RefPtr<ModelPlayer> m_pendingModelPlayer;
     EventLoopTimerHandle m_loadModelTimer;
+
+#if ENABLE(SPATIAL_PORTAL)
+    WeakPtr<SpatialPortalController> m_lastRegisteredPortalController;
+#endif
 
 #if ENABLE(MODEL_ELEMENT_ENTITY_TRANSFORM)
     Ref<DOMMatrixReadOnly> m_entityTransform;

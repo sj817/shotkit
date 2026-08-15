@@ -26,6 +26,7 @@
 #include "config.h"
 #include "TextManipulationController.h"
 
+#include "AXObjectCacheInlines.h"
 #include "AccessibilityObject.h"
 #include "CharacterData.h"
 #include "ContainerNodeInlines.h"
@@ -55,6 +56,7 @@
 #include "Text.h"
 #include "TextIterator.h"
 #include "TextManipulationItem.h"
+#include "UnicodeHelpers.h"
 #include "VisibleUnits.h"
 #include <algorithm>
 #include <wtf/TZoneMallocInlines.h>
@@ -806,6 +808,26 @@ void TextManipulationController::updateInsertions(Vector<NodeEntry>& lastTopDown
         insertions.append(NodeInsertion { lastTopDownPath.size() ? lastTopDownPath.last().second.ptr() : nullptr, *currentNode });
 }
 
+static void updateEnclosingBlockDirectionAfterReplacement(Node& replacedContentContainer, StringView replacementText)
+{
+    auto newDirection = baseTextDirection(replacementText);
+    if (!newDirection)
+        return;
+
+    RefPtr block = enclosingBlock(&replacedContentContainer);
+    if (!block)
+        return;
+
+    if (equalLettersIgnoringASCIICase(block->attributeWithoutSynchronization(HTMLNames::dirAttr), "auto"_s))
+        return;
+
+    CheckedPtr renderer = block->renderer();
+    if (!renderer || renderer->writingMode().bidiDirection() == *newDirection)
+        return;
+
+    block->setAttribute(HTMLNames::dirAttr, *newDirection == TextDirection::RTL ? "rtl"_s : "ltr"_s);
+}
+
 auto TextManipulationController::replace(const ManipulationItemData& item, const Vector<TextManipulationToken>& replacementTokens, NodeSet& containersWithoutVisualOverflowBeforeReplacement) -> std::optional<ManipulationFailure::Type>
 {
     if (item.start.isOrphan() || item.end.isOrphan())
@@ -833,6 +855,9 @@ auto TextManipulationController::replace(const ManipulationItemData& item, const
             input->setValue(newValue.toString());
         else
             element->setAttribute(item.attributeName, newValue.toAtomString());
+
+        if (item.attributeName == nullQName())
+            updateEnclosingBlockDirectionAfterReplacement(*element, newValue.toString());
 
         m_manipulatedNodes.add(*element);
         return std::nullopt;
@@ -973,6 +998,9 @@ auto TextManipulationController::replace(const ManipulationItemData& item, const
 
     RefPtr<Node> insertionPointNode = lastChildOfCommonAncestorInRange->nextSibling();
 
+    if (CheckedPtr cache = commonAncestor->document().existingAXObjectCache())
+        cache->deferReRenderedContent(*commonAncestor);
+
     for (auto& node : nodesToRemove)
         node->remove();
 
@@ -991,6 +1019,18 @@ auto TextManipulationController::replace(const ManipulationItemData& item, const
 
         if (insertion.isChildManipulated == IsNodeManipulated::Yes)
             m_manipulatedNodes.add(insertion.child.get());
+    }
+
+    if (commonAncestor) {
+        StringBuilder replacementText;
+        for (auto& token : replacementTokens) {
+            if (token.content.isNull())
+                continue;
+            if (!replacementText.isEmpty())
+                replacementText.append(' ');
+            replacementText.append(token.content);
+        }
+        updateEnclosingBlockDirectionAfterReplacement(*commonAncestor, replacementText.toString());
     }
 
     return std::nullopt;

@@ -8,8 +8,8 @@
 #ifndef skgpu_graphite_DrawTypes_DEFINED
 #define skgpu_graphite_DrawTypes_DEFINED
 
-#include "include/private/base/SkAssert.h"
-#include "src/base/SkEnumBitMask.h"
+#include "include/private/SkAssert.h"
+#include "include/private/SkEnumBitMask.h"
 
 #include <cstddef>
 #include <cstdint>
@@ -134,8 +134,8 @@ static constexpr inline size_t VertexAttribTypeSize(VertexAttribType type) {
 enum class UniformSlot {
     // Slot for paints and render step uniforms
     kCombinedUniforms,
-    // Meant for gradient storage buffer.
-    kGradient
+    // Storage buffer slot.
+    kStorage
 };
 
 /*
@@ -176,7 +176,8 @@ enum class BarrierType : uint8_t {
 };
 
 enum class DstUsage : uint8_t {
-    // Prior values of dst pixels will have no effect on final written color
+    // Prior values of dst pixels will have no effect on final written color for all uses of the
+    // pipeline (e.g. not just specific to the current draw's alpha value).
     kNone                  = 0,
     // Prior values of dst pixels can have an effect on the final written color
     kDependsOnDst          = 0b0001,

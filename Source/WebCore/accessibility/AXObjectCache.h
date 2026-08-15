@@ -402,6 +402,10 @@ public:
     void setPageActivityState(OptionSet<ActivityState> state) { m_pageActivityState = state; }
     OptionSet<ActivityState> pageActivityState() const { return m_pageActivityState; }
 
+#if ENABLE(WRITING_TOOLS)
+    WEBCORE_EXPORT void setWritingToolsAvailable(bool);
+#endif // ENABLE(WRITING_TOOLS)
+
     inline void childrenChanged(Node& node)
     {
         if (!node.renderer()) {
@@ -680,8 +684,28 @@ public:
     // Requests clients to announce to the user the given message in the way they deem appropriate.
     WEBCORE_EXPORT void announce(const String&);
 
+    // Invokes `assemble` exactly once, either synchronously if the page is not translated and no
+    // other announcements are queued ahead, or when the translated text arrives (or times out).
+    // The `language` argument is the target language when the text was translated and empty otherwise.
+    void translateAnnouncementThenAssemble(Ref<AccessibilityObject>&&, Vector<String>&& segments, Function<void(Vector<String>&&, const String& language)>&& assemble);
+
+    // Records a node whose descendant text is about to be swapped out for a re-rendering of the same
+    // content, e.g. when page-level translation replaces text.
+    //
+    // The resulting children-changed is not a content change the user should hear about again, so the
+    // live region announcement for it is skipped. Forgotten once that change has been processed, so
+    // it never suppresses a later, genuine mutation of the same node.
+    WEBCORE_EXPORT void deferReRenderedContent(Node&);
+
+    WEBCORE_EXPORT static void setAnnouncementTranslationTimeoutForTesting(std::optional<Seconds>);
+
     void NODELETE setTextSelectionIntent(const AXTextStateChangeIntent&);
     void NODELETE setIsSynchronizingSelection(bool);
+
+    // While non-std::nullopt, a focus change onto the given element will not be surfaced to assistive
+    // technology. A null target suppresses a *clearing* of focus instead.
+    void beginSuppressingFocusChange(Element* target) { m_suppressedFocusChange = WeakPtr { target }; }
+    void endSuppressingFocusChange() { m_suppressedFocusChange = std::nullopt; }
 
     void postTextStateChangeNotification(Node*, AXTextEditType, const String&, const VisiblePosition&);
     void postTextReplacementNotification(Node*, AXTextEditType deletionType, const String& deletedText, AXTextEditType insertionType, const String& insertedText, const VisiblePosition&);
@@ -689,6 +713,10 @@ public:
     void postTextStateChangeNotification(Node*, const AXTextStateChangeIntent&, const VisibleSelection&);
     void postTextStateChangeNotification(const Position&, const AXTextStateChangeIntent&, const VisibleSelection&);
     void postLiveRegionChangeNotification(AccessibilityObject&);
+
+    // Testing-only: number of times a live region snapshot has been (re)computed since the last reset.
+    WEBCORE_EXPORT unsigned liveRegionSnapshotBuildCount() const;
+    WEBCORE_EXPORT void resetLiveRegionSnapshotBuildCount();
 
     void frameLoadingEventNotification(LocalFrame*, AXLoadingEvent);
 
@@ -792,6 +820,7 @@ public:
     WEBCORE_EXPORT static void initializeAXThreadIfNeeded();
     WEBCORE_EXPORT static bool NODELETE isAXThreadInitialized();
     WEBCORE_EXPORT RefPtr<AXIsolatedTree> getOrCreateIsolatedTree();
+    void initializeIsolatedTreeGeometry();
 
     static bool isAccessibilityList(Element&);
 private:
@@ -891,6 +920,13 @@ private:
     void notificationPostTimerFired();
     void enqueueNotificationToPost(Ref<AccessibilityObject>&&, AXNotificationWithData&&);
 
+    void announcementTranslationDidComplete(uint64_t requestID, Vector<String>&& translatedSegments);
+    bool isReRenderedContent(const AccessibilityObject&) const;
+    void flushPendingAnnouncements();
+    void pendingAnnouncementTimeoutTimerFired();
+    void scheduleAnnouncementTimeoutTimerIfNeeded();
+    static Seconds announcementTranslationTimeout();
+
     void liveRegionChangedNotificationPostTimerFired();
 
     void performCacheUpdateTimerFired() { performDeferredCacheUpdate(ForceLayout::No); }
@@ -905,7 +941,7 @@ private:
 #if ENABLE(ACCESSIBILITY_ISOLATED_TREE)
     void selectedTextRangeTimerFired();
     Seconds NODELETE platformSelectedTextRangeDebounceInterval() const;
-    void updateTreeSnapshotTimerFired();
+    void updateTreeSnapshotTimerFired() { processQueuedIsolatedNodeUpdates(); }
     void processQueuedIsolatedNodeUpdates();
 
     void deferAddUnconnectedNode(AccessibilityObject&);
@@ -980,6 +1016,7 @@ private:
     void updateLabeledBy(Element*);
     void updateRelationsIfNeeded();
     void updateRelationsForTree(ContainerNode&);
+    bool idChangeCanAffectRelations(Element*, const AtomString& oldID, const AtomString& newID) const;
     void relationsNeedUpdate(bool);
     void dirtyIsolatedTreeRelations();
     HashMap<AXID, AXRelations> relations();
@@ -1047,6 +1084,29 @@ private:
     Vector<std::pair<Ref<AccessibilityObject>, AXNotificationWithData>> m_notificationsToPost;
     HashSet<AXID> m_pendingLayoutCompleteObjectIDs;
 
+    // Core-AAM requires announcements to be translated before they reach the platform when the page
+    // is presented as a machine translation.
+    struct PendingAnnouncement {
+        Ref<AccessibilityObject> object;
+        Vector<String> segments;
+        String targetLocale;
+        // Zero once this entry is no longer awaiting a reply, whether it succeeded, failed, or timed out.
+        uint64_t translationRequestID { 0 };
+        MonotonicTime deadline;
+        // Rebuilds the payload from the (possibly translated) segments and enqueues it to post. The
+        // language argument is empty when the segments were left untranslated.
+        Function<void(Vector<String>&&, const String& language)> assembleAndEnqueue;
+    };
+
+    Deque<PendingAnnouncement> m_pendingAnnouncements;
+    Timer m_pendingAnnouncementTimeoutTimer;
+    uint64_t m_nextAnnouncementTranslationRequestID { 0 };
+    // Nodes whose pending children-changed is a re-rendering of content already announced.
+    WeakListHashSet<Node, WeakPtrImplWithEventTargetData> m_deferredReRenderedContent;
+    // The nodes above plus all their ancestors, so isReRenderedContent() is a lookup instead of a
+    // walk. Built on first query and discarded whenever m_deferredReRenderedContent changes.
+    mutable std::optional<WeakHashSet<Node, WeakPtrImplWithEventTargetData>> m_reRenderedContentAndAncestors;
+
 #if PLATFORM(COCOA)
     Timer m_passwordNotificationTimer;
     Deque<std::pair<Ref<AccessibilityObject>, AXTextChangeContext>> m_passwordNotifications;
@@ -1104,6 +1164,13 @@ private:
     Vector<CanvasFocusPathBoundsChange> m_deferredCanvasFocusPathBoundsChanges;
     std::optional<std::pair<WeakPtr<Element, WeakPtrImplWithEventTargetData>, WeakPtr<Element, WeakPtrImplWithEventTargetData>>> m_deferredFocusedNodeChange;
     std::optional<DeferredRemoteFrameFocus> m_deferredRemoteFrameFocus;
+    // A std::nullopt means no focus change is set up for suppression.
+    // A non-std::nullopt value of nullptr means to suppress the next focus clear.
+    // A non-std::nullopt value of an element means to suppress the focus change to that element.
+    //
+    // In all three cases, the term "suppression" refers to the act of not surfacing a focus
+    // change notification to assistive technologies.
+    std::optional<WeakPtr<Element, WeakPtrImplWithEventTargetData>> m_suppressedFocusChange;
     WeakHashSet<AccessibilityObject> m_deferredUnconnectedObjects;
 #if PLATFORM(MAC)
     HashMap<PreSortedObjectType, Vector<Ref<AccessibilityObject>>, IntHash<PreSortedObjectType>, WTF::StrongEnumHashTraits<PreSortedObjectType>> m_deferredUnsortedObjects;
@@ -1151,6 +1218,9 @@ private:
     // relations were last built. If an element with one of these ids is later inserted, we must
     // re-resolve relations.
     HashSet<AtomString> m_unresolvedRelationTargetIds;
+    // All ids referenced by a relation attribute (resolved or not) as of the last relations build.
+    // Used to decide whether an id-attribute change can affect any relation.
+    HashSet<AtomString> m_referencedRelationTargetIds;
 
 #if USE(ATSPI)
     ListHashSet<RefPtr<AccessibilityObject>> m_deferredParentChangedList;

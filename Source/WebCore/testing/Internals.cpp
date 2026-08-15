@@ -181,6 +181,7 @@
 #include "NavigatorBeacon.h"
 #include "NavigatorMediaDevices.h"
 #include "NetworkLoadInformation.h"
+#include "NetworkingContext.h"
 #include "Page.h"
 #include "PageInspectorController.h"
 #include "PageOverlay.h"
@@ -432,16 +433,16 @@
 #include "NavigatorMediaSession.h"
 #endif
 
-#if ENABLE(MEDIA_SESSION) && USE(GLIB)
-#include "MediaSessionManagerGLib.h"
-#endif
-
 #if ENABLE(IMAGE_ANALYSIS)
 #include "TextRecognitionResult.h"
 #endif
 
 #if ENABLE(MODEL_ELEMENT)
 #include "HTMLModelElement.h"
+#endif
+
+#if ENABLE(SPATIAL_PORTAL)
+#include "SpatialPortalController.h"
 #endif
 
 #if ENABLE(SERVICE_CONTROLS)
@@ -666,25 +667,21 @@ void Internals::resetToConsistentState(Page& page)
         localMainFrame->editor().toggleOverwriteModeEnabled();
     localMainFrame->loader().clearTestingOverrides();
 
-    RefPtr sessionManager = page.mediaSessionManager();
 #if ENABLE(VIDEO)
     page.group().ensureCaptionPreferences().setCaptionDisplayMode(CaptionUserPreferences::CaptionDisplayMode::ForcedOnly);
     page.group().ensureCaptionPreferences().setCaptionsStyleSheetOverride(emptyString());
     page.group().ensureCaptionPreferences().setPreferredLanguage(emptyString());
 
-    sessionManager->resetHaveEverRegisteredAsNowPlayingApplicationForTesting();
-    sessionManager->resetRestrictions();
-    sessionManager->resetSessionState();
-    sessionManager->setWillIgnoreSystemInterruptions(true);
-    sessionManager->applicationWillEnterForeground(false);
     if (page.mediaPlaybackIsSuspended())
         page.resumeAllMediaPlayback();
 #endif
 #if ENABLE(VIDEO) || ENABLE(WEB_AUDIO)
-    sessionManager->setIsPlayingToAutomotiveHeadUnit(false);
+    if (RefPtr sessionManager = page.mediaSessionManager())
+        sessionManager->resetToConsistentStateForTesting();
 #endif
     AXObjectCache::setEnhancedUserInterfaceAccessibility(false);
     AXObjectCache::disableAccessibilityForTesting();
+    AXObjectCache::setAnnouncementTranslationTimeoutForTesting(std::nullopt);
     WebCore::setShouldMockParentSearchResultsForTesting(false);
     WebCore::setShouldMockChildFrameSearchResultsForTesting(false);
 #if ENABLE(ACCESSIBILITY_ISOLATED_TREE)
@@ -733,9 +730,6 @@ void Internals::resetToConsistentState(Page& page)
     rtcProvider.setH265Support(true);
     rtcProvider.setVP9Support(true, true);
     rtcProvider.clearFactory();
-#if USE(GSTREAMER_WEBRTC)
-    page.settings().setPeerConnectionEnabled(true);
-#endif
 #endif
 
     page.setFullscreenAutoHideDuration(0_s);
@@ -762,22 +756,11 @@ void Internals::resetToConsistentState(Page& page)
     WebCore::setContentSizeCategory(kCTFontContentSizeCategoryL);
 #endif
 
-#if ENABLE(MEDIA_SESSION) && USE(GLIB)
-    if (auto* glibSessionManager = dynamicDowncast<MediaSessionManagerGLib>(sessionManager.get()))
-        glibSessionManager->setDBusNotificationsEnabled(false);
-#endif
-
 #if PLATFORM(COCOA)
     setOverrideEnhanceTextLegibility(false);
 #endif
 
     TextPainter::setForceUseGlyphDisplayListForTesting(false);
-
-#if USE(AUDIO_SESSION)
-    AudioSession::singleton().setCategoryOverride(AudioSessionCategory::None);
-    AudioSession::singleton().tryToSetActive(false);
-    AudioSession::singleton().endInterruptionForTesting();
-#endif
 
 #if ENABLE(DAMAGE_TRACKING)
     page.chrome().client().resetDamageHistoryForTesting();
@@ -985,6 +968,19 @@ bool Internals::isLoadingFromMemoryCache(const String& url)
 {
     CachedResource* resource = resourceFromMemoryCache(url);
     return resource && resource->status() == CachedResource::Cached;
+}
+
+ExceptionOr<bool> Internals::frameNetworkingContextIsValid() const
+{
+    RefPtr document = contextDocument();
+    if (!document || !document->frame())
+        return Exception { ExceptionCode::InvalidAccessError };
+
+    RefPtr context = document->frame()->loader().networkingContext();
+    if (!context)
+        return Exception { ExceptionCode::InvalidAccessError };
+
+    return context->isValid();
 }
 
 CachedResource* Internals::resourceFromMemoryCache(const String& url)
@@ -2161,6 +2157,12 @@ Ref<DOMRect> Internals::boundingBox(Element& element)
     if (!renderer)
         return DOMRect::create();
     return DOMRect::create(renderer->absoluteBoundingBoxRectIgnoringTransforms());
+}
+
+Ref<DOMRect> Internals::boundingBoxInRootViewCoordinates(Element& element)
+{
+    element.document().updateLayout(LayoutOptions::IgnorePendingStylesheets);
+    return DOMRect::create(element.boundingBoxInRootViewCoordinates());
 }
 
 ExceptionOr<unsigned> Internals::inspectorGridOverlayCount()
@@ -3381,6 +3383,12 @@ ExceptionOr<Vector<double>> Internals::findCueMatches(const String& text, const 
     return WTF::map(matches, [](const auto& match) -> double {
         return match.seekTime.toDouble();
     });
+}
+
+void Internals::clearFindCaptionTracks()
+{
+    if (RefPtr document = contextDocument(); document && document->page())
+        document->page()->clearFindCaptionTracks();
 }
 #endif
 
@@ -4764,6 +4772,28 @@ void Internals::forceAXObjectCacheUpdate() const
     }
 }
 
+void Internals::setAccessibilityAnnouncementTranslationTimeout(double seconds)
+{
+    AXObjectCache::setAnnouncementTranslationTimeoutForTesting(Seconds { seconds });
+}
+
+unsigned Internals::liveRegionSnapshotBuildCount() const
+{
+    if (RefPtr document = contextDocument()) {
+        if (CheckedPtr cache = document->axObjectCache())
+            return cache->liveRegionSnapshotBuildCount();
+    }
+    return 0;
+}
+
+void Internals::resetLiveRegionSnapshotBuildCount() const
+{
+    if (RefPtr document = contextDocument()) {
+        if (CheckedPtr cache = document->axObjectCache())
+            cache->resetLiveRegionSnapshotBuildCount();
+    }
+}
+
 void Internals::setShouldMockParentSearchResultsForTesting(bool enabled)
 {
     WebCore::setShouldMockParentSearchResultsForTesting(enabled);
@@ -4921,9 +4951,9 @@ bool Internals::elementShouldBufferData(HTMLMediaElement& element)
     return element.bufferingPolicy() < MediaPlayer::BufferingPolicy::LimitReadAhead;
 }
 
-String Internals::elementBufferingPolicy(HTMLMediaElement& element)
+static String bufferingPolicyToString(MediaPlayer::BufferingPolicy policy)
 {
-    switch (element.bufferingPolicy()) {
+    switch (policy) {
     case MediaPlayer::BufferingPolicy::Default:
         return "Default"_s;
     case MediaPlayer::BufferingPolicy::LimitReadAhead:
@@ -4936,6 +4966,20 @@ String Internals::elementBufferingPolicy(HTMLMediaElement& element)
 
     ASSERT_NOT_REACHED();
     return "UNKNOWN"_s;
+}
+
+String Internals::elementBufferingPolicy(HTMLMediaElement& element)
+{
+    return bufferingPolicyToString(element.bufferingPolicy());
+}
+
+// The live-computed preferred policy, in contrast to the cached applied policy
+// returned by elementBufferingPolicy(). Comparing the two, together with
+// mediaSessionState(), disambiguates "session state stuck at Playing" from
+// "applied policy stale (update never re-triggered)". rdar://181274857.
+String Internals::elementPreferredBufferingPolicy(HTMLMediaElement& element)
+{
+    return bufferingPolicyToString(element.mediaSession().preferredBufferingPolicy());
 }
 
 void Internals::setMediaElementBufferingPolicy(HTMLMediaElement& element, const String& policy)
@@ -7297,9 +7341,7 @@ void Internals::installImageOverlay(Element& element, Vector<ImageOverlayLine>&&
         , blocks.map([] (auto& block) {
             return TextRecognitionBlockData { block.text, getQuad(block) };
         })
-#if ENABLE(IMAGE_ANALYSIS_ENHANCEMENTS)
         , TextRecognitionResult::extractAttributedString(fakeImageAnalysisResultForTesting(lines).get())
-#endif
     });
 #else
     UNUSED_PARAM(blocks);
@@ -8086,7 +8128,7 @@ void Internals::loadArtworkImage(String&& url, ArtworkImagePromise&& promise)
             promise->reject(Exception { ExceptionCode::InvalidAccessError, "No image retrieved."_s });
             return;
         }
-        promise->settle(WebCodecsVideoFrame::create(*document, *nativeImage));
+        promise->settle(WebCodecsVideoFrame::create(*document, *nativeImage, { }));
     });
     m_artworkLoader->requestImageResource();
 }
@@ -8703,6 +8745,38 @@ String Internals::modelElementState(HTMLModelElement& element)
 bool Internals::isModelElementIntersectingViewport(HTMLModelElement& element)
 {
     return element.isIntersectingViewport();
+}
+#endif
+
+#if ENABLE(SPATIAL_PORTAL)
+unsigned Internals::numberOfHostedModelsInSpatialPortal(Element& element)
+{
+    CheckedPtr controller = element.spatialPortalController();
+    return controller ? controller->numberOfHostedModels() : 0;
+}
+
+bool Internals::establishesSpatialPortal(Element& element)
+{
+    return element.establishesSpatialPortal();
+}
+
+// Returned as column-major values.
+std::optional<Vector<double>> Internals::spatialPortalResolvedTransform(Element& element)
+{
+    CheckedPtr controller = element.spatialPortalController();
+    if (!controller)
+        return std::nullopt;
+
+    auto& transform = controller->resolvedPortalTransform();
+    if (!transform)
+        return std::nullopt;
+
+    return Vector<double> {
+        transform->m11(), transform->m12(), transform->m13(), transform->m14(),
+        transform->m21(), transform->m22(), transform->m23(), transform->m24(),
+        transform->m31(), transform->m32(), transform->m33(), transform->m34(),
+        transform->m41(), transform->m42(), transform->m43(), transform->m44()
+    };
 }
 #endif
 

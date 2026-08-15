@@ -27,8 +27,80 @@
 #include "GPUComputePipeline.h"
 
 #include "GPUBindGroupLayout.h"
+#include "GPUDevice.h"
+#include "InspectorInstrumentation.h"
+#include <wtf/Locker.h>
+#include <wtf/NeverDestroyed.h>
 
 namespace WebCore {
+
+Lock GPUComputePipeline::s_instancesLock;
+
+Ref<GPUComputePipeline> GPUComputePipeline::create(Ref<WebGPU::ComputePipeline>&& backing, uint64_t uniqueId, GPUDevice* device, WebGPU::ComputePipelineDescriptor&& descriptor, const WebGPU::ShaderModuleDescriptor& shaderModuleDescriptor)
+{
+    Ref result = adoptRef(*new GPUComputePipeline(WTF::move(backing), uniqueId, device, WTF::move(descriptor), shaderModuleDescriptor));
+
+    if (device)
+        InspectorInstrumentation::didCreateWebGPUComputePipeline(*device, result);
+
+    return result;
+}
+
+HashMap<GPUComputePipeline*, GPUDevice*>& GPUComputePipeline::instances()
+{
+    static NeverDestroyed<HashMap<GPUComputePipeline*, GPUDevice*>> instances;
+    return instances;
+}
+
+Lock& GPUComputePipeline::instancesLock()
+{
+    return s_instancesLock;
+}
+
+void GPUComputePipeline::willDestroyDevice(GPUDevice& device)
+{
+    Locker locker { instancesLock() };
+    for (auto& registeredDevice : instances().values()) {
+        if (registeredDevice == &device) {
+            // Don't remove any GPUComputePipeline from the instances list, as they may still exist.
+            // Only remove the association with a GPUDevice.
+            registeredDevice = nullptr;
+        }
+    }
+}
+
+GPUComputePipeline::GPUComputePipeline(Ref<WebGPU::ComputePipeline>&& backing, uint64_t uniqueId, GPUDevice* device, WebGPU::ComputePipelineDescriptor&& descriptor, const WebGPU::ShaderModuleDescriptor& shaderModuleDescriptor)
+    : m_backing(WTF::move(backing))
+    , m_uniqueId(uniqueId)
+    , m_descriptor(WTF::move(descriptor))
+    , m_shaderModuleDescriptor(shaderModuleDescriptor)
+{
+    if (device) {
+        m_device = *device;
+
+        Locker locker { instancesLock() };
+        instances().add(this, device);
+    }
+}
+
+GPUComputePipeline::~GPUComputePipeline()
+{
+    InspectorInstrumentation::willDestroyWebGPUComputePipeline(*this);
+
+    Locker locker { instancesLock() };
+    instances().remove(this);
+}
+
+bool GPUComputePipeline::hasActiveInspectorCanvasCallTracer() const
+{
+    RefPtr device = m_device;
+    return device && device->hasActiveInspectorCanvasCallTracer();
+}
+
+GPUDevice* GPUComputePipeline::device() const
+{
+    return m_device;
+}
 
 String GPUComputePipeline::label() const
 {
@@ -37,13 +109,51 @@ String GPUComputePipeline::label() const
 
 void GPUComputePipeline::setLabel(String&& label)
 {
-    m_backing->setLabel(WTF::move(label));
+    m_descriptor.label = label;
+    protect(backing())->setLabel(WTF::move(label));
 }
 
 Ref<GPUBindGroupLayout> GPUComputePipeline::getBindGroupLayout(uint32_t index)
 {
     // "A new GPUBindGroupLayout wrapper is returned each time"
-    return GPUBindGroupLayout::create(m_backing->getBindGroupLayout(index), m_uniqueId);
+    return GPUBindGroupLayout::create(protect(backing())->getBindGroupLayout(index), m_uniqueId, protect(m_device));
+}
+
+void GPUComputePipeline::updateShader(const String& source, CompletionHandler<void(bool)>&& completionHandler)
+{
+    RefPtr device = m_device.get();
+    if (!device) {
+        completionHandler(false);
+        return;
+    }
+
+    auto shaderModuleDescriptor = m_shaderModuleDescriptor;
+    shaderModuleDescriptor.code = source;
+
+    device->backing().pauseAllErrorReporting(true);
+    RefPtr shaderModule = device->backing().createShaderModule(shaderModuleDescriptor);
+    device->backing().pauseAllErrorReporting(false);
+
+    if (!shaderModule) {
+        completionHandler(false);
+        return;
+    }
+
+    auto descriptor = m_descriptor;
+    descriptor.compute.module = *shaderModule;
+    device->backing().createComputePipelineWithPipelineLayoutFromPipelineAsync(descriptor, m_backing, [weakThis = WeakPtr { *this }, descriptor, shaderModuleDescriptor = WTF::move(shaderModuleDescriptor), completionHandler = WTF::move(completionHandler)](RefPtr<WebGPU::ComputePipeline>&& pipeline) mutable {
+        RefPtr protectedThis { weakThis };
+        if (!protectedThis) {
+            completionHandler(false);
+            return;
+        }
+
+        if (pipeline)
+            protectedThis->m_backing = pipeline.releaseNonNull();
+        protectedThis->m_descriptor = WTF::move(descriptor);
+        protectedThis->m_shaderModuleDescriptor = WTF::move(shaderModuleDescriptor);
+        completionHandler(true);
+    });
 }
 
 } // namespace WebCore

@@ -22,6 +22,7 @@
 #include <WebCore/DocumentPage.h>
 #include <WebCore/FloatQuad.h>
 #include <WebCore/FrameDestructionObserverInlines.h>
+#include <WebCore/InspectorInstrumentationPublic.h>
 #include <WebCore/LocalFrameInlines.h>
 #include <WebCore/LocalFrameView.h>
 #include <WebCore/RenderElement.h>
@@ -89,6 +90,8 @@ inline void RenderObject::setNeedsLayout(MarkingBehavior markParents)
     ASSERT(!isSetNeedsLayoutForbidden());
     if (selfNeedsLayout())
         return;
+    if (InspectorInstrumentationPublic::hasFrontends()) [[unlikely]]
+        notifyInspectorOfLayoutInvalidate();
     m_stateBitfields.setFlag(StateFlag::NeedsLayout);
     if (markParents == MarkingBehavior::MarkContainingBlockChain)
         scheduleLayout(CheckedPtr { markContainingBlocksForLayout() });
@@ -111,9 +114,6 @@ inline bool RenderObject::isNonReplacedAtomicInlineLevelBox() const
 inline auto RenderObject::visibleRectContextForRepaint() -> VisibleRectContext
 {
     return {
-        .hasPositionFixedDescendant = false,
-        .dirtyRectIsFlipped = false,
-        .descendantNeedsEnclosingIntRect = false,
         .options = {
             VisibleRectContext::Option::ApplyContainerClip,
             VisibleRectContext::Option::ApplyCompositedContainerScrolls
@@ -125,9 +125,6 @@ inline auto RenderObject::visibleRectContextForRepaint() -> VisibleRectContext
 inline auto RenderObject::visibleRectContextForSpatialNavigation() -> VisibleRectContext
 {
     return {
-        .hasPositionFixedDescendant = false,
-        .dirtyRectIsFlipped = false,
-        .descendantNeedsEnclosingIntRect = false,
         .options = {
             VisibleRectContext::Option::ApplyContainerClip,
             VisibleRectContext::Option::ApplyCompositedContainerScrolls,
@@ -140,9 +137,6 @@ inline auto RenderObject::visibleRectContextForSpatialNavigation() -> VisibleRec
 inline auto RenderObject::visibleRectContextForRenderTreeAsText() -> VisibleRectContext
 {
     return {
-        .hasPositionFixedDescendant = false,
-        .dirtyRectIsFlipped = false,
-        .descendantNeedsEnclosingIntRect = false,
         .options = {
             VisibleRectContext::Option::ApplyContainerClip,
             VisibleRectContext::Option::ApplyCompositedContainerScrolls,

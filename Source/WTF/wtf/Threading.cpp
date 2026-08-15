@@ -27,7 +27,6 @@
 #include <wtf/Threading.h>
 
 #include <bmalloc/BPlatform.h>
-#include <bmalloc/pas_process.h>
 #include <cstring>
 #include <wtf/DateMath.h>
 #include <wtf/FastMalloc.h>
@@ -133,9 +132,9 @@ static std::optional<size_t> NODELETE stackSize(ThreadType threadType)
 #endif
 }
 
-#if PLATFORM(COCOA)
+#if PLATFORM(COCOA) || OS(LINUX)
 // uid 1 is reserved for the main thread, assigned in Thread::initializeCurrentTLS
-// when pthread_main_np() returns true. ++s_uid yields >= 2 for every non-main thread.
+// when current thread is detected as main thread. ++s_uid yields >= 2 for every non-main thread.
 std::atomic<uint32_t> ThreadLike::s_uid { 1 };
 #else
 // On platforms without a way to detect the main thread before initializeMainThread()
@@ -301,9 +300,16 @@ Ref<Thread> Thread::create(ASCIILiteral name, Function<void()>&& entryPoint, Thr
     return thread;
 }
 
+#if !OS(WINDOWS)
+bool processIsShuttingDown()
+{
+    return false;
+}
+#endif
+
 void Thread::didExit()
 {
-    if (pas_process_is_shutting_down())
+    if (processIsShuttingDown())
         return;
 
     allThreads().remove(*this);

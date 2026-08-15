@@ -481,6 +481,7 @@ $(PROJECT_DIR)/Modules/fetch/FetchRequest.idl
 $(PROJECT_DIR)/Modules/fetch/FetchRequestCache.idl
 $(PROJECT_DIR)/Modules/fetch/FetchRequestCredentials.idl
 $(PROJECT_DIR)/Modules/fetch/FetchRequestDestination.idl
+$(PROJECT_DIR)/Modules/fetch/FetchRequestDuplex.idl
 $(PROJECT_DIR)/Modules/fetch/FetchRequestInit.idl
 $(PROJECT_DIR)/Modules/fetch/FetchRequestMode.idl
 $(PROJECT_DIR)/Modules/fetch/FetchRequestRedirect.idl
@@ -789,6 +790,7 @@ $(PROJECT_DIR)/Modules/modern-media-controls/media/seek-forward-support.js
 $(PROJECT_DIR)/Modules/modern-media-controls/media/seek-support.js
 $(PROJECT_DIR)/Modules/modern-media-controls/media/skip-back-support.js
 $(PROJECT_DIR)/Modules/modern-media-controls/media/skip-forward-support.js
+$(PROJECT_DIR)/Modules/modern-media-controls/media/spatial-video-support.js
 $(PROJECT_DIR)/Modules/modern-media-controls/media/start-support.js
 $(PROJECT_DIR)/Modules/modern-media-controls/media/status-support.js
 $(PROJECT_DIR)/Modules/modern-media-controls/media/time-control-support.js
@@ -915,7 +917,6 @@ $(PROJECT_DIR)/Modules/streams/WritableStream.idl
 $(PROJECT_DIR)/Modules/streams/WritableStreamDefaultController.idl
 $(PROJECT_DIR)/Modules/streams/WritableStreamDefaultController.js
 $(PROJECT_DIR)/Modules/streams/WritableStreamDefaultWriter.idl
-$(PROJECT_DIR)/Modules/streams/WritableStreamDefaultWriter.js
 $(PROJECT_DIR)/Modules/streams/WritableStreamInternals.js
 $(PROJECT_DIR)/Modules/streams/WritableStreamSink.idl
 $(PROJECT_DIR)/Modules/url-pattern/URLPattern.idl
@@ -1101,7 +1102,6 @@ $(PROJECT_DIR)/Modules/webdatabase/SQLTransactionErrorCallback.idl
 $(PROJECT_DIR)/Modules/webdriver/Navigator+WebDriver.idl
 $(PROJECT_DIR)/Modules/websockets/CloseEvent.idl
 $(PROJECT_DIR)/Modules/websockets/WebSocket.idl
-$(PROJECT_DIR)/Modules/webtransport/DatagramsReadableMode.idl
 $(PROJECT_DIR)/Modules/webtransport/WebTransport.idl
 $(PROJECT_DIR)/Modules/webtransport/WebTransportBidirectionalStream.idl
 $(PROJECT_DIR)/Modules/webtransport/WebTransportCloseInfo.idl
@@ -1123,6 +1123,7 @@ $(PROJECT_DIR)/Modules/webtransport/WebTransportSendOptions.idl
 $(PROJECT_DIR)/Modules/webtransport/WebTransportSendStream.idl
 $(PROJECT_DIR)/Modules/webtransport/WebTransportSendStreamOptions.idl
 $(PROJECT_DIR)/Modules/webtransport/WebTransportSendStreamStats.idl
+$(PROJECT_DIR)/Modules/webtransport/WebTransportWriter.idl
 $(PROJECT_DIR)/Modules/webxr/Navigator+WebXR.idl
 $(PROJECT_DIR)/Modules/webxr/WebXRBoundedReferenceSpace.idl
 $(PROJECT_DIR)/Modules/webxr/WebXRFrame+HandInput.idl
@@ -1994,7 +1995,7 @@ $(PROJECT_DIR)/page/WebKitBufferNamespace.idl
 $(PROJECT_DIR)/page/WebKitJSHandle.idl
 $(PROJECT_DIR)/page/WebKitNamespace.idl
 $(PROJECT_DIR)/page/WebKitPoint.idl
-$(PROJECT_DIR)/page/WebKitSerializedNode.idl
+$(PROJECT_DIR)/page/WebKitNodeSnapshot.idl
 $(PROJECT_DIR)/page/WindowEventHandlers.idl
 $(PROJECT_DIR)/page/WindowLocalStorage.idl
 $(PROJECT_DIR)/page/WindowOrWorkerGlobalScope+Crypto.idl
@@ -2087,27 +2088,6 @@ $(PROJECT_DIR)/svg/SVGMetadataElement.idl
 $(PROJECT_DIR)/svg/SVGNumber.idl
 $(PROJECT_DIR)/svg/SVGNumberList.idl
 $(PROJECT_DIR)/svg/SVGPathElement.idl
-$(PROJECT_DIR)/svg/SVGPathSeg.idl
-$(PROJECT_DIR)/svg/SVGPathSegArcAbs.idl
-$(PROJECT_DIR)/svg/SVGPathSegArcRel.idl
-$(PROJECT_DIR)/svg/SVGPathSegClosePath.idl
-$(PROJECT_DIR)/svg/SVGPathSegCurvetoCubicAbs.idl
-$(PROJECT_DIR)/svg/SVGPathSegCurvetoCubicRel.idl
-$(PROJECT_DIR)/svg/SVGPathSegCurvetoCubicSmoothAbs.idl
-$(PROJECT_DIR)/svg/SVGPathSegCurvetoCubicSmoothRel.idl
-$(PROJECT_DIR)/svg/SVGPathSegCurvetoQuadraticAbs.idl
-$(PROJECT_DIR)/svg/SVGPathSegCurvetoQuadraticRel.idl
-$(PROJECT_DIR)/svg/SVGPathSegCurvetoQuadraticSmoothAbs.idl
-$(PROJECT_DIR)/svg/SVGPathSegCurvetoQuadraticSmoothRel.idl
-$(PROJECT_DIR)/svg/SVGPathSegLinetoAbs.idl
-$(PROJECT_DIR)/svg/SVGPathSegLinetoHorizontalAbs.idl
-$(PROJECT_DIR)/svg/SVGPathSegLinetoHorizontalRel.idl
-$(PROJECT_DIR)/svg/SVGPathSegLinetoRel.idl
-$(PROJECT_DIR)/svg/SVGPathSegLinetoVerticalAbs.idl
-$(PROJECT_DIR)/svg/SVGPathSegLinetoVerticalRel.idl
-$(PROJECT_DIR)/svg/SVGPathSegList.idl
-$(PROJECT_DIR)/svg/SVGPathSegMovetoAbs.idl
-$(PROJECT_DIR)/svg/SVGPathSegMovetoRel.idl
 $(PROJECT_DIR)/svg/SVGPatternElement.idl
 $(PROJECT_DIR)/svg/SVGPoint.idl
 $(PROJECT_DIR)/svg/SVGPointList.idl

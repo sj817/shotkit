@@ -88,6 +88,7 @@
 #include "GlobalObjectMethodTable.h"
 #include "HeapIterationScope.h"
 #include "ImportMap.h"
+#include "IntlCache.h"
 #include "IntlCollator.h"
 #include "IntlCollatorPrototype.h"
 #include "IntlDateTimeFormat.h"
@@ -376,13 +377,11 @@ static JSC_DECLARE_HOST_FUNCTION(fulfillPromiseWithFirstResolvingFunctionCallChe
 static JSC_DECLARE_HOST_FUNCTION(newResolvedPromise);
 static JSC_DECLARE_HOST_FUNCTION(newRejectedPromise);
 static JSC_DECLARE_HOST_FUNCTION(resolveWithInternalMicrotaskForAsyncAwait);
-static JSC_DECLARE_HOST_FUNCTION(driveAsyncFunction);
 static JSC_DECLARE_HOST_FUNCTION(newHandledRejectedPromise);
 static JSC_DECLARE_HOST_FUNCTION(promiseReturnUndefinedOnFulfilled);
 static JSC_DECLARE_HOST_FUNCTION(promiseResolve);
 static JSC_DECLARE_HOST_FUNCTION(promiseReject);
 static JSC_DECLARE_HOST_FUNCTION(performPromiseThen);
-static JSC_DECLARE_HOST_FUNCTION(asyncGeneratorNextQueueEnqueue);
 #if ASSERT_ENABLED
 static JSC_DECLARE_HOST_FUNCTION(assertCall);
 #endif
@@ -838,15 +837,6 @@ JSC_DEFINE_HOST_FUNCTION(resolveWithInternalMicrotaskForAsyncAwait, (JSGlobalObj
     return encodedJSUndefined();
 }
 
-JSC_DEFINE_HOST_FUNCTION(driveAsyncFunction, (JSGlobalObject* globalObject, CallFrame* callFrame))
-{
-    VM& vm = globalObject->vm();
-    JSValue resolution = callFrame->uncheckedArgument(0);
-    JSValue context = callFrame->uncheckedArgument(1);
-    JSPromise::resolveWithInternalMicrotaskForAsyncAwait(globalObject, vm, resolution, InternalMicrotask::AsyncFunctionResume, context);
-    return encodedJSUndefined();
-}
-
 JSC_DEFINE_HOST_FUNCTION(newHandledRejectedPromise, (JSGlobalObject* globalObject, CallFrame* callFrame))
 {
     JSValue argument = callFrame->uncheckedArgument(0);
@@ -884,55 +874,6 @@ JSC_DEFINE_HOST_FUNCTION(performPromiseThen, (JSGlobalObject* globalObject, Call
     JSValue promiseOrCapability = callFrame->uncheckedArgument(3);
     promise->performPromiseThen(globalObject->vm(), globalObject, onFulfilled, onRejected, promiseOrCapability);
     return encodedJSUndefined();
-}
-
-// https://tc39.es/ecma262/#sec-asyncgenerator-prototype-next
-JSC_DEFINE_HOST_FUNCTION(asyncGeneratorNextQueueEnqueue, (JSGlobalObject* globalObject, CallFrame* callFrame))
-{
-    VM& vm = globalObject->vm();
-
-    JSAsyncGenerator* generator = dynamicDowncast<JSAsyncGenerator>(callFrame->uncheckedArgument(0));
-    JSValue value = callFrame->uncheckedArgument(1);
-    int32_t resumeMode = callFrame->uncheckedArgument(2).asInt32();
-    JSPromise* promise = uncheckedDowncast<JSPromise>(callFrame->uncheckedArgument(3));
-
-    // 3. Let result be Completion(AsyncGeneratorValidate(gen, empty)).
-    // 4. IfAbruptRejectPromise(result, promiseCapability).
-    // https://tc39.es/ecma262/#sec-asyncgeneratorvalidate
-    if (!generator) [[unlikely]] {
-        promise->reject(vm, createTypeError(globalObject, "|this| should be an async generator"_s));
-        return JSValue::encode(jsNumber(static_cast<int32_t>(JSAsyncGenerator::AsyncGeneratorResumeMode::Empty)));
-    }
-
-    // 5. Let state be gen.[[AsyncGeneratorState]].
-    auto state = generator->state();
-    // 6. If state is completed, then
-    if (state == static_cast<int32_t>(JSAsyncGenerator::AsyncGeneratorState::Completed)) {
-        // 6.a. Let iteratorResult be CreateIteratorResultObject(undefined, true).
-        // 6.b. Perform ! Call(promiseCapability.[[Resolve]], undefined, « iteratorResult »).
-        // 6.c. Return promiseCapability.[[Promise]].
-        ASSERT(resumeMode == static_cast<int32_t>(JSGenerator::ResumeMode::NormalMode));
-        auto* iteratorResult = createIteratorResultObject(globalObject, jsUndefined(), /* done */ true);
-        promise->resolve(globalObject, vm, iteratorResult);
-        return JSValue::encode(jsNumber(static_cast<int32_t>(JSAsyncGenerator::AsyncGeneratorResumeMode::Empty)));
-    }
-
-    // 7. Let completion be NormalCompletion(value).
-    // 8. Perform AsyncGeneratorEnqueue(gen, completion, promiseCapability).
-    generator->enqueue(vm, value, resumeMode, promise);
-
-    // 9. If state is either suspended-start or suspended-yield, then
-    if (state == static_cast<int32_t>(JSAsyncGenerator::AsyncGeneratorState::Init) || JSAsyncGenerator::isSuspendedYieldState(state)) {
-        // 9.a. Perform AsyncGeneratorResume(gen, completion).
-        return JSValue::encode(jsNumber(generator->resumeMode()));
-    }
-
-    // 10. Else,
-    // 10.a. Assert: state is either executing or draining-queue.
-    ASSERT(JSAsyncGenerator::isExecutingState(state) || state == static_cast<int32_t>(JSAsyncGenerator::AsyncGeneratorState::DrainingQueue));
-
-    // 11. Return promiseCapability.[[Promise]].
-    return JSValue::encode(jsNumber(static_cast<int32_t>(JSAsyncGenerator::AsyncGeneratorResumeMode::Empty)));
 }
 
 JS_GLOBAL_OBJECT_ADDITIONS_2;
@@ -1150,6 +1091,10 @@ void JSGlobalObject::init(VM& vm)
     m_arrayProtoValuesFunction.initLater(
         [] (const Initializer<JSFunction>& init) {
             init.set(JSFunction::create(init.vm, init.owner, 0, init.vm.propertyNames->builtinNames().valuesPublicName().string(), arrayProtoFuncValues, ImplementationVisibility::Public, ArrayValuesIntrinsic));
+        });
+    m_asyncFromSyncIteratorProtoNextFunction.initLater(
+        [] (const Initializer<JSFunction>& init) {
+            init.set(JSFunction::create(init.vm, init.owner, 1, init.vm.propertyNames->next.string(), asyncFromSyncIteratorPrototypeFuncNext, ImplementationVisibility::Public, NoIntrinsic));
         });
     m_mapProtoEntriesFunction.initLater(
         [] (const Initializer<JSFunction>& init) {
@@ -1410,6 +1355,13 @@ void JSGlobalObject::init(VM& vm)
 
     m_iteratorHelperPrototype.set(vm, this, JSIteratorHelperPrototype::create(vm, this, JSIteratorHelperPrototype::createStructure(vm, this, m_iteratorPrototype.get())));
     m_iteratorHelperStructure.set(vm, this, JSIteratorHelper::createStructure(vm, this, m_iteratorHelperPrototype.get()));
+
+    m_linkTimeConstants[static_cast<unsigned>(LinkTimeConstant::asyncGeneratorPrototypeNext)].initLater([] (const Initializer<JSCell>& init) {
+            init.set(JSFunction::create(init.vm, init.owner, 1, init.vm.propertyNames->next.impl(), asyncGeneratorPrototypeNext, ImplementationVisibility::Public));
+        });
+    m_linkTimeConstants[static_cast<unsigned>(LinkTimeConstant::asyncIteratorPrototypeSymbolAsyncIterator)].initLater([] (const Initializer<JSCell>& init) {
+            init.set(JSFunction::create(init.vm, init.owner, 0, "[Symbol.asyncIterator]"_s, asyncIteratorProtoFuncAsyncIterator, ImplementationVisibility::Public, AsyncIteratorIntrinsic));
+        });
 
     m_asyncIteratorPrototype.set(vm, this, AsyncIteratorPrototype::create(vm, this, AsyncIteratorPrototype::createStructure(vm, this, m_objectPrototype.get())));
 
@@ -1918,7 +1870,7 @@ capitalName ## Constructor* lowerName ## Constructor = featureFlag ? capitalName
 
     // AsyncFromSyncIterator Helpers
     m_linkTimeConstants[static_cast<unsigned>(LinkTimeConstant::asyncFromSyncIteratorCreate)].initLater([](const Initializer<JSCell>& init) {
-        init.set(JSFunction::create(init.vm, init.owner, 2, "asyncFromSyncIteratorCreate"_s, asyncFromSyncIteratorPrivateFuncCreate, ImplementationVisibility::Private, AsyncFromSyncIteratorCreateIntrinsic));
+        init.set(JSFunction::create(init.vm, init.owner, 1, "asyncFromSyncIteratorCreate"_s, asyncFromSyncIteratorCreatePrivate, ImplementationVisibility::Private, NoIntrinsic));
     });
 
     // RegExpStringIteratorHelpers
@@ -1933,6 +1885,11 @@ capitalName ## Constructor* lowerName ## Constructor = featureFlag ? capitalName
 
     m_linkTimeConstants[static_cast<unsigned>(LinkTimeConstant::iteratorHelperCreate)].initLater([](const Initializer<JSCell>& init) {
         init.set(JSFunction::create(init.vm, init.owner, 2, "iteratorHelperCreate"_s, iteratorHelperPrivateFuncCreate, ImplementationVisibility::Private, IteratorHelperCreateIntrinsic));
+    });
+
+    // Reflect.ownKeys as a private helper, i.e. the object's [[OwnPropertyKeys]] as an Array.
+    m_linkTimeConstants[static_cast<unsigned>(LinkTimeConstant::ownKeys)].initLater([](const Initializer<JSCell>& init) {
+        init.set(JSFunction::create(init.vm, init.owner, 1, "ownKeys"_s, reflectObjectOwnKeys, ImplementationVisibility::Private, ReflectOwnKeysIntrinsic));
     });
 
     // Global object and function helpers.
@@ -2017,17 +1974,8 @@ capitalName ## Constructor* lowerName ## Constructor = featureFlag ? capitalName
     m_linkTimeConstants[static_cast<unsigned>(LinkTimeConstant::resolveWithInternalMicrotaskForAsyncAwait)].initLater([] (const Initializer<JSCell>& init) {
             init.set(JSFunction::create(init.vm, init.owner, 3, "resolveWithInternalMicrotaskForAsyncAwait"_s, resolveWithInternalMicrotaskForAsyncAwait, ImplementationVisibility::Private));
         });
-    m_linkTimeConstants[static_cast<unsigned>(LinkTimeConstant::asyncGeneratorNextQueueEnqueue)].initLater([] (const Initializer<JSCell>& init) {
-            init.set(JSFunction::create(init.vm, init.owner, 4, "asyncGeneratorNextQueueEnqueue"_s, asyncGeneratorNextQueueEnqueue, ImplementationVisibility::Private));
-        });
-    m_linkTimeConstants[static_cast<unsigned>(LinkTimeConstant::asyncGeneratorCompleteAndDrain)].initLater([] (const Initializer<JSCell>& init) {
-            init.set(JSFunction::create(init.vm, init.owner, 3, "asyncGeneratorCompleteAndDrain"_s, asyncGeneratorCompleteAndDrain, ImplementationVisibility::Private));
-        });
-    m_linkTimeConstants[static_cast<unsigned>(LinkTimeConstant::asyncGeneratorSuspend)].initLater([] (const Initializer<JSCell>& init) {
-            init.set(JSFunction::create(init.vm, init.owner, 2, "asyncGeneratorSuspend"_s, asyncGeneratorSuspend, ImplementationVisibility::Private));
-        });
-    m_linkTimeConstants[static_cast<unsigned>(LinkTimeConstant::driveAsyncFunction)].initLater([] (const Initializer<JSCell>& init) {
-            init.set(JSFunction::create(init.vm, init.owner, 2, "driveAsyncFunction"_s, driveAsyncFunction, ImplementationVisibility::Private));
+    m_linkTimeConstants[static_cast<unsigned>(LinkTimeConstant::asyncFunctionDrive)].initLater([] (const Initializer<JSCell>& init) {
+            init.set(JSFunction::create(init.vm, init.owner, 2, "asyncFunctionDrive"_s, asyncFunctionDrive, ImplementationVisibility::Private));
         });
     m_linkTimeConstants[static_cast<unsigned>(LinkTimeConstant::newHandledRejectedPromise)].initLater([] (const Initializer<JSCell>& init) {
             init.set(JSFunction::create(init.vm, init.owner, 1, "newHandledRejectedPromise"_s, newHandledRejectedPromise, ImplementationVisibility::Private));
@@ -2269,6 +2217,7 @@ capitalName ## Constructor* lowerName ## Constructor = featureFlag ? capitalName
     installObjectPropertyChangeAdaptiveWatchpoint(setupAdaptiveWatchpoint(this, mapIteratorPrototype, vm.propertyNames->next), m_mapIteratorProtocolWatchpointSet);
     installObjectPropertyChangeAdaptiveWatchpoint(setupAdaptiveWatchpoint(this, m_iteratorPrototype.get(), vm.propertyNames->iteratorSymbol), m_mapIteratorProtocolWatchpointSet);
     installObjectPropertyChangeAdaptiveWatchpoint(setupAdaptiveWatchpoint(this, setIteratorPrototype, vm.propertyNames->next), m_setIteratorProtocolWatchpointSet);
+    installObjectPropertyChangeAdaptiveWatchpoint(setupAdaptiveWatchpoint(this, m_iteratorPrototype.get(), vm.propertyNames->iteratorSymbol), m_setIteratorProtocolWatchpointSet);
     installObjectPropertyChangeAdaptiveWatchpoint(setupAdaptiveWatchpoint(this, m_stringIteratorPrototype.get(), vm.propertyNames->next), m_stringIteratorProtocolWatchpointSet);
     installObjectPropertyChangeAdaptiveWatchpoint(setupAdaptiveWatchpoint(this, m_stringPrototype.get(), vm.propertyNames->iteratorSymbol), m_stringIteratorProtocolWatchpointSet);
     installObjectPropertyChangeAdaptiveWatchpoint(setupAdaptiveWatchpoint(this, m_stringPrototype.get(), vm.propertyNames->toString), m_stringToStringWatchpointSet);
@@ -2323,6 +2272,7 @@ capitalName ## Constructor* lowerName ## Constructor = featureFlag ? capitalName
     installObjectAdaptiveStructureWatchpoint(setupAbsenceAdaptiveWatchpoint(this, mapIteratorPrototype, vm.propertyNames->returnKeyword, m_iteratorPrototype.get()), m_mapIteratorProtocolWatchpointSet);
     installObjectAdaptiveStructureWatchpoint(setupAbsenceAdaptiveWatchpoint(this, mapIteratorPrototype, vm.propertyNames->iteratorSymbol, m_iteratorPrototype.get()), m_mapIteratorProtocolWatchpointSet);
     installObjectAdaptiveStructureWatchpoint(setupAbsenceAdaptiveWatchpoint(this, setIteratorPrototype, vm.propertyNames->returnKeyword, m_iteratorPrototype.get()), m_setIteratorProtocolWatchpointSet);
+    installObjectAdaptiveStructureWatchpoint(setupAbsenceAdaptiveWatchpoint(this, setIteratorPrototype, vm.propertyNames->iteratorSymbol, m_iteratorPrototype.get()), m_setIteratorProtocolWatchpointSet);
     installObjectAdaptiveStructureWatchpoint(setupAbsenceAdaptiveWatchpoint(this, m_stringIteratorPrototype.get(), vm.propertyNames->returnKeyword, m_iteratorPrototype.get()), m_stringIteratorProtocolWatchpointSet);
     installObjectAdaptiveStructureWatchpoint(setupAbsenceAdaptiveWatchpoint(this, m_iteratorPrototype.get(), vm.propertyNames->returnKeyword, objectPrototype()), m_arrayIteratorProtocolWatchpointSet);
     installObjectAdaptiveStructureWatchpoint(setupAbsenceAdaptiveWatchpoint(this, m_iteratorPrototype.get(), vm.propertyNames->returnKeyword, objectPrototype()), m_mapIteratorProtocolWatchpointSet);
@@ -2981,6 +2931,7 @@ void JSGlobalObject::visitChildrenImpl(JSCell* cell, Visitor& visitor)
     visitor.append(thisObject->m_stringConstructor);
 
     thisObject->m_defaultCollator.visit(visitor);
+    visitor.append(thisObject->m_cachedLocaleCompareCollator);
     thisObject->m_defaultDateTimeFormat.visit(visitor);
     thisObject->m_defaultDateFormat.visit(visitor);
     thisObject->m_defaultTimeFormat.visit(visitor);
@@ -3022,6 +2973,7 @@ void JSGlobalObject::visitChildrenImpl(JSCell* cell, Visitor& visitor)
     thisObject->m_objectProtoToStringFunction.visit(visitor);
     thisObject->m_arrayProtoToStringFunction.visit(visitor);
     thisObject->m_arrayProtoValuesFunction.visit(visitor);
+    thisObject->m_asyncFromSyncIteratorProtoNextFunction.visit(visitor);
     thisObject->m_mapProtoEntriesFunction.visit(visitor);
     thisObject->m_setProtoValuesFunction.visit(visitor);
     thisObject->m_stringProtoSymbolIteratorFunction.visit(visitor);
@@ -3203,6 +3155,27 @@ void JSGlobalObject::visitChildrenImpl(JSCell* cell, Visitor& visitor)
 WTF_ALLOW_UNSAFE_BUFFER_USAGE_END
 
 DEFINE_VISIT_CHILDREN_WITH_MODIFIER(JS_EXPORT_PRIVATE, JSGlobalObject);
+
+IntlCollator* JSGlobalObject::cachedLocaleCompareCollator(JSString* locale)
+{
+    VM& vm = this->vm();
+    auto scope = DECLARE_THROW_SCOPE(vm);
+
+    String localeString = locale->value(this);
+    RETURN_IF_EXCEPTION(scope, nullptr);
+
+    if (m_cachedLocaleCompareCollator && m_cachedLocaleCompareCollatorLanguagesEpoch == vm.intlCache().languagesEpoch() && m_cachedLocaleCompareCollatorLocale == localeString)
+        return m_cachedLocaleCompareCollator.get();
+
+    IntlCollator* collator = IntlCollator::create(vm, collatorStructure());
+    collator->initializeCollator(this, locale, jsUndefined());
+    RETURN_IF_EXCEPTION(scope, nullptr);
+
+    m_cachedLocaleCompareCollatorLocale = WTF::move(localeString);
+    m_cachedLocaleCompareCollatorLanguagesEpoch = vm.intlCache().languagesEpoch();
+    m_cachedLocaleCompareCollator.set(vm, this, collator);
+    return collator;
+}
 
 SUPPRESS_ASAN void JSGlobalObject::exposeDollarVM(VM& vm)
 {

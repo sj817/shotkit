@@ -863,6 +863,9 @@ TextStream& operator<<(WTF::TextStream& stream, AXProperty property)
     case AXProperty::HeadingLevel:
         stream << "HeadingLevel";
         break;
+    case AXProperty::HasExplicitGroupRole:
+        stream << "HasExplicitGroupRole";
+        break;
     case AXProperty::IsARIAHidden:
         stream << "IsARIAHidden";
         break;
@@ -929,6 +932,9 @@ TextStream& operator<<(WTF::TextStream& stream, AXProperty property)
     case AXProperty::IsColumnHeader:
         stream << "IsColumnHeader";
         break;
+    case AXProperty::IsCollapsedTrailingLineBreak:
+        stream << "IsCollapsedTrailingLineBreak";
+        break;
     case AXProperty::IsEnabled:
         stream << "IsEnabled";
         break;
@@ -949,6 +955,9 @@ TextStream& operator<<(WTF::TextStream& stream, AXProperty property)
         break;
     case AXProperty::IsIndeterminate:
         stream << "IsIndeterminate";
+        break;
+    case AXProperty::IsInUserAgentShadowTree:
+        stream << "IsInUserAgentShadowTree";
         break;
     case AXProperty::IsInlineText:
         stream << "IsInlineText";
@@ -1006,6 +1015,9 @@ TextStream& operator<<(WTF::TextStream& stream, AXProperty property)
         break;
     case AXProperty::IsPressed:
         stream << "IsPressed";
+        break;
+    case AXProperty::IsReplacedElementForTextEmission:
+        stream << "IsReplacedElementForTextEmission";
         break;
     case AXProperty::IsRequired:
         stream << "IsRequired";

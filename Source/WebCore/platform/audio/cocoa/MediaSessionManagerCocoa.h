@@ -62,9 +62,9 @@ public:
     static String audioTimePitchAlgorithmForMediaPlayerPitchCorrectionAlgorithm(MediaPlayerPitchCorrectionAlgorithm, bool preservesPitch, double rate);
 
 protected:
-    explicit MediaSessionManagerCocoa(PageIdentifier);
+    explicit MediaSessionManagerCocoa(std::optional<PageIdentifier>);
 
-    void updateSessionState() override;
+    Ref<GenericPromise> updateSessionState() override;
     void beginInterruption(PlatformMediaSession::InterruptionType) final;
 
     bool hasActiveNowPlayingSession() const final { return m_nowPlayingActive; }

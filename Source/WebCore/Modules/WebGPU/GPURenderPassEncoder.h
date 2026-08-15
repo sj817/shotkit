@@ -25,36 +25,37 @@
 
 #pragma once
 
+#include "EventTarget.h"
 #include "GPUColorDict.h"
 #include "GPUIndexFormat.h"
 #include "GPUIntegralTypes.h"
 #include "WebGPURenderPassEncoder.h"
 #include <JavaScriptCore/Uint32Array.h>
+#include <cstdint>
 #include <optional>
 #include <wtf/Ref.h>
-#include <wtf/RefCounted.h>
+#include <wtf/RefCountedAndCanMakeWeakPtr.h>
 #include <wtf/RefPtr.h>
 #include <wtf/Vector.h>
+#include <wtf/WeakPtr.h>
 #include <wtf/text/WTFString.h>
 
 namespace WebCore {
 
 class GPUBindGroup;
 class GPUBuffer;
+class GPUCommandEncoder;
+class GPUDevice;
 class GPUQuerySet;
 class GPURenderBundle;
 class GPURenderPipeline;
 template<typename> class ExceptionOr;
 
-namespace WebGPU {
-class Device;
-}
-
-class GPURenderPassEncoder : public RefCounted<GPURenderPassEncoder> {
+class GPURenderPassEncoder : public RefCountedAndCanMakeWeakPtr<GPURenderPassEncoder> {
 public:
-    static Ref<GPURenderPassEncoder> create(Ref<WebGPU::RenderPassEncoder>&& backing, WebGPU::Device& device)
+    static Ref<GPURenderPassEncoder> create(Ref<WebGPU::RenderPassEncoder>&& backing, GPUCommandEncoder& commandEncoder, uint8_t canvasColorAttachmentMask)
     {
-        return adoptRef(*new GPURenderPassEncoder(WTF::move(backing), device));
+        return adoptRef(*new GPURenderPassEncoder(WTF::move(backing), commandEncoder, canvasColorAttachmentMask));
     }
 
     String NODELETE label() const;
@@ -106,11 +107,20 @@ public:
     WebGPU::RenderPassEncoder& backing() { return m_backing; }
     const WebGPU::RenderPassEncoder& backing() const { return m_backing; }
 
+    GPUDevice* device() const;
+
+    bool hasActiveInspectorCanvasCallTracer() const;
+
 private:
-    GPURenderPassEncoder(Ref<WebGPU::RenderPassEncoder>&& backing, WebGPU::Device&);
+    GPURenderPassEncoder(Ref<WebGPU::RenderPassEncoder>&&, GPUCommandEncoder&, uint8_t canvasColorAttachmentMask);
 
     Ref<WebGPU::RenderPassEncoder> m_backing;
-    WeakPtr<WebGPU::Device> m_device;
+    WeakPtr<GPUDevice, WeakPtrImplWithEventTargetData> m_device;
+    WeakPtr<GPURenderPipeline> m_currentPipeline;
+
+    GPUColor m_blendConstant { GPUColorDict { } };
+    const uint8_t m_canvasColorAttachmentMask;
+
     std::optional<String> m_overrideLabel;
 };
 

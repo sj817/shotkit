@@ -87,4 +87,37 @@
 | **M4** macOS ✅ | mac 段（CG/CT/CFNetwork/ResourceHandle 路径）；LoaderStrategy 的 mac 分支；静态 libwebp 输出 | ✅ macOS 15 arm64 hosted CI：内部链接、PNG/WebP、CFNetwork、无脚本、XML/XSLT、ABI/RPATH/发布包通过（run 29687395027） | 非 LTO strip：`libshot.dylib` **41,069,504 bytes**，`shotcli` **57,192 bytes**；xz **9,540,040 bytes** |
 | **M5** 交付硬化 | ABI 冻结、Node/Python/Go smoke 绑定、三平台 CI、鲁棒性（大页面/循环重定向）、泄漏（重复 render 1000 次 RSS 平稳）、**CI 体积预算门槛**（4.5④） | CI 全绿，体积不超预算 | 预算冻结 |
 
+### 上游同步 2026-08-15（`9841b6f9` → `41d0d5bc`，约一个月）的体积对账
+
+六平台发布包相对同步前（同布局、同流程，PR#1 的 `88d64dce19`）：
+
+| 平台 | 同步前 tar.xz | 同步后 tar.xz | 变化 |
+|---|---|---|---|
+| linux-x64 | 9,127,520 | 9,199,392 | +0.79% |
+| linux-arm64 | 8,221,518 | 8,287,618 | +0.80% |
+| macos-x64 | 9,609,060 | 9,685,764 | +0.80% |
+| macos-arm64 | 8,138,714 | 8,238,802 | +1.23% |
+| windows-x64 | 11,453,558 | 11,513,322 | +0.52% |
+| windows-arm64 | 10,616,708 | 10,667,536 | +0.47% |
+
+`shot.dll` 27,479,040 → 27,649,024（+0.62%），Windows x64 运行闭包 25 文件 / 38.95 MiB。
+全部在 5% 门槛内，属一个月上游代码自然增长。
+
+**过程中拦下一次真回归**：先跑出来的 Windows 数是 +8.08%（x64）/ +7.46%（arm64），
+其余四平台正常。归因到符号级——分发闭包多了 `icuin77.dll`，而 `shot.dll` 对它
+只有**一个**导入符号 `udat_close`：`IntlDateTimeFormat` 那几个
+`std::unique_ptr<UDateFormat>` 成员的析构器，被 JSCell 静态方法表取地址钉住
+（与偏离清单里 ShadowRealm 那条同机制）。判据是「只有析构器符号」——Intl 日期
+格式化真活着的话 `udat_open`/`udat_format`/`udatpg_*` 会一起出现在导入表里，实测
+没有。算术也对得上：解压后 +3.00 MiB = icuin77.dll 2.86 + shot.dll 0.16。
+这 2.86 MiB 正是 M2「斩链二期」消掉过的那一份，被上游 Temporal 重构带了回来。
+
+修法沿用 M2 对 ANGLE 的既有先例（链接期可达、运行期不可达 ⇒ 延迟加载且不分发）：
+`libshot` 加 `/DELAYLOAD:icuin<N>.dll`、`collect-dist.ps1` 的 `$unusedDelayLoads`
+加 `icuin*.dll`。DLL 名由 `ICU_VERSION` 推导且取不到即 `FATAL_ERROR`，避免 ICU
+升版后 `/DELAYLOAD` 静默失效、这 2.86 MiB 悄悄回到包里。
+
+> 教训：**`shot.dll` 本体的体积是健康的（+0.62%），问题全在分发闭包的文件数上**。
+> 只盯主二进制会漏掉这类回归——对账要同时看 `extracted directory: N files` 那一行。
+
 **为什么从 Windows 起步**：开发机是 Windows；Win 官方端口本就是 curl+OpenSSL+Skia+HarfBuzz+DirectWrite 的活跃 CI 组合，OptionsShot 的 Win 段基本是 OptionsWin.cmake 的减法；WebKitRequirements 预构建包一次解决全部系统依赖。

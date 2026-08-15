@@ -376,10 +376,10 @@ public:
         {
             ASSERT(from < length);
             auto result = input[from];
-            if (decodeSurrogatePairs && from + 1 < length) {
-                if (U16_IS_LEAD(result) && U16_IS_TRAIL(input[from + 1]))
+            if (decodeSurrogatePairs) {
+                if (U16_IS_LEAD(result) && from + 1 < length && U16_IS_TRAIL(input[from + 1]))
                     return U16_GET_SUPPLEMENTARY(result, input[from + 1]);
-                if (U16_IS_TRAIL(result) && U16_IS_LEAD(input[from + 1]))
+                if (U16_IS_TRAIL(result) && from > 0 && U16_IS_LEAD(input[from - 1]))
                     return errorCodePoint;
             }
             return result;
@@ -711,6 +711,42 @@ public:
             return (input.atEnd(term.inputPosition)) || (term.multiline() && testCharacterClass(pattern->newlineCharacterClass, input.readCheckedDontAdvance(term.inputPosition)));
 
         return (input.atEnd()) || (term.multiline() && testCharacterClass(pattern->newlineCharacterClass, input.read()));
+    }
+
+    bool matchAssertionBOI(ByteTerm& term)
+    {
+        return input.atStart(term.inputPosition);
+    }
+
+    bool matchAssertionEOI(ByteTerm& term)
+    {
+        // \z: succeed at EOI
+        if (!term.m_withOptionalLineTerminator)
+            return term.inputPosition ? input.atEnd(term.inputPosition) : input.atEnd();
+
+        // \Z: succeed at EOI, or at a line terminator immediately before EOI.
+        unsigned assertionPos = input.getPos() - term.inputPosition;
+        unsigned inputLength = input.end();
+
+        if (assertionPos == inputLength)
+            return true;
+
+        char32_t ch = input.readCheckedDontAdvance(term.inputPosition);
+
+        if (!testCharacterClass(pattern->newlineCharacterClass, ch))
+            return false;
+
+        if (ch != '\r')
+            return assertionPos + 1 == inputLength;
+
+        if (assertionPos + 1 == inputLength)
+            return true; // \r alone at EOI
+
+        if (assertionPos + 2 != inputLength)
+            return false;
+
+        // Check for \r\n: read the char at assertionPos + 1.
+        return input.reread(assertionPos + 1) == '\n';
     }
 
     bool matchAssertionWordBoundary(ByteTerm& term)
@@ -1299,25 +1335,38 @@ public:
     {
         ASSERT(term.type == ByteTerm::Type::ParenthesesSubpatternTerminalBegin);
         ASSERT(term.atom.quantityType == QuantifierType::Greedy);
+        ASSERT(!term.atom.quantityMinCount || term.atom.quantityMinCount == 1);
         ASSERT(term.atom.quantityMaxCount == quantifyInfinite);
         ASSERT(!term.capture());
 
         BackTrackInfoParenthesesTerminal* backTrack = reinterpret_cast<BackTrackInfoParenthesesTerminal*>(context->frame + term.frameLocation);
         backTrack->begin = input.getPos();
+        backTrack->entryPosition = input.getPos();
         return true;
     }
 
     bool NODELETE matchParenthesesTerminalEnd(ByteTerm& term, DisjunctionContext* context)
     {
         ASSERT(term.type == ByteTerm::Type::ParenthesesSubpatternTerminalEnd);
+        ASSERT(!term.atom.quantityMinCount || term.atom.quantityMinCount == 1);
 
         BackTrackInfoParenthesesTerminal* backTrack = reinterpret_cast<BackTrackInfoParenthesesTerminal*>(context->frame + term.frameLocation);
-        // Empty match is a failed match.
-        if (backTrack->begin == input.getPos())
-            return false;
+        if (backTrack->begin == input.getPos()) {
+            // An empty iteration cannot be repeated, so it is only ever acceptable as the single
+            // iteration a minimum of one demands, and only before anything has been consumed.
+            // Clearing entryPosition both records that the minimum is now met and rejects any
+            // further empty iteration.
+            if (!term.atom.quantityMinCount || backTrack->entryPosition != input.getPos())
+                return false;
+            backTrack->entryPosition = notFound;
+        }
+
+        backTrack->begin = input.getPos();
 
         // Successful match! Okay, what's next? - loop around and try to match more!
-        context->term -= (term.atom.parenthesesWidth + 1);
+        // Loop back to the body's first term rather than to ParenthesesSubpatternTerminalBegin,
+        // whose stores initialize the whole group and must not run again per iteration.
+        context->term -= term.atom.parenthesesWidth;
         return true;
     }
 
@@ -1325,11 +1374,19 @@ public:
     {
         ASSERT(term.type == ByteTerm::Type::ParenthesesSubpatternTerminalBegin);
         ASSERT(term.atom.quantityType == QuantifierType::Greedy);
+        ASSERT(!term.atom.quantityMinCount || term.atom.quantityMinCount == 1);
         ASSERT(term.atom.quantityMaxCount == quantifyInfinite);
         ASSERT(!term.capture());
 
         // If we backtrack to this point, we have failed to match this iteration of the parens.
-        // Since this is greedy / zero minimum a failed is also accepted as a match!
+        // Nothing follows a terminal group, so an already satisfied minimum makes that failure an
+        // acceptable end of the match; an unsatisfied one fails the match.
+        if (term.atom.quantityMinCount) {
+            BackTrackInfoParenthesesTerminal* backTrack = reinterpret_cast<BackTrackInfoParenthesesTerminal*>(context->frame + term.frameLocation);
+            if (backTrack->entryPosition == input.getPos())
+                return false;
+        }
+
         context->term += term.atom.parenthesesWidth;
         return true;
     }
@@ -1811,6 +1868,14 @@ public:
             if (matchAssertionEOL(currentTerm()))
                 MATCH_NEXT();
             BACKTRACK();
+        case ByteTerm::Type::AssertionBOI:
+            if (matchAssertionBOI(currentTerm()))
+                MATCH_NEXT();
+            BACKTRACK();
+        case ByteTerm::Type::AssertionEOI:
+            if (matchAssertionEOI(currentTerm()))
+                MATCH_NEXT();
+            BACKTRACK();
         case ByteTerm::Type::AssertionWordBoundary:
             if (matchAssertionWordBoundary(currentTerm()))
                 MATCH_NEXT();
@@ -2096,8 +2161,14 @@ public:
 
             context->matchBegin = input.getPos();
 
-            if (currentTerm().alternative.onceThrough)
-                context->term += currentTerm().alternative.next;
+            while (currentTerm().alternative.onceThrough) {
+                int next = currentTerm().alternative.next;
+                if (next <= 0) {
+                    DUMP_EXTRA("- Return NoMatch\n");
+                    return JSRegExpResult::NoMatch;
+                }
+                context->term += next;
+            }
 
             MATCH_NEXT();
         }
@@ -2122,6 +2193,8 @@ public:
 
         case ByteTerm::Type::AssertionBOL:
         case ByteTerm::Type::AssertionEOL:
+        case ByteTerm::Type::AssertionBOI:
+        case ByteTerm::Type::AssertionEOI:
         case ByteTerm::Type::AssertionWordBoundary:
             BACKTRACK();
 
@@ -2227,6 +2300,9 @@ public:
         // [Yarr Interpreter] The interpreter doesn't have checks for stack overflow due to deep recursion
         if (!input.isAvailableInput(0))
             return offsetNoMatch;
+
+        if (pattern->hasEndAnchoredFixedSize() && input.end() >= pattern->m_endAnchoredFixedSize)
+            input.setPos(std::max(input.getPos(), input.end() - pattern->m_endAnchoredFixedSize));
 
         ConcurrentJSLocker locker(pattern->m_lock);
 
@@ -2353,6 +2429,16 @@ public:
         m_bodyDisjunction->terms.append(ByteTerm::EOL(inputPosition, flags));
     }
 
+    void assertionBOI(unsigned inputPosition, OptionSet<Flags> flags)
+    {
+        m_bodyDisjunction->terms.append(ByteTerm::BOI(inputPosition, flags));
+    }
+
+    void assertionEOI(bool withOptionalLineTerminator, unsigned inputPosition, OptionSet<Flags> flags)
+    {
+        m_bodyDisjunction->terms.append(ByteTerm::EOI(inputPosition, flags, withOptionalLineTerminator));
+    }
+
     void assertionWordBoundary(bool invert, MatchDirection matchDirection, unsigned inputPosition, OptionSet<Flags> flags)
     {
         m_bodyDisjunction->terms.append(ByteTerm::WordBoundary(invert, matchDirection, inputPosition, flags));
@@ -2360,10 +2446,12 @@ public:
 
     void atomPatternCharacter(char32_t ch, MatchDirection matchDirection, unsigned inputPosition, unsigned frameLocation, Checked<unsigned> quantityMaxCount, QuantifierType quantityType, OptionSet<Flags> flags)
     {
-        if (flags.contains(Flags::IgnoreCase)) {
-            char32_t lo = u_tolower(ch);
-            char32_t hi = u_toupper(ch);
-
+        // For case-insesitive compares, non-ascii characters that have different
+        // upper & lower case representations are converted to a character class.
+        ASSERT(!flags.contains(Flags::IgnoreCase) || isASCIIAlpha(ch) || isCanonicallyUnique(ch, m_pattern.eitherUnicode() ? CanonicalMode::Unicode : CanonicalMode::UCS2));
+        if (flags.contains(Flags::IgnoreCase) && isASCIIAlpha(ch)) {
+            auto lo = toASCIILower(static_cast<Latin1Character>(ch));
+            auto hi = toASCIIUpper(static_cast<Latin1Character>(ch));
             if (lo != hi) {
                 m_bodyDisjunction->terms.append(ByteTerm(lo, hi, inputPosition, frameLocation, quantityMaxCount, quantityType, flags));
                 m_bodyDisjunction->terms.last().m_matchDirection = matchDirection;
@@ -2768,6 +2856,22 @@ public:
                     break;
                 }
 
+                case PatternTerm::Type::AssertionBOI: {
+                    auto currentInputPosition = currentCountAlreadyChecked - term.inputPosition;
+                    if (currentInputPosition.hasOverflowed())
+                        return ErrorCode::OffsetTooLarge;
+                    assertionBOI(currentInputPosition, term.m_currentFlags);
+                    break;
+                }
+
+                case PatternTerm::Type::AssertionEOI: {
+                    auto currentInputPosition = currentCountAlreadyChecked - term.inputPosition;
+                    if (currentInputPosition.hasOverflowed())
+                        return ErrorCode::OffsetTooLarge;
+                    assertionEOI(term.m_withOptionalLineTerminator, currentInputPosition, term.m_currentFlags);
+                    break;
+                }
+
                 case PatternTerm::Type::AssertionWordBoundary: {
                     auto currentInputPosition = currentCountAlreadyChecked - term.inputPosition;
                     if (currentInputPosition.hasOverflowed())
@@ -2780,6 +2884,7 @@ public:
                     auto currentInputPosition = currentCountAlreadyChecked - term.inputPosition;
                     if (currentInputPosition.hasOverflowed())
                         return ErrorCode::OffsetTooLarge;
+
                     atomPatternCharacter(term.patternCharacter, matchDirection, currentInputPosition, term.frameLocation, term.quantityMaxCount, term.quantityType, term.m_currentFlags);
                     break;
                 }
@@ -3038,6 +3143,14 @@ void ByteTermDumper::dumpTerm(size_t idx, ByteTerm term)
         outputTermIndexAndNest(idx, m_nesting);
         out.print("AssertionEOL");
         break;
+    case ByteTerm::Type::AssertionBOI:
+        outputTermIndexAndNest(idx, m_nesting);
+        out.print("AssertionBOI");
+        break;
+    case ByteTerm::Type::AssertionEOI:
+        outputTermIndexAndNest(idx, m_nesting);
+        out.print("AssertionEOI ", term.m_withOptionalLineTerminator ? "(\\Z)" : "(\\z)");
+        break;
     case ByteTerm::Type::AssertionWordBoundary:
         outputTermIndexAndNest(idx, m_nesting);
         out.print("AssertionWordBoundary");
@@ -3248,6 +3361,7 @@ static_assert(sizeof(BackTrackInfoBackReference) == (YarrStackSpaceForBackTrackI
 static_assert(sizeof(BackTrackInfoAlternative) == (YarrStackSpaceForBackTrackInfoAlternative * sizeof(uintptr_t)));
 static_assert(sizeof(BackTrackInfoParentheticalAssertion) == (YarrStackSpaceForBackTrackInfoParentheticalAssertion * sizeof(uintptr_t)));
 static_assert(sizeof(BackTrackInfoParenthesesOnce) == (YarrStackSpaceForBackTrackInfoParenthesesOnce * sizeof(uintptr_t)));
+static_assert(sizeof(BackTrackInfoParenthesesTerminal) == (YarrStackSpaceForBackTrackInfoParenthesesTerminal * sizeof(uintptr_t)));
 static_assert(sizeof(Interpreter<char16_t>::BackTrackInfoParentheses) <= (YarrStackSpaceForBackTrackInfoParentheses * sizeof(uintptr_t)));
 
 

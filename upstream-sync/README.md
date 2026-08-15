@@ -97,7 +97,7 @@ git apply --3way ../upstream.patch
     并在 deviations.md 里删除该行、在提交信息里说明；
   - 上游把这块重写了 → 重新实现意图，更新 deviations.md 的「改动」列。
 
-## 6. 三类隐性断裂（不会以冲突形式出现）
+## 6. 隐性断裂（不会以冲突形式出现）
 
 这是最容易漏的部分。补丁干净应用**不等于**同步成功：
 
@@ -110,6 +110,90 @@ git apply --3way ../upstream.patch
 3. **上游改了导出宏/构建宏** → `SHOT_NO_DLLEXPORT`（`WTF/wtf/ExportMacros.h`、
    `bmalloc/BExport.h`）、`JS_NO_EXPORT`、`SHOT_NO_INSPECTOR`、`SHOT_NO_SCRIPT`
    的分支插入点可能漂移。查：确认这些宏的 `#if` 分支仍在生效位置上。
+4. **上游重命名/删除了我们 include 的文件** → 我们自己的文件（各层 `PlatformShot.cmake`、
+   `ShotPruning.cmake`）不在补丁里，所以**不会产生冲突**，但它们指向的上游文件可能
+   已经不存在了，直到配置期才炸。
+   `prepare.ps1 -Verify` 会检查我们端口文件里的每个 `include()` 是否仍能解析。
+
+   > 2026-08-15 首次同步就踩到了：上游把各模块的 `PlatformMac.cmake` 整体重命名为
+   > `PlatformCocoa.cmake`（引入 `Cocoa` 端口），我们 5 个 `PlatformShot.cmake` 的
+   > `include(PlatformMac.cmake)` 全部失效。Windows 本地构建完全无感——它走
+   > `PlatformWin.cmake` 分支——只有 macOS CI 报错。**跨平台的偏离必须靠 CI 兜底。**
+
+5. **同步过来的文件引用了不在路径域内的文件** → 第 4 类的镜像：这次冲突的不是「我们的
+   文件指向失效的上游文件」，而是「上游文件指向路径域外的上游文件」。
+   查：patch 里新增的 `include`/脚本调用是否落在 `paths.txt` 内。
+
+   > 2026-08-15：根 `CMakeLists.txt`（在域内）把 `CMAKE_Swift_COMPILER` 指向
+   > `Tools/Scripts/swift/swiftc-wrapper.sh`，上游把它改成了 `.py`，而 `Tools/`
+   > 整体不在域内 → macOS 构建 exit 127。修法是把 `Tools/Scripts/swift` 补进域。
+
+6. **上游把 CMake 特性开关「注销」，改由 `Platform*.h` 按 SDK 判定** → 我们用
+   `WEBKIT_OPTION_DEFAULT_PORT_VALUE(... OFF)` 关掉的东西会被悄悄打开。
+   查：patch 是否新增/扩充了 `WEBKIT_OPTION_OWNED_BY_PLATFORM_H(...)` 列表。
+
+   > 2026-08-15：`OptionsCocoa.cmake` 用新引入的 `WEBKIT_OPTION_OWNED_BY_PLATFORM_H`
+   > 一次注销了 17 个 ApplePay 子特性（`unset(... CACHE)` + 从
+   > `_WEBKIT_CONFIG_FILE_VARIABLES` 移除），于是 `cmakeconfig.h` 不再写
+   > `#define ENABLE_APPLE_PAY_COUPON_CODE 0`。而 `PlatformEnableCocoa.h` 里这些
+   > 子特性挂的是 `HAVE(PASSKIT_*)` 而**不是** `ENABLE(APPLE_PAY)`——父特性关、子特性
+   > 开，`ApplePayCouponCodeUpdate.h` 就去引用 `#if ENABLE(APPLE_PAY)` 里才有的
+   > `ApplePayLineItem`。上游自己永远碰不到，因为 Cocoa 的 `ENABLE_APPLE_PAY` 是 ON。
+   > 修法见 `OptionsShot.cmake` 的 APPLE 分支：`add_definitions` 与
+   > `SET_AND_EXPOSE_TO_BUILD` 两份视图都要补齐（前者管 C++，后者管 cmakeconfig.h
+   > 与 Swift 平台参数生成）。
+
+7. **上游用上了比我们 CI 工具链更新的语言/编译器语义** → 上游 CI 绿、我们红，且只在
+   最旧的那条工具链上红。
+   查：编译错误里出现上游未改动过的头文件时，先比对编译器版本再考虑改代码。
+
+   > 2026-08-15：上游给 `LayoutRect::infiniteRect()` 加了 `constexpr`，但它调用的
+   > 构造函数不是 constexpr。C++23 的 P2448R2 允许这种写法，clang 据此把
+   > `-Winvalid-constexpr` 降为默认忽略——**但那是 clang 19 才做的**。
+   > Ubuntu 24.04 自带 clang 18.1.3 仍按老规则报 error，Windows(clang-cl 20) 与
+   > macOS(Xcode) 都不报。为一条纯咨询性诊断改上游头文件会变成永久偏离，所以在
+   > `OptionsShot.cmake` 里关掉该诊断，并注明 Linux CI 升到 clang 19+ 后可删。
+
+8. **上游 Cocoa 代码漏了特性门控** → 只在 macOS 炸，且上游永远发现不了。
+   查：编译错误形如「no member named 'xxx' in 'WebCore::YyyClient'」时，看该成员在头文件里
+   的 `#if ENABLE(...)`，再看调用点有没有同样的门控。
+
+   > 根因是本端口的结构性选择：`OptionsShot.cmake` 在 `WEBKIT_OPTION_END()` **之后**才
+   > `include(OptionsCocoa)`（只借它的 SDK/工具链配置，特性矩阵仍归 Shot 自己管），
+   > 于是 OptionsCocoa 里 **71 个 `WEBKIT_OPTION_DEFAULT_PORT_VALUE(... ON)` 有 68 个
+   > 对我们是空操作**。上游 Cocoa 代码是按「这些都开着」写的，只要有一处漏门控就会炸。
+   > 这也是**为什么 macOS 是本 fork 最脆弱的平台**——Windows/Linux 端口在上游有真实的
+   > 关闭组合被持续构建，Cocoa 没有。
+   >
+   > 2026-08-15：上游给 AX 新增 `NSAccessibilityShowWritingToolsAction` 分支，无门控地
+   > 调用 `ChromeClient::showWritingToolsAffordance()`（声明在 `#if ENABLE(WRITING_TOOLS)`
+   > 内）。修法是给调用点补同样的门控并登记进 deviations.md。
+   >
+   > 补完一处后建议顺手扫同族：把该头文件里同一 `#if` 块内声明的方法全部列出，
+   > `git grep` 它们的调用点，逐个回溯所在的 `#if` 栈，确认没有第二处漏网。
+
+9. **上游新增的编译期开关没有平台限制，在上游从不构建的目标三元组上有害** →
+   构建全绿、运行期崩溃，是最贵的一类（要跑满一次构建才暴露）。
+   查：patch 里新增的 `add_definitions(-DHAVE_*)` / `add_compile_options`，
+   看它的启用条件里有没有平台维度；再看被它激活的头文件开关是按什么门控的。
+
+   > **本 fork 独有的目标三元组是 `aarch64-pc-windows-msvc`** —— WebKit 上游没有
+   > Windows ARM64 端口，任何按 `__aarch64__` 或 `CPU(ARM64)` 门控的新代码，上游都
+   > 只在 Darwin/Linux 的 aarch64 上验证过。这是本 fork 最没有上游兜底的一格。
+   >
+   > 2026-08-15：上游新增 `if (LTO_MODE AND COMPILER_IS_CLANG) add_definitions(-DHAVE_PRESERVE_MOST=1)`
+   > （无平台限制），配合 `pas_utils_prefix.h` / `WTF/Compiler.h` 里的
+   > `#if defined(HAVE_PRESERVE_MOST) && HAVE_PRESERVE_MOST && defined(__aarch64__)`，
+   > 让 `__attribute__((preserve_most))` 在 Windows ARM64 上生效，`shotcli` 出图时
+   > 0xC0000005。三方对照定位：Windows x64 正常（不满足 `__aarch64__`）、
+   > **Linux arm64 正常**（同样 `-DLTO_MODE=full`，preserve_most 确实生效且没问题）、
+   > 只有 Windows arm64 崩 —— 问题锁在该 ABI 的调用约定实现上。
+   > 修法见 `OptionsShot.cmake`：`if (WIN32) remove_definitions(-DHAVE_PRESERVE_MOST=1)`。
+   > preserve_most 是纯优化，关掉不影响正确性，且保留了 Linux arm64 的收益。
+   >
+   > 排查手法值得复用：**先用「哪些平台过、哪些平台崩」做三方对照**，把嫌疑收敛到
+   > 单一维度（这里是 OS/ABI，因为架构与 LTO 都被 Linux arm64 排除了），再去读 diff。
+   > 直接在 3188 个文件、7.3 万行的 patch 里找是无界的。
 
 **内容对等校验**（第 2 节的不变量）：
 

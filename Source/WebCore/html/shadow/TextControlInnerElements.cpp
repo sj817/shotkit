@@ -49,6 +49,7 @@
 #include "ScriptController.h"
 #include "ScriptDisallowedScope.h"
 #include "ShadowRoot.h"
+#include "StyleAdjuster.h"
 #include "StyleComputedStyle+SettersInlines.h"
 #include "StyleLengthResolution.h"
 #include "StyleResolver.h"
@@ -133,12 +134,19 @@ std::optional<Style::UnadjustedStyle> TextControlInnerElement::resolveCustomStyl
     // We don't want the shadow DOM to be editable, so we set this block to read-only in case the input itself is editable.
     newStyle->setUserModify(UserModify::ReadOnly);
 
+    // The used value of user-select needs adjusting here because the adjuster won't run
+    // on this style later (because it was not produced by the cascade).
+    Style::Adjuster adjuster(document(), *shadowHostStyle, nullptr, nullptr);
+    adjuster.adjustUsedUserSelect(*newStyle);
+
     if (isStrongPasswordTextField(shadowHost())) {
         newStyle->setFlexShrink(0);
         newStyle->setTextOverflow(TextOverflow::Clip);
         newStyle->setOverflowX(Overflow::Hidden);
         newStyle->setOverflowY(Overflow::Hidden);
-        newStyle->setFlexBasis(Style::FlexBasis::Fixed { static_cast<float>(Style::emToPx<int>(1, *newStyle)) });
+
+        // FIXME: This should probably use the unzoomed Style::emToPx conversion. Like this, zoom is being applied twice. Once now, once at use time.
+        newStyle->setFlexBasis(Style::FlexBasis::Fixed { static_cast<float>(Style::emToPxZoomed<int>(1, *newStyle)) });
     }
 
     return Style::UnadjustedStyle { WTF::move(newStyle) };

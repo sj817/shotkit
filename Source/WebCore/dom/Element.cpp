@@ -117,6 +117,7 @@
 #include "PointerLockOptions.h"
 #include "PopoverData.h"
 #include "PseudoClassChangeInvalidation.h"
+#include "RenderAncestorIterator.h"
 #include "RenderBoxInlines.h"
 #include "RenderElementInlines.h"
 #include "RenderElementStyleInlines.h"
@@ -143,6 +144,7 @@
 #include "ScriptDisallowedScope.h"
 #include "ScrollIntoViewOptions.h"
 #include "ScrollLatchingController.h"
+#include "ScrollSnapOffsetsInfo.h"
 #include "ScrollToOptions.h"
 #include "SecurityPolicyViolationEvent.h"
 #include "SelectorQuery.h"
@@ -193,6 +195,10 @@
 
 #if PLATFORM(IOS_FAMILY)
 #import <pal/system/ios/UserInterfaceIdiom.h>
+#endif
+
+#if ENABLE(SPATIAL_PORTAL)
+#include "SpatialPortalController.h"
 #endif
 
 template class mpark::variant<WebCore::CSSPropertyID, WTF::AtomString>;
@@ -1258,8 +1264,9 @@ void Element::scrollIntoView(Variant<bool, ScrollIntoViewOptions>&& arg)
     auto options = WTF::switchOn(arg,
         [&](bool boolArg) -> ScrollIntoViewOptions {
             ScrollIntoViewOptions options;
-            if (!boolArg)
-                options.blockPosition = ScrollLogicalPosition::End;
+            // The legacy boolean argument explicitly requests top (true) or bottom (false) alignment,
+            // so treat the block axis as author-specified (not eligible for scroll-snap adjustment).
+            options.blockPosition = boolArg ? ScrollLogicalPosition::Start : ScrollLogicalPosition::End;
             return options;
         },
         [](ScrollIntoViewOptions options) -> ScrollIntoViewOptions {
@@ -1273,10 +1280,21 @@ void Element::scrollIntoView(Variant<bool, ScrollIntoViewOptions>&& arg)
     alignX.disableLegacyHorizontalVisibilityThreshold();
 
     bool isHorizontal = writingMode.isHorizontal();
+    auto physicalAlignX = isHorizontal ? alignX : alignY;
+    auto physicalAlignY = isHorizontal ? alignY : alignX;
+
+    // Honor the target's scroll-snap-align even when the scroll container has scroll-snap-type: none, but only
+    // for an axis whose alignment the author did not explicitly specify. https://drafts.csswg.org/cssom-view/#determine-the-scroll-into-view-position
+    bool blockSpecified = options.blockPosition.has_value();
+    bool inlineSpecified = options.inlinePosition.has_value();
+    bool adjustX = isHorizontal ? !inlineSpecified : !blockSpecified;
+    bool adjustY = isHorizontal ? !blockSpecified : !inlineSpecified;
+    adjustScrollAlignmentForScrollSnapAlign(*renderer, adjustX ? &physicalAlignX : nullptr, adjustY ? &physicalAlignY : nullptr);
+
     auto visibleOptions = ScrollRectToVisibleOptions {
         .revealMode = SelectionRevealMode::Reveal,
-        .alignX = isHorizontal ? alignX : alignY,
-        .alignY = isHorizontal ? alignY : alignX,
+        .alignX = physicalAlignX,
+        .alignY = physicalAlignY,
         .behavior = options.behavior,
         .skipScrollingTargetElement = SkipScrollingTargetElement::Yes
     };
@@ -1863,6 +1881,35 @@ inline RefPtr<const SVGElement> elementWithSVGLayoutBox(const Element& element)
     return svg;
 }
 
+// SVG containers such as <defs>, <mask> and <g display="none"> keep renderers for their
+// descendants so that resources remain referenceable, but none of that subtree generates
+// a box. Per CSSOM View, getClientRects() returns an empty list for an element with no
+// associated box, and that test precedes the SVG layout box branch, so it has to be asked
+// before dispatching on renderer type: descendants of a hidden container are spread across
+// RenderElement, RenderSVGModelObject and RenderBoxModelObject (SVG <text> is a
+// RenderBlockFlow), and each of those otherwise reports geometry through a different path.
+// The walk stops at the SVG root: hidden containers only exist inside an SVG fragment, and
+// <foreignObject> gets no renderer at all under one (SVGForeignObjectElement::rendererIsNeeded),
+// so there is no hidden container to find above a root.
+inline bool isInNonRenderedSVGSubtree(const Element& element)
+{
+    if (!element.isSVGElement())
+        return false;
+
+    CheckedPtr renderer = element.renderer();
+    if (!renderer)
+        return false;
+
+    for (auto& ancestor : lineageOfType<RenderElement>(*renderer)) {
+        if (ancestor.isRenderOrLegacyRenderSVGHiddenContainer())
+            return true;
+        if (ancestor.isRenderOrLegacyRenderSVGRoot())
+            return false;
+    }
+
+    return false;
+}
+
 inline bool NODELETE shouldObtainBoundsFromBoxModel(const Element* element)
 {
     ASSERT(element);
@@ -1885,6 +1932,9 @@ IntRect Element::boundsInRootViewSpace()
 
     RefPtr view = document->view();
     if (!view)
+        return IntRect();
+
+    if (isInNonRenderedSVGSubtree(*this))
         return IntRect();
 
     Vector<FloatQuad> quads;
@@ -2042,6 +2092,9 @@ Ref<DOMRectList> Element::getClientRects()
 {
     protect(document())->updateLayoutIgnorePendingStylesheets({ LayoutOptions::TreatContentVisibilityHiddenAsVisible, LayoutOptions::TreatContentVisibilityAutoAsVisible }, this);
 
+    if (isInNonRenderedSVGSubtree(*this))
+        return DOMRectList::create();
+
     CheckedPtr renderer = this->renderer();
 
     Vector<FloatQuad> quads;
@@ -2066,6 +2119,9 @@ Ref<DOMRectList> Element::getClientRects()
 
 std::optional<std::pair<CheckedPtr<RenderElement>, FloatRect>> Element::boundingAbsoluteRectWithoutLayout() const
 {
+    if (isInNonRenderedSVGSubtree(*this))
+        return std::nullopt;
+
     CheckedPtr renderer = this->renderer();
     Vector<FloatQuad> quads;
     if (RefPtr svgElement = elementWithSVGLayoutBox(*this)) {
@@ -2822,6 +2878,12 @@ bool Element::hasDisplayNone() const
     return style && style->display() == Style::DisplayType::None;
 }
 
+bool Element::computedStyleIsDisplayNone()
+{
+    CheckedPtr style = computedStyle();
+    return style && style->display() == Style::DisplayType::None;
+}
+
 void Element::storeDisplayContentsOrNoneStyle(std::unique_ptr<Style::ComputedStyle> style)
 {
     // This is used by RenderTreeUpdater to store the style for Elements with display:{contents|none}.
@@ -3476,7 +3538,7 @@ ExceptionOr<ShadowRoot&> Element::attachShadow(const ShadowRootInit& init, std::
     }
     auto scopedRegistry = ShadowRootScopedCustomElementRegistry::No;
     if (!registryKind)
-        registryKind = !registry && usesNullCustomElementRegistry() ? CustomElementRegistryKind::Null : CustomElementRegistryKind::Window;
+        registryKind = CustomElementRegistryKind::Window;
     if (registryKind == CustomElementRegistryKind::Null) {
         ASSERT(!registry);
         scopedRegistry = ShadowRootScopedCustomElementRegistry::Yes;
@@ -4460,7 +4522,7 @@ ExceptionOr<void> Element::replaceChildrenWithMarkup(const String& markup, Optio
         return { };
     }
 
-    auto fragment = createFragmentForInnerOuterHTML(*this, markup, policy, protect(CustomElementRegistry::registryForNodeOrTreeScope(container, protect(container->treeScope()))));
+    auto fragment = createFragmentForInnerOuterHTML(*this, markup, policy, protect(CustomElementRegistry::registryForNodeOrTreeScope(container, protect(container->treeScope()))), container->usesNullCustomElementRegistry() ? CustomElementRegistryKind::Null : CustomElementRegistryKind::Window);
     if (fragment.hasException())
         return fragment.releaseException();
 
@@ -4526,7 +4588,7 @@ ExceptionOr<void> Element::setOuterHTML(Variant<Ref<TrustedHTML>, String>&& html
     RefPtr previous = previousSibling();
     RefPtr next = nextSibling();
 
-    auto fragment = createFragmentForInnerOuterHTML(*contextElement, stringValueHolder.releaseReturnValue(), { ParserContentPolicy::AllowScriptingContent }, protect(CustomElementRegistry::registryForElement(*contextElement)));
+    auto fragment = createFragmentForInnerOuterHTML(*contextElement, stringValueHolder.releaseReturnValue(), { ParserContentPolicy::AllowScriptingContent }, protect(CustomElementRegistry::registryForElement(*contextElement)), contextElement->usesNullCustomElementRegistry() ? CustomElementRegistryKind::Null : CustomElementRegistryKind::Window);
     if (fragment.hasException())
         return fragment.releaseException();
 
@@ -5492,7 +5554,7 @@ bool Element::hasPendingKeyframesUpdate(const std::optional<Style::PseudoElement
 
 void Element::disconnectFromResizeObserversSlow(ResizeObserverData& observerData)
 {
-    for (const auto& observer : observerData.observers)
+    for (RefPtr observer : observerData.observers)
         observer->targetDestroyed(*this);
     observerData.observers.clear();
 }
@@ -5757,6 +5819,39 @@ void Element::clearShouldNotifyTextManipulationControllerIfDisplayed()
 {
     clearStateFlag(StateFlag::ShouldNotifyTextManipulationControllerIfDisplayed);
 }
+
+#if ENABLE(SPATIAL_PORTAL)
+SpatialPortalController& Element::ensureSpatialPortalController()
+{
+    auto& rareData = ensureElementRareData();
+    if (!rareData.spatialPortalController())
+        rareData.setSpatialPortalController(makeUnique<SpatialPortalController>(*this));
+    return *rareData.spatialPortalController();
+}
+
+SpatialPortalController* Element::spatialPortalController() const
+{
+    if (!hasRareData())
+        return nullptr;
+    return elementRareData()->spatialPortalController();
+}
+
+void Element::clearSpatialPortalController()
+{
+    if (!hasRareData())
+        return;
+
+    if (CheckedPtr controller = elementRareData()->spatialPortalController())
+        controller->prepareForRemoval();
+
+    elementRareData()->setSpatialPortalController(nullptr);
+}
+
+bool Element::establishesSpatialPortal() const
+{
+    return !!spatialPortalController();
+}
+#endif
 
 void Element::willModifyAttribute(const QualifiedName& name, const AtomString& oldValue, const AtomString& newValue)
 {
@@ -6167,8 +6262,12 @@ static ExceptionOr<Ref<Element>> contextElementForInsertion(const String& where,
         return contextNodeResult.releaseException();
     CheckedRef contextNode = contextNodeResult.releaseReturnValue();
     RefPtr contextElement = dynamicDowncast<Element>(contextNode.get());
-    if (!contextElement || (contextNode->document().isHTMLDocument() && is<HTMLHtmlElement>(contextNode.get())))
-        return Ref<Element> { HTMLBodyElement::create(protect(contextNode->document())) };
+    if (!contextElement || (contextNode->document().isHTMLDocument() && is<HTMLHtmlElement>(contextNode.get()))) {
+        Ref bodyElement = HTMLBodyElement::create(protect(contextNode->document()));
+        if (contextNode->usesNullCustomElementRegistry())
+            bodyElement->setUsesNullCustomElementRegistry();
+        return Ref<Element> { WTF::move(bodyElement) };
+    }
     return contextElement.releaseNonNull();
 }
 
@@ -6181,7 +6280,8 @@ ExceptionOr<void> Element::insertAdjacentHTML(const String& where, const String&
         return contextElement.releaseException();
     // Step 3.
     RefPtr registry = CustomElementRegistry::registryForElement(contextElement.returnValue());
-    auto fragment = createFragmentForInnerOuterHTML(contextElement.releaseReturnValue(), markup, { ParserContentPolicy::AllowScriptingContent }, registry.get());
+    auto registryKind = contextElement.returnValue()->usesNullCustomElementRegistry() ? CustomElementRegistryKind::Null : CustomElementRegistryKind::Window;
+    auto fragment = createFragmentForInnerOuterHTML(contextElement.releaseReturnValue(), markup, { ParserContentPolicy::AllowScriptingContent }, registry.get(), registryKind);
     if (fragment.hasException())
         return fragment.releaseException();
 
@@ -6243,8 +6343,8 @@ ExceptionOr<Ref<WebAnimation>> Element::animate(JSC::JSGlobalObject& lexicalGlob
     String id = emptyString();
     std::optional<RefPtr<AnimationTimeline>> timeline;
     Variant<FramesPerSecond, AnimationFrameRatePreset> frameRate = AnimationFrameRatePreset::Auto;
-    TimelineRangeValue animationRangeStart;
-    TimelineRangeValue animationRangeEnd;
+    std::optional<TimelineRangeValue> animationRangeStart;
+    std::optional<TimelineRangeValue> animationRangeEnd;
     auto keyframeEffectOptions = WTF::switchOn(options,
         [](double value) -> Variant<double, KeyframeEffectOptions> {
             return value;
@@ -6269,8 +6369,18 @@ ExceptionOr<Ref<WebAnimation>> Element::animate(JSC::JSGlobalObject& lexicalGlob
     if (timeline)
         animation->setTimeline(timeline->get());
     animation->setBindingsFrameRate(WTF::move(frameRate));
-    animation->setBindingsRangeStart(WTF::move(animationRangeStart));
-    animation->setBindingsRangeEnd(WTF::move(animationRangeEnd));
+
+    if (animationRangeStart) {
+        auto bindingsRangeStartResult = animation->setBindingsRangeStart(document, WTF::move(*animationRangeStart));
+        if (bindingsRangeStartResult.hasException())
+            return bindingsRangeStartResult.releaseException();
+    }
+
+    if (animationRangeEnd) {
+        auto bindingsRangeEndResult = animation->setBindingsRangeEnd(document, WTF::move(*animationRangeEnd));
+        if (bindingsRangeEndResult.hasException())
+            return bindingsRangeEndResult.releaseException();
+    }
 
     auto animationPlayResult = animation->play();
     if (animationPlayResult.hasException())
@@ -6527,11 +6637,22 @@ TextStream& operator<<(TextStream& ts, ContentRelevancy relevancy)
 // Use top layer positions to disambiguate the topmost one when both exist.
 RefPtr<HTMLElement> Element::topmostPopoverAncestor(TopLayerElementType topLayerType)
 {
-    // Store positions to avoid having to do O(n) search for every popover invoker.
+    // Hint popovers only participate in the popover stack when computing the ancestor for another
+    // popover being shown. For dialog/fullscreen top-layer nesting, only auto popovers are
+    // considered (matching the behavior before popover=hint).
+    bool considerHints = topLayerType == TopLayerElementType::Popover;
+
+    // Store positions to avoid having to do O(n) search for every popover invoker, ordered by
+    // position in the top layer.
     HashMap<Ref<const Element>, size_t> topLayerPositions;
     size_t i = 0;
-    for (auto& element : document().autoPopoverList())
-        topLayerPositions.add(element, i++);
+    for (auto& element : document().topLayerElements()) {
+        if (auto* htmlElement = dynamicDowncast<HTMLElement>(element.get())) {
+            if (htmlElement->popoverData() && htmlElement->popoverData()->visibilityState() == PopoverVisibilityState::Showing
+                && (htmlElement->popoverState() == PopoverState::Auto || (considerHints && htmlElement->popoverState() == PopoverState::Hint)))
+                topLayerPositions.add(element, i++);
+        }
+    }
 
     if (topLayerType == TopLayerElementType::Popover)
         topLayerPositions.add(*this, i);
@@ -6545,10 +6666,11 @@ RefPtr<HTMLElement> Element::topmostPopoverAncestor(TopLayerElementType topLayer
             return;
 
         // https://html.spec.whatwg.org/#nearest-inclusive-open-popover
-        auto nearestInclusiveOpenPopover = [](Element& candidate) -> HTMLElement* {
+        auto nearestInclusiveOpenPopover = [&](Element& candidate) -> HTMLElement* {
             for (Ref element : composedTreeLineage(candidate)) {
                 if (auto* htmlElement = dynamicDowncast<HTMLElement>(element.get())) {
-                    if (htmlElement->popoverState() == PopoverState::Auto && htmlElement->popoverData()->visibilityState() == PopoverVisibilityState::Showing)
+                    if ((htmlElement->popoverState() == PopoverState::Auto || (considerHints && htmlElement->popoverState() == PopoverState::Hint))
+                        && htmlElement->popoverData()->visibilityState() == PopoverVisibilityState::Showing)
                         return htmlElement;
                 }
             }

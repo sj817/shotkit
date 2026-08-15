@@ -1644,9 +1644,13 @@ void FrameLoader::loadURL(FrameLoadRequest&& frameLoadRequest, const String& ref
 
     // The search for a target frame is done earlier in the case of form submission.
     RefPtr effectiveTargetFrame = findFrameForNavigation(effectiveFrameName);
-    if (is<RemoteFrame>(effectiveTargetFrame)) {
-        updateRequestAndAddExtraFields(*effectiveTargetFrame, frameLoadRequest.resourceRequest(), IsMainResource::Yes, newLoadType, ShouldUpdateAppInitiatedValue::Yes, FrameLoader::IsServiceWorkerNavigationLoad::No, WillOpenInNewWindow::No, protect(frameLoadRequest.requester()).ptr());
-        effectiveTargetFrame->changeLocation(WTF::move(frameLoadRequest));
+    if (RefPtr remoteEffectiveTargetFrame = dynamicDowncast<RemoteFrame>(effectiveTargetFrame)) {
+        updateRequestAndAddExtraFields(*remoteEffectiveTargetFrame, frameLoadRequest.resourceRequest(), IsMainResource::Yes, newLoadType, ShouldUpdateAppInitiatedValue::Yes, FrameLoader::IsServiceWorkerNavigationLoad::No, WillOpenInNewWindow::No, protect(frameLoadRequest.requester()).ptr());
+        // The local-frame path below attaches Private Click Measurement to the NavigationAction once the load
+        // reaches the main frame (see the frame->isMainFrame() check below). When the main frame is remote (site
+        // isolation) that path is never reached, so hand the data to the RemoteFrameClient directly to be
+        // re-attached to the cross-process NavigationAction.
+        remoteEffectiveTargetFrame->client().changeLocation(WTF::move(frameLoadRequest), remoteEffectiveTargetFrame->isMainFrame() ? WTF::move(privateClickMeasurement) : std::nullopt);
         return;
     }
 
@@ -1825,6 +1829,7 @@ void FrameLoader::load(FrameLoadRequest&& request, std::optional<NavigationReque
         request.setSubstituteData(defaultSubstituteDataForURL(request.resourceRequest().url()));
 
     Ref loader = m_client->createDocumentLoader(request.takeResourceRequest(), request.takeSubstituteData(), request.takeOriginalResourceRequest());
+    loader->setOriginalNavigationStartTime(request.originalNavigationStartTime());
     loader->setIsContentRuleListRedirect(request.isContentRuleListRedirect());
     loader->setIsRequestFromClientOrUserInput(request.isRequestFromClientOrUserInput());
     loader->setIsContinuingLoad(request.shouldTreatAsContinuingLoad());
@@ -2024,7 +2029,22 @@ void FrameLoader::loadWithDocumentLoader(DocumentLoader* loader, FrameLoadType t
 
     auto policyDecisionMode = loader->triggeringAction().isFromNavigationAPI() ? PolicyDecisionMode::Synchronous : PolicyDecisionMode::Asynchronous;
     RELEASE_ASSERT(!isBackForwardLoadType(policyChecker().loadType()) || history().provisionalItem());
-    policyChecker().checkNavigationPolicy(ResourceRequest(loader->request()), ResourceResponse { } /* redirectResponse */, loader, WTF::move(formSubmission), [this, protectedThis = Ref { *this }, allowNavigationToInvalidURL, shouldRestoreFromBackForwardCache, completionHandler = completionHandlerCaller.release()] (const ResourceRequest& request, WeakPtr<const FormSubmission>&& weakFormSubmission, NavigationPolicyDecision navigationPolicyDecision) mutable {
+    policyChecker().checkNavigationPolicy(ResourceRequest(loader->request()), ResourceResponse { } /* redirectResponse */, loader, WTF::move(formSubmission), [
+        this,
+        protectedThis = Ref { *this },
+        allowNavigationToInvalidURL,
+        shouldRestoreFromBackForwardCache,
+        expectedPolicyDocumentLoader = RefPtr { loader },
+        completionHandler = completionHandlerCaller.release()
+    ] (const ResourceRequest& request, WeakPtr<const FormSubmission>&& weakFormSubmission, NavigationPolicyDecision navigationPolicyDecision) mutable {
+        // A download attribute check is not cancelled by the navigation that follows it, so it can be
+        // answered once a newer navigation owns m_policyDocumentLoader. Continuing would tear that
+        // newer navigation down; the download, if any, has already started.
+        if (m_policyDocumentLoader != expectedPolicyDocumentLoader) {
+            FRAMELOADER_RELEASE_LOG(ResourceLoading, "loadWithDocumentLoader: not continuing because a newer navigation owns the policy document loader");
+            completionHandler();
+            return;
+        }
         continueLoadAfterNavigationPolicy(request, RefPtr { weakFormSubmission.get() }.get(), navigationPolicyDecision, allowNavigationToInvalidURL, shouldRestoreFromBackForwardCache);
         completionHandler();
     }, IsSameDocumentNavigation::No, policyDecisionMode, determineNavigationType(type, NavigationHistoryBehavior::Auto));
@@ -3419,6 +3439,13 @@ void FrameLoader::frameDetached()
     // Calling stopAllLoadersAndCheckCompleteness() can cause the frame to be deallocated, including the frame loader.
     Ref frame = m_frame.get();
 
+    // https://html.spec.whatwg.org/multipage/document-sequences.html#destroy-a-child-navigable
+    // Step 4: Inform the navigation API about child navigable destruction
+    if (RefPtr document = frame->document(); document && document->settings().navigationAPIEnabled()) {
+        if (RefPtr window = document->window())
+            protect(window->navigation())->informAboutChildNavigableDestruction();
+    }
+
     if (m_checkTimer.isActive()) {
         m_checkTimer.stop();
         checkCompletenessNow();
@@ -3559,7 +3586,8 @@ void FrameLoader::updateRequestAndAddExtraFields(Frame& targetFrame, ResourceReq
         request.setIsTopSite(isMainFrameMainResource);
 
     bool hasSpecificCachePolicy = request.cachePolicy() != ResourceRequestCachePolicy::UseProtocolCachePolicy;
-    if (page && page->isResourceCachingDisabledByWebInspector()) {
+    bool cachingDisabledByWebInspector = page && page->isResourceCachingDisabledByWebInspector();
+    if (cachingDisabledByWebInspector) {
         request.setCachePolicy(ResourceRequestCachePolicy::ReloadIgnoringCacheData);
         loadType = FrameLoadType::ReloadFromOrigin;
     } else if (!hasSpecificCachePolicy)
@@ -3570,11 +3598,18 @@ void FrameLoader::updateRequestAndAddExtraFields(Frame& targetFrame, ResourceReq
         return;
 
     if (!hasSpecificCachePolicy && request.cachePolicy() == ResourceRequestCachePolicy::ReloadIgnoringCacheData) {
+        auto overrideHeaderIfNeeded = [&] (HTTPHeaderName name, const String& value) {
+            if (cachingDisabledByWebInspector)
+                request.addHTTPHeaderFieldIfNotPresent(name, value);
+            else
+                request.setHTTPHeaderField(name, value);
+        };
+
         if (loadType == FrameLoadType::Reload)
-            request.setHTTPHeaderField(HTTPHeaderName::CacheControl, HTTPHeaderValues::maxAge0());
+            overrideHeaderIfNeeded(HTTPHeaderName::CacheControl, HTTPHeaderValues::maxAge0());
         else if (loadType == FrameLoadType::ReloadFromOrigin) {
-            request.setHTTPHeaderField(HTTPHeaderName::CacheControl, HTTPHeaderValues::noCache());
-            request.setHTTPHeaderField(HTTPHeaderName::Pragma, HTTPHeaderValues::noCache());
+            overrideHeaderIfNeeded(HTTPHeaderName::CacheControl, HTTPHeaderValues::noCache());
+            overrideHeaderIfNeeded(HTTPHeaderName::Pragma, HTTPHeaderValues::noCache());
         }
     }
 
@@ -4576,7 +4611,9 @@ bool FrameLoader::dispatchNavigateEvent(FrameLoadType loadType, const FrameLoadR
     if (navigationType == NavigationNavigationType::Traverse)
         return true;
 
-    RefPtr sourceElement = event ? dynamicDowncast<Element>(event->target()) : nullptr;
+    RefPtr sourceElement = request.sourceElement();
+    if (!sourceElement && event)
+        sourceElement = dynamicDowncast<Element>(event->target());
 
     return protect(window->navigation())->dispatchPushReplaceReloadNavigateEvent(newURL, navigationType, isSameDocument, formState, classicHistoryAPIState, sourceElement.get());
 }
@@ -4602,6 +4639,21 @@ void FrameLoader::loadSameDocumentItem(HistoryItem& item)
     // Restore user view state from the current history item here since we don't do a normal load.
     if (!scrollingSuppressedByNavigationAPI(protect(frame->document()).get()))
         history->restoreScrollPositionAndViewState();
+}
+
+void FrameLoader::clearDeferredTraversal()
+{
+    m_deferredTraversalItem = nullptr;
+}
+
+void FrameLoader::resumeDeferredTraversal()
+{
+    RefPtr item = std::exchange(m_deferredTraversalItem, nullptr);
+    if (!item)
+        return;
+
+    m_loadType = m_deferredTraversalLoadType;
+    loadSameDocumentItem(*item);
 }
 
 // FIXME: This function should really be split into a couple pieces, some of
@@ -4757,8 +4809,17 @@ void FrameLoader::loadItem(HistoryItem& item, HistoryItem* fromItem, FrameLoadTy
             // https://html.spec.whatwg.org/multipage/nav-history-apis.html#fire-a-traverse-navigate-event
             if (RefPtr window = frame().document()->window()) {
                 if (RefPtr navigation = window->navigation(); navigation->frame()) {
-                    if (navigation->dispatchTraversalNavigateEvent(item) == Navigation::DispatchResult::Aborted)
+                    auto dispatchResult = navigation->dispatchTraversalNavigateEvent(item);
+                    if (dispatchResult == Navigation::DispatchResult::Aborted)
                         return;
+                    if (dispatchResult == Navigation::DispatchResult::DeferredCommit) {
+                        // A precommit handler is still pending, so the traverse history step must
+                        // not be applied yet. Navigation resumes it once the precommit handler
+                        // promises fulfill, and discards it if the navigation is aborted before.
+                        m_deferredTraversalItem = &item;
+                        m_deferredTraversalLoadType = loadType;
+                        return;
+                    }
                     // In case the event detached the frame.
                     if (!navigation->frame())
                         return;

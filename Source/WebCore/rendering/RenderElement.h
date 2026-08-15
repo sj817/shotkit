@@ -154,7 +154,7 @@ public:
     virtual void dirtyLineFromChangedChild() { }
 
     void setChildNeedsLayout(MarkingBehavior = MarkingBehavior::MarkContainingBlockChain);
-    void NODELETE setOutOfFlowChildNeedsStaticPositionLayout();
+    void setOutOfFlowChildNeedsStaticPositionLayout();
     void NODELETE clearChildNeedsLayout();
     void setNeedsOutOfFlowMovementLayout(const Style::ComputedStyle* oldStyle);
     void setNeedsLayoutForStyleDifference(Style::Difference, const Style::ComputedStyle* oldStyle);
@@ -188,7 +188,10 @@ public:
     virtual bool isInsideEntirelyHiddenLayer() const;
 
     // Returns true if this renderer requires a new stacking context.
+    // Defined out-of-line in RenderElement.cpp rather than inline in
+    // RenderElementStyleInlines.h — see upstream-sync/deviations.md.
     static bool createsGroupForStyle(const Style::ComputedStyle&);
+    static bool createsGroupForStyleExcludingClipPath(const Style::ComputedStyle&);
     bool createsGroup() const { return createsGroupForStyle(style()); }
 
     inline bool isTransparent() const; // FIXME: This function is incorrectly named. It's isNotOpaque, sometimes called hasOpacity, not isEntirelyTransparent. Defined in RenderElementStyleInlines.h.

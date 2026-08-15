@@ -42,7 +42,7 @@ class CSSAnimation final : public StyleOriginatedAnimation {
     WTF_MAKE_TZONE_ALLOCATED(CSSAnimation);
     WTF_OVERRIDE_DELETE_FOR_CHECKED_PTR(CSSAnimation);
 public:
-    static Ref<CSSAnimation> create(const Styleable&, Style::Animation&&, const Style::ComputedStyle* oldStyle, const Style::ComputedStyle& newStyle, const Style::ResolutionContext&);
+    static Ref<CSSAnimation> create(const Styleable&, Style::Animation&&, Style::ZoomFactor, const Style::ComputedStyle* oldStyle, const Style::ComputedStyle& newStyle, const Style::ResolutionContext&);
     ~CSSAnimation() = default;
 
     const String& animationName() const LIFETIME_BOUND { return m_animationName.name; }
@@ -57,10 +57,12 @@ public:
     void syncStyleOriginatedTimeline();
 
     const Style::Animation& backingStyleAnimation() const LIFETIME_BOUND { return m_backingStyleAnimation; }
-    void setBackingStyleAnimation(const Style::Animation&);
+    Style::ZoomFactor backingStyleZoomForLength() const { return m_backingStyleZoomForLength; }
+
+    void setBackingStyleAnimation(const Style::Animation&, Style::ZoomFactor);
 
 private:
-    CSSAnimation(const Styleable&, Style::ScopedName&&, Style::Animation&&);
+    CSSAnimation(const Styleable&, Style::ScopedName&&, Style::Animation&&, Style::ZoomFactor);
 
     bool isCSSAnimation() const final { return true; }
 
@@ -76,8 +78,8 @@ private:
     void setBindingsEffect(RefPtr<AnimationEffect>&&) final;
     ExceptionOr<void> setBindingsStartTime(const std::optional<WebAnimationTime>&) final;
     ExceptionOr<void> bindingsReverse() final;
-    void setBindingsRangeStart(TimelineRangeValue&&) final;
-    void setBindingsRangeEnd(TimelineRangeValue&&) final;
+    ExceptionOr<void> setBindingsRangeStart(Document&, TimelineRangeValue&&) final;
+    ExceptionOr<void> setBindingsRangeEnd(Document&, TimelineRangeValue&&) final;
 
     enum class Property : uint16_t {
         Name = 1 << 0,
@@ -99,6 +101,7 @@ private:
     OptionSet<Property> m_overriddenProperties;
     std::optional<AnimationPlayState> m_lastStyleOriginatedPlayState;
     Style::Animation m_backingStyleAnimation;
+    Style::ZoomFactor m_backingStyleZoomForLength;
 };
 
 } // namespace WebCore

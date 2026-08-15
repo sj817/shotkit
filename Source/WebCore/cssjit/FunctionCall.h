@@ -76,7 +76,7 @@ public:
     {
 #if CPU(X86_64)
         return callAndBranchOnCondition(condition, JSC::MacroAssembler::TrustedImm32(0xff));
-#elif CPU(ARM64) || CPU(ARM)
+#elif CPU(ARM64)
         return callAndBranchOnCondition(condition, JSC::MacroAssembler::TrustedImm32(-1));
 #else
 #error Missing implementationg for matching boolean return values.
@@ -99,7 +99,7 @@ private:
         // x86 can swap without a temporary register. On other architectures, we need allocate a temporary register to switch the values.
 #if CPU(X86_64)
         m_assembler.swap(a, b);
-#elif CPU(ARM64) || CPU(ARM_THUMB2)
+#elif CPU(ARM64)
         m_assembler.move(a, tempRegister);
         m_assembler.move(b, a);
         m_assembler.move(tempRegister, b);

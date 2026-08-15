@@ -100,7 +100,7 @@ void Pasteboard::write(const PasteboardWebContent&)
 {
 }
 
-void Pasteboard::writeCustomData(const Vector<PasteboardCustomData>&)
+void Pasteboard::writeCustomData(const Vector<PasteboardCustomData>&, PasteboardWriteType)
 {
 }
 

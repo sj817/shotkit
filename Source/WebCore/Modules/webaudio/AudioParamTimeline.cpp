@@ -417,10 +417,10 @@ float AudioParamTimeline::valuesForFrameRangeImpl(size_t startFrame, size_t endF
     // stopping when we've rendered all the requested values.
     // FIXME: could try to optimize by avoiding having to iterate starting from the very first event
     // and keeping track of a "current" event index.
-    int n = m_events.size();
-    for (int i = 0; i < n && writeIndex < values.size(); ++i) {
+    size_t n = m_events.size();
+    for (size_t i = 0; i < n && writeIndex < values.size(); ++i) {
         auto* event = &m_events[i];
-        auto* nextEvent = i < n - 1 ? &m_events[i + 1] : nullptr;
+        auto* nextEvent = i + 1 < n ? &m_events[i + 1] : nullptr;
 
         // Wait until we get a more recent event.
         if (!isEventCurrent(*event, nextEvent, currentFrame, sampleRate)) {
@@ -458,12 +458,12 @@ float AudioParamTimeline::valuesForFrameRangeImpl(size_t startFrame, size_t endF
             samplingPeriod,
             fillToFrame,
             fillToEndFrame,
-            value1,
             time1,
-            value2,
             time2,
             event,
             i,
+            value1,
+            value2,
         };
 
         // First handle linear and exponential ramps which require looking ahead to the next event.
@@ -519,6 +519,7 @@ void AudioParamTimeline::processLinearRamp(const AutomationState& currentState, 
     // is close enough to zero (less than float min), treat it as zero.
     float k = deltaTime.value() <= std::numeric_limits<float>::min() ? 0 : 1 / deltaTime.value();
 
+    // Truncate loop steps to multiple of 4.
     unsigned fillToFrameTrunc = writeIndex + ((currentState.fillToFrame - writeIndex) / 4) * 4;
     if (fillToFrameTrunc > writeIndex) {
         // Minimize in-loop operations. Calculate starting value and increment.
@@ -539,8 +540,6 @@ void AudioParamTimeline::processLinearRamp(const AutomationState& currentState, 
 
         float inc = 4 * currentState.samplingPeriod * k * valueDelta;
 
-        // Truncate loop steps to multiple of 4.
-        unsigned fillToFrameTrunc = writeIndex + ((currentState.fillToFrame - writeIndex) / 4) * 4;
         // Compute final frame.
         currentFrame += fillToFrameTrunc - writeIndex;
 
@@ -554,10 +553,15 @@ void AudioParamTimeline::processLinearRamp(const AutomationState& currentState, 
     if (writeIndex >= 1)
         value = values[writeIndex - 1];
 
-    // Serially process remaining values.
+    // Serially process remaining values. Compute (currentFrame / sampleRate - time1) * k first so
+    // the product stays bounded even when 1 / deltaTime is huge (very close event times), then
+    // apply valueDelta and value1 as separate statements. Splitting the multiply and add prevents
+    // fused multiply-add contraction, which would otherwise make single-value k-rate reads (which
+    // land here) diverge from the vectorized VectorMath multi-value path whenever valueDelta != 1.
     for (; writeIndex < currentState.fillToFrame; ++writeIndex) {
         float x = (currentFrame * currentState.samplingPeriod - currentState.time1.value()) * k;
-        value = currentState.value1 + valueDelta * x;
+        float scaledDelta = valueDelta * x;
+        value = currentState.value1 + scaledDelta;
         values[writeIndex] = value;
         ++currentFrame;
     }
@@ -574,23 +578,39 @@ void AudioParamTimeline::processExponentialRamp(const AutomationState& currentSt
     }
 
     auto deltaTime = currentState.time2 - currentState.time1;
-    float numSampleFrames = deltaTime.value() * currentState.sampleRate;
+
+    // Coincident event times are legal, so deltaTime can be zero. Guard against it the way
+    // processLinearRamp() does, before it can poison the recurrence below: 1 / numSampleFrames
+    // would be infinite, making |multiplier| infinite, and the exponent computed for
+    // |currentValue| would be 0 / 0. Such a ramp has no duration, so every frame we could write
+    // here is already at or past its end time and the value is simply value2.
+    if (deltaTime.value() <= std::numeric_limits<float>::min()) {
+        value = currentState.value2;
+        fillWithValue(values, value, currentState.fillToFrame, writeIndex);
+        return;
+    }
+
+    double numSampleFrames = deltaTime.value() * currentState.sampleRate;
+    double ratio = currentState.value2 / static_cast<double>(currentState.value1);
     // The value goes exponentially from value1 to value2 in a duration of deltaTime seconds (corresponding to numSampleFrames).
-    // Compute the per-sample multiplier.
-    float multiplier = powf(currentState.value2 / currentState.value1, 1 / numSampleFrames);
+    // Compute the per-sample multiplier. This is accumulated in double precision because a single precision recurrence
+    // relation would lose several bits of precision over the course of a rendering quantum.
+    double multiplier = std::pow(ratio, 1 / numSampleFrames);
 
     // Set the starting value of the exponential ramp.
-    value = currentState.value1 * pow(currentState.value2 / static_cast<double>(currentState.value1), (currentFrame * currentState.samplingPeriod - currentState.time1.value()) / deltaTime.value());
+    double currentValue = currentState.value1 * std::pow(ratio, (currentFrame * currentState.samplingPeriod - currentState.time1.value()) / deltaTime.value());
 
     for (; writeIndex < currentState.fillToFrame; ++writeIndex) {
-        values[writeIndex] = value;
-        value *= multiplier;
+        values[writeIndex] = currentValue;
+        currentValue *= multiplier;
         ++currentFrame;
     }
 
-    // |value| got updated one extra time in the above loop. Restore it to the last computed value.
+    // |currentValue| got updated one extra time in the above loop. Restore it to the last computed value.
     if (writeIndex >= 1)
-        value /= multiplier;
+        currentValue /= multiplier;
+
+    value = currentValue;
 }
 
 void AudioParamTimeline::processCancelValues(const AutomationState& currentState, std::span<float> values, size_t& currentFrame, float& value, unsigned& writeIndex)
@@ -785,7 +805,7 @@ void AudioParamTimeline::processSetValueCurve(const AutomationState& currentStat
     currentFrame += nextEventFillToFrame;
 }
 
-void AudioParamTimeline::processSetTargetFollowedByRamp(int eventIndex, ParamEvent*& event, ParamEvent::Type nextEventType, size_t currentFrame, double sampleRate, double controlRate, float& value)
+void AudioParamTimeline::processSetTargetFollowedByRamp(size_t eventIndex, ParamEvent*& event, ParamEvent::Type nextEventType, size_t currentFrame, double sampleRate, double controlRate, float& value)
 {
     // If the current event is SetTarget and the next event is a LinearRampToValue or ExponentialRampToValue,
     // special handling is needed. In this case, the linear and exponential ramp should start at wherever

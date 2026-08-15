@@ -8,9 +8,9 @@
 #ifndef skgpu_graphite_MtlCommandBuffer_DEFINED
 #define skgpu_graphite_MtlCommandBuffer_DEFINED
 
+#include "include/private/SkLog.h"
 #include "src/gpu/graphite/CommandBuffer.h"
 #include "src/gpu/graphite/DrawPass.h"
-#include "src/gpu/graphite/Log.h"
 #include "src/gpu/graphite/mtl/MtlResourceProvider.h"
 
 #include <memory>
@@ -24,6 +24,7 @@ namespace skgpu::graphite {
 class ComputePipeline;
 class MtlBlitCommandEncoder;
 class MtlComputeCommandEncoder;
+class MtlGraphicsPipeline;
 class MtlRenderCommandEncoder;
 class MtlSharedContext;
 struct WorkgroupSize;
@@ -54,7 +55,7 @@ public:
             [(*fCommandBuffer) waitUntilCompleted];
         }
         if (!this->isFinished()) {
-            SKGPU_LOG_E("Unfinished command buffer status: %d",
+            SKIA_LOG_E("Unfinished command buffer status: %d",
                         (int)(*fCommandBuffer).status);
             SkASSERT(false);
         }
@@ -156,10 +157,16 @@ private:
     MtlBlitCommandEncoder* getBlitCommandEncoder();
     void endBlitCommandEncoder();
 
+    void bindUniformBuffers();
+
     sk_cfp<id<MTLCommandBuffer>> fCommandBuffer;
     sk_sp<MtlRenderCommandEncoder> fActiveRenderCommandEncoder;
     sk_sp<MtlComputeCommandEncoder> fActiveComputeCommandEncoder;
     sk_sp<MtlBlitCommandEncoder> fActiveBlitCommandEncoder;
+    const MtlGraphicsPipeline* fActiveGraphicsPipeline = nullptr;
+
+    std::array<BindBufferInfo, 5> fBoundUniformBuffers;
+    bool fBoundUniformBuffersDirty = false;
 
     id<MTLBuffer> fCurrentIndexBuffer;
     id<MTLBuffer> fCurrentIndirectBuffer;

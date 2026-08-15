@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2019-2025 Apple Inc. All rights reserved.
+ * Copyright (C) 2019-2026 Apple Inc. All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
  * modification, are permitted provided that the following conditions
@@ -150,9 +150,7 @@ ExceptionOr<void> HTMLDialogElement::show()
     Ref document = this->document();
     m_previouslyFocusedElement = document->focusedElement();
 
-    RefPtr hideUntil = topmostPopoverAncestor(TopLayerElementType::Other);
-
-    document->hideAllPopoversUntil(hideUntil.get(), FocusPreviousElement::No, FireEvents::No);
+    document->hidePopoversForTopLayerElement(*this, FireEvents::No);
 
     runFocusingSteps();
 
@@ -212,17 +210,19 @@ ExceptionOr<void> HTMLDialogElement::showModal(Element* source)
         if (renderer)
             containingBlockBeforeStyleResolution = renderer->containingBlock();
 
-        if (!isInTopLayer())
-            addToTopLayer();
+        // Remove before adding, so we always add at the end of the top layer. A dialog can still
+        // be in the top layer here if its open attribute was removed directly rather than by
+        // close(), and showing it again must promote it above the dialogs opened since.
+        if (isInTopLayer())
+            removeFromTopLayer();
+        addToTopLayer();
 
         RenderElement::markRendererDirtyAfterTopLayerChange(renderer.get(), containingBlockBeforeStyleResolution.get());
     }
 
     m_previouslyFocusedElement = document->focusedElement();
 
-    RefPtr hideUntil = topmostPopoverAncestor(TopLayerElementType::Other);
-
-    document->hideAllPopoversUntil(hideUntil.get(), FocusPreviousElement::No, FireEvents::No);
+    document->hidePopoversForTopLayerElement(*this, FireEvents::No);
 
     runFocusingSteps();
 
@@ -256,6 +256,11 @@ void HTMLDialogElement::close(const String& result, Element* source)
     if (!result.isNull())
         m_returnValue = result;
 
+    // FIXME: Focus should only be restored when the document's focused element is still inside
+    // this dialog, or when the dialog was modal. Adding that condition requires show() to run the
+    // dialog focusing steps reliably first: focusability is determined from a possibly stale
+    // computed style, so for a dialog that was previously shown and closed no candidate looks
+    // focusable and focus never enters the dialog. See webkit.org/b/321623.
     if (RefPtr element = std::exchange(m_previouslyFocusedElement, nullptr).get()) {
         FocusOptions options;
         options.preventScroll = true;

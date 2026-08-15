@@ -45,6 +45,7 @@
 #include "FrameDebuggerAgent.h"
 #include "FrameInspectorController.h"
 #include "FrameRuntimeAgent.h"
+#include "GPUCanvasContext.h"
 #include "InspectorAnimationAgent.h"
 #include "InspectorCSSAgent.h"
 #include "InspectorCanvasAgent.h"
@@ -90,14 +91,17 @@
 #include <JavaScriptCore/InspectorDebuggerAgent.h>
 #include <JavaScriptCore/ScriptArguments.h>
 #include <JavaScriptCore/ScriptCallStack.h>
+#include <wtf/NeverDestroyed.h>
 #include <wtf/StdLibExtras.h>
 
 namespace WebCore {
 
 using namespace Inspector;
 
-namespace {
-static HashSet<InstrumentingAgents*>* s_instrumentingAgentsSet = nullptr;
+static HashSet<InstrumentingAgents*>& instrumentingAgentsSet()
+{
+    static NeverDestroyed<HashSet<InstrumentingAgents*>> set;
+    return set;
 }
 
 void InspectorInstrumentation::firstFrontendCreated()
@@ -325,12 +329,20 @@ void InspectorInstrumentation::activeStyleSheetsUpdatedImpl(InstrumentingAgents&
 
 void InspectorInstrumentation::didPushShadowRootImpl(InstrumentingAgents& instrumentingAgents, Element& host, ShadowRoot& root)
 {
+    if (RefPtr frame = host.document().frame()) {
+        if (CheckedPtr frameDOMAgent = frame->inspectorController().instrumentingAgents().persistentFrameDOMAgent())
+            frameDOMAgent->didPushShadowRoot(host, root);
+    }
     if (CheckedPtr domAgent = instrumentingAgents.persistentDOMAgent())
         domAgent->didPushShadowRoot(host, root);
 }
 
 void InspectorInstrumentation::willPopShadowRootImpl(InstrumentingAgents& instrumentingAgents, Element& host, ShadowRoot& root)
 {
+    if (RefPtr frame = host.document().frame()) {
+        if (CheckedPtr frameDOMAgent = frame->inspectorController().instrumentingAgents().persistentFrameDOMAgent())
+            frameDOMAgent->willPopShadowRoot(host, root);
+    }
     if (CheckedPtr domAgent = instrumentingAgents.persistentDOMAgent())
         domAgent->willPopShadowRoot(host, root);
 }
@@ -349,18 +361,30 @@ void InspectorInstrumentation::didChangeAssignedNodesImpl(InstrumentingAgents& i
 
 void InspectorInstrumentation::didChangeCustomElementStateImpl(InstrumentingAgents& instrumentingAgents, Element& element)
 {
+    if (RefPtr frame = element.document().frame()) {
+        if (CheckedPtr frameDOMAgent = frame->inspectorController().instrumentingAgents().persistentFrameDOMAgent())
+            frameDOMAgent->didChangeCustomElementState(element);
+    }
     if (CheckedPtr domAgent = instrumentingAgents.persistentDOMAgent())
         domAgent->didChangeCustomElementState(element);
 }
 
 void InspectorInstrumentation::pseudoElementCreatedImpl(InstrumentingAgents& instrumentingAgents, PseudoElement& pseudoElement)
 {
+    if (RefPtr frame = pseudoElement.document().frame()) {
+        if (CheckedPtr frameDOMAgent = frame->inspectorController().instrumentingAgents().persistentFrameDOMAgent())
+            frameDOMAgent->pseudoElementCreated(pseudoElement);
+    }
     if (CheckedPtr domAgent = instrumentingAgents.persistentDOMAgent())
         domAgent->pseudoElementCreated(pseudoElement);
 }
 
 void InspectorInstrumentation::pseudoElementDestroyedImpl(InstrumentingAgents& instrumentingAgents, PseudoElement& pseudoElement)
 {
+    if (RefPtr frame = pseudoElement.document().frame()) {
+        if (CheckedPtr frameDOMAgent = frame->inspectorController().instrumentingAgents().persistentFrameDOMAgent())
+            frameDOMAgent->pseudoElementDestroyed(pseudoElement);
+    }
     if (CheckedPtr domAgent = instrumentingAgents.persistentDOMAgent())
         domAgent->pseudoElementDestroyed(pseudoElement);
     if (auto* layerTreeAgent = instrumentingAgents.enabledLayerTreeAgent())
@@ -598,10 +622,16 @@ void InspectorInstrumentation::didFireTimerImpl(InstrumentingAgents& instrumenti
         timelineAgent->didFireTimer();
 }
 
-void InspectorInstrumentation::didInvalidateLayoutImpl(InstrumentingAgents& instrumentingAgents, const RenderElement& layoutRoot)
+void InspectorInstrumentation::willInvalidateLayoutImpl(InstrumentingAgents& instrumentingAgents, const RenderObject& renderer)
 {
     if (CheckedPtr pageTimelineAgent = instrumentingAgents.trackingPageTimelineAgent())
-        pageTimelineAgent->didInvalidateLayout(layoutRoot);
+        pageTimelineAgent->willInvalidateLayout(renderer);
+}
+
+void InspectorInstrumentation::didScheduleLayoutImpl(InstrumentingAgents& instrumentingAgents, const RenderElement& layoutRoot)
+{
+    if (CheckedPtr pageTimelineAgent = instrumentingAgents.trackingPageTimelineAgent())
+        pageTimelineAgent->didScheduleLayout(layoutRoot);
 }
 
 void InspectorInstrumentation::willLayoutImpl(InstrumentingAgents& instrumentingAgents)
@@ -643,6 +673,11 @@ void InspectorInstrumentation::didPaintImpl(InstrumentingAgents& instrumentingAg
 
     if (CheckedPtr pageAgent = instrumentingAgents.enabledPageAgent())
         pageAgent->didPaint(renderer, rect);
+
+    // Under Site Isolation a cross-origin subframe process has no enabled InspectorPageAgent; its
+    // per-frame PageAgentProxy draws paint rects instead.
+    if (CheckedPtr pageProxy = instrumentingAgents.enabledPageProxy())
+        pageProxy->didPaint(renderer, rect);
 }
 
 void InspectorInstrumentation::willRecalculateStyleImpl(InstrumentingAgents& instrumentingAgents)
@@ -961,10 +996,7 @@ void InspectorInstrumentation::defaultAppearanceDidChangeImpl(InstrumentingAgent
 
 void InspectorInstrumentation::willDestroyCachedResourceImpl(CachedResource& cachedResource)
 {
-    if (!s_instrumentingAgentsSet)
-        return;
-
-    for (RefPtr instrumentingAgent : *s_instrumentingAgentsSet) {
+    for (RefPtr instrumentingAgent : instrumentingAgentsSet()) {
         if (CheckedPtr inspectorNetworkAgent = instrumentingAgent->enabledNetworkAgent())
             inspectorNetworkAgent->willDestroyCachedResource(cachedResource);
     }
@@ -1134,10 +1166,22 @@ void InspectorInstrumentation::consoleStartRecordingCanvasImpl(InstrumentingAgen
         canvasAgent->consoleStartRecordingCanvas(context, exec, options);
 }
 
+void InspectorInstrumentation::consoleStartRecordingCanvasImpl(InstrumentingAgents& instrumentingAgents, GPUDevice& device, JSC::JSGlobalObject& exec, JSC::JSObject* options)
+{
+    if (CheckedPtr canvasAgent = instrumentingAgents.enabledCanvasAgent())
+        canvasAgent->consoleStartRecordingCanvas(device, exec, options);
+}
+
 void InspectorInstrumentation::consoleStopRecordingCanvasImpl(InstrumentingAgents& instrumentingAgents, CanvasRenderingContext& context)
 {
     if (CheckedPtr canvasAgent = instrumentingAgents.enabledCanvasAgent())
         canvasAgent->consoleStopRecordingCanvas(context);
+}
+
+void InspectorInstrumentation::consoleStopRecordingCanvasImpl(InstrumentingAgents& instrumentingAgents, GPUDevice& device)
+{
+    if (CheckedPtr canvasAgent = instrumentingAgents.enabledCanvasAgent())
+        canvasAgent->consoleStopRecordingCanvas(device);
 }
 
 void InspectorInstrumentation::didDispatchDOMStorageEventImpl(InstrumentingAgents& instrumentingAgents, const String& key, const String& oldValue, const String& newValue, StorageType storageType, const SecurityOrigin& securityOrigin)
@@ -1215,7 +1259,22 @@ void InspectorInstrumentation::didSendWebSocketFrameImpl(InstrumentingAgents& in
 
 void InspectorInstrumentation::didChangeCSSCanvasClientNodesImpl(InstrumentingAgents& instrumentingAgents, CanvasBase& canvasBase)
 {
-    if (CheckedPtr pageCanvasAgent = instrumentingAgents.enabledPageCanvasAgent())
+    CheckedPtr<PageCanvasAgent> pageCanvasAgent;
+
+    if (RefPtr gpuCanvasContext = dynamicDowncast<GPUCanvasContext>(canvasBase.renderingContext())) {
+        RefPtr device = gpuCanvasContext->device();
+        if (!device)
+            return;
+
+        RefPtr agents = InspectorInstrumentation::instrumentingAgents(protect(device->scriptExecutionContext()));
+        if (!agents)
+            return;
+
+        pageCanvasAgent = agents->enabledPageCanvasAgent();
+    } else
+        pageCanvasAgent = instrumentingAgents.enabledPageCanvasAgent();
+
+    if (pageCanvasAgent)
         pageCanvasAgent->didChangeCSSCanvasClientNodes(canvasBase);
 }
 
@@ -1227,7 +1286,22 @@ void InspectorInstrumentation::didCreateCanvasRenderingContextImpl(Instrumenting
 
 void InspectorInstrumentation::didChangeCanvasSizeImpl(InstrumentingAgents& instrumentingAgents, CanvasRenderingContext& context)
 {
-    if (CheckedPtr canvasAgent = instrumentingAgents.enabledCanvasAgent())
+    CheckedPtr<InspectorCanvasAgent> canvasAgent;
+
+    if (RefPtr gpuCanvasContext = dynamicDowncast<GPUCanvasContext>(context)) {
+        RefPtr device = gpuCanvasContext->device();
+        if (!device)
+            return;
+
+        RefPtr agents = InspectorInstrumentation::instrumentingAgents(protect(device->scriptExecutionContext()));
+        if (!agents)
+            return;
+
+        canvasAgent = agents->enabledCanvasAgent();
+    } else
+        canvasAgent = instrumentingAgents.enabledCanvasAgent();
+
+    if (canvasAgent)
         canvasAgent->didChangeCanvasSize(context);
 }
 
@@ -1283,6 +1357,68 @@ bool InspectorInstrumentation::isWebGLProgramHighlightedImpl(InstrumentingAgents
     return false;
 }
 #endif
+
+void InspectorInstrumentation::didCreateWebGPUDeviceImpl(InstrumentingAgents& instrumentingAgents, GPUDevice& device)
+{
+    if (CheckedPtr canvasAgent = instrumentingAgents.enabledCanvasAgent())
+        canvasAgent->didCreateWebGPUDevice(device);
+}
+
+void InspectorInstrumentation::willDestroyWebGPUDeviceImpl(InstrumentingAgents& instrumentingAgents, GPUDevice& device)
+{
+    if (CheckedPtr canvasAgent = instrumentingAgents.enabledCanvasAgent())
+        canvasAgent->willDestroyWebGPUDevice(device);
+}
+
+void InspectorInstrumentation::didChangeGPUDeviceClientNodesImpl(InstrumentingAgents& instrumentingAgents, GPUDevice& device)
+{
+    if (CheckedPtr canvasAgent = instrumentingAgents.enabledCanvasAgent())
+        canvasAgent->didChangeGPUDeviceClientNodes(device);
+}
+
+void InspectorInstrumentation::didChangeWebGPUMemoryImpl(InstrumentingAgents& instrumentingAgents, GPUDevice& device)
+{
+    if (CheckedPtr canvasAgent = instrumentingAgents.enabledCanvasAgent())
+        canvasAgent->didChangeWebGPUMemory(device);
+}
+
+void InspectorInstrumentation::didCreateWebGPUComputePipelineImpl(InstrumentingAgents& instrumentingAgents, GPUDevice& device, GPUComputePipeline& pipeline)
+{
+    if (CheckedPtr canvasAgent = instrumentingAgents.enabledCanvasAgent())
+        canvasAgent->didCreateWebGPUComputePipeline(device, pipeline);
+}
+
+void InspectorInstrumentation::willDestroyWebGPUComputePipelineImpl(InstrumentingAgents& instrumentingAgents, GPUComputePipeline& pipeline)
+{
+    if (CheckedPtr canvasAgent = instrumentingAgents.enabledCanvasAgent())
+        canvasAgent->willDestroyWebGPUComputePipeline(pipeline);
+}
+
+void InspectorInstrumentation::didCreateWebGPURenderPipelineImpl(InstrumentingAgents& instrumentingAgents, GPUDevice& device, GPURenderPipeline& pipeline)
+{
+    if (CheckedPtr canvasAgent = instrumentingAgents.enabledCanvasAgent())
+        canvasAgent->didCreateWebGPURenderPipeline(device, pipeline);
+}
+
+void InspectorInstrumentation::willDestroyWebGPURenderPipelineImpl(InstrumentingAgents& instrumentingAgents, GPURenderPipeline& pipeline)
+{
+    if (CheckedPtr canvasAgent = instrumentingAgents.enabledCanvasAgent())
+        canvasAgent->willDestroyWebGPURenderPipeline(pipeline);
+}
+
+bool InspectorInstrumentation::isWebGPURenderPipelineDisabledImpl(InstrumentingAgents& instrumentingAgents, GPURenderPipeline& pipeline)
+{
+    if (CheckedPtr canvasAgent = instrumentingAgents.enabledCanvasAgent())
+        return canvasAgent->isWebGPURenderPipelineDisabled(pipeline);
+    return false;
+}
+
+RefPtr<WebGPU::RenderPipeline> InspectorInstrumentation::renderPipelineForWebGPUHighlightingImpl(InstrumentingAgents& instrumentingAgents, GPURenderPipeline& pipeline, unsigned canvasColorAttachmentMask)
+{
+    if (CheckedPtr canvasAgent = instrumentingAgents.enabledCanvasAgent())
+        return canvasAgent->renderPipelineForWebGPUHighlighting(pipeline, canvasColorAttachmentMask);
+    return nullptr;
+}
 
 void InspectorInstrumentation::willApplyKeyframeEffectImpl(InstrumentingAgents& instrumentingAgents, const Styleable& target, KeyframeEffect& effect, const ComputedEffectTiming& computedTiming)
 {
@@ -1422,22 +1558,12 @@ void InspectorInstrumentation::didFireObserverCallbackImpl(InstrumentingAgents& 
 
 void InspectorInstrumentation::registerInstrumentingAgents(InstrumentingAgents& instrumentingAgents)
 {
-    if (!s_instrumentingAgentsSet)
-        s_instrumentingAgentsSet = new HashSet<InstrumentingAgents*>();
-
-    s_instrumentingAgentsSet->add(&instrumentingAgents);
+    instrumentingAgentsSet().add(&instrumentingAgents);
 }
 
 void InspectorInstrumentation::unregisterInstrumentingAgents(InstrumentingAgents& instrumentingAgents)
 {
-    if (!s_instrumentingAgentsSet)
-        return;
-
-    s_instrumentingAgentsSet->remove(&instrumentingAgents);
-    if (s_instrumentingAgentsSet->isEmpty()) {
-        delete s_instrumentingAgentsSet;
-        s_instrumentingAgentsSet = nullptr;
-    }
+    instrumentingAgentsSet().remove(&instrumentingAgents);
 }
 
 InstrumentingAgents& InspectorInstrumentation::instrumentingAgents(const RenderObject& renderer)

@@ -17,6 +17,7 @@ type depConfig struct {
 	bazelNameOverride string // Bazel style uses underscores not dashes, so we fix those if needed.
 	needsBazelFile    bool
 	patches           []string
+	patchArgs         []string
 	patchCmds         []string
 	patchCmdsWin      []string
 	isIndirect        bool // if True, it's used by another dependency, not by Skia directly
@@ -26,7 +27,17 @@ type depConfig struct {
 // They are a subset of those listed in DEPS.
 // The key is the name of the repo as specified in DEPS.
 var depsOverrides = map[string]depConfig{
-	"abseil-cpp":  {bazelNameOverride: "abseil_cpp", isIndirect: true},
+	"abseil-cpp": {
+		bazelNameOverride: "abseil_cpp",
+		isIndirect:        true,
+		patchCmds: []string{
+			"find . -name BUILD.bazel -type f -exec sed -i.bak -e '/do_not_use_for_gloop_visibility_only/d' {} +",
+			"find . -name '*.bak' -type f -delete",
+		},
+		patchCmdsWin: []string{
+			`Get-ChildItem -Recurse -Filter BUILD.bazel | ForEach-Object { $p = $_.FullName; (Get-Content $p) -notmatch 'do_not_use_for_gloop_visibility_only' | Set-Content -Force -Encoding Ascii $p }`,
+		},
+	},
 	"brotli":      {isIndirect: true},
 	"highway":     {isIndirect: true},
 	"spirv-tools": {bazelNameOverride: "spirv_tools"},
@@ -36,6 +47,7 @@ var depsOverrides = map[string]depConfig{
 	"dawn":           {needsBazelFile: true},
 	"delaunator-cpp": {bazelNameOverride: "delaunator", needsBazelFile: true},
 	"dng_sdk":        {needsBazelFile: true},
+	"egl-registry":   {bazelNameOverride: "egl_registry", needsBazelFile: true},
 	"expat": {
 		needsBazelFile: true,
 		patches:        []string{"//bazel/external/expat:config_files.patch"},
@@ -62,15 +74,42 @@ var depsOverrides = map[string]depConfig{
 			"del source/stubdata/BUILD.bazel",
 		},
 	},
-	"icu4x":                    {needsBazelFile: true},
-	"imgui":                    {needsBazelFile: true},
-	"libavif":                  {needsBazelFile: true},
-	"libgav1":                  {needsBazelFile: true},
-	"libjpeg-turbo":            {bazelNameOverride: "libjpeg_turbo", needsBazelFile: true},
-	"libjxl":                   {needsBazelFile: true},
-	"libpng":                   {needsBazelFile: true},
-	"libwebp":                  {needsBazelFile: true},
-	"libyuv":                   {needsBazelFile: true},
+	"icu4x": {needsBazelFile: true},
+	"imgui": {needsBazelFile: true},
+	"jinja2": {
+		needsBazelFile: true,
+		patchCmds: []string{
+			"mkdir tmp_jinja2",
+			"mv * tmp_jinja2 || true",
+			"mv tmp_jinja2 jinja2",
+			"mv jinja2/BUILD.bazel .",
+		},
+	},
+	"libavif":       {needsBazelFile: true},
+	"libgav1":       {needsBazelFile: true},
+	"libjpeg-turbo": {bazelNameOverride: "libjpeg_turbo", needsBazelFile: true},
+	"libjxl": {
+		needsBazelFile: true,
+		patchCmds: []string{
+			"rm -f lib/BUILD tools/BUILD",
+		},
+		patchCmdsWin: []string{
+			"del /f /q lib\\BUILD tools\\BUILD",
+		},
+	},
+	"libpng":  {needsBazelFile: true},
+	"libwebp": {needsBazelFile: true},
+	"libyuv":  {needsBazelFile: true},
+	"markupsafe": {
+		needsBazelFile: true,
+		patchCmds: []string{
+			"mkdir tmp_markupsafe",
+			"mv * tmp_markupsafe || true",
+			"mv tmp_markupsafe markupsafe",
+			"mv markupsafe/BUILD.bazel .",
+		},
+	},
+	"opengl-registry":          {bazelNameOverride: "opengl_registry", needsBazelFile: true},
 	"spirv-cross":              {bazelNameOverride: "spirv_cross", needsBazelFile: true},
 	"perfetto":                 {needsBazelFile: true},
 	"piex":                     {needsBazelFile: true},
@@ -79,6 +118,7 @@ var depsOverrides = map[string]depConfig{
 	"vulkan-tools":             {bazelNameOverride: "vulkan_tools", needsBazelFile: true},
 	"vulkan-utility-libraries": {bazelNameOverride: "vulkan_utility_libraries", needsBazelFile: true},
 	"vulkanmemoryallocator":    {needsBazelFile: true},
+	"d3d12allocator":           {needsBazelFile: true},
 	"wuffs":                    {needsBazelFile: true},
 	"zlib":                     {needsBazelFile: true},
 }
@@ -135,6 +175,7 @@ type repoConfig struct {
 	BuildFile    string   `json:"build_file,omitempty"`
 	Commit       string   `json:"commit"`
 	Name         string   `json:"name"`
+	PatchArgs    []string `json:"patch_args,omitempty"`
 	PatchCmds    []string `json:"patch_cmds,omitempty"`
 	PatchCmdsWin []string `json:"patch_cmds_win,omitempty"`
 	Patches      []string `json:"patches,omitempty"`
@@ -169,6 +210,7 @@ func parseDEPSFile(contents []string) (string, int, error) {
 				rc.Name = cfg.bazelNameOverride
 			}
 			rc.Patches = cfg.patches
+			rc.PatchArgs = cfg.patchArgs
 			rc.PatchCmds = cfg.patchCmds
 			rc.PatchCmdsWin = cfg.patchCmdsWin
 			if cfg.needsBazelFile {

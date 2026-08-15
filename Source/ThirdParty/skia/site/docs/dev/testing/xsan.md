@@ -26,7 +26,7 @@ of Clang and the instrumented libc++, located in /msan.
 
 Downloading Clang binaries (Googlers Only)
 ------------------------------------------
-This requires gsutil, part of the [gcloud sdk](https://cloud.google.com/sdk/downloads).
+This requires the [gcloud sdk](https://cloud.google.com/sdk/downloads).
 
 <!--?prettify lang=sh?-->
 
@@ -66,6 +66,20 @@ Configure and Compile Skia with MSAN
     python3 tools/git-sync-deps
     bin/gn gen out/msan
     ninja -C out/msan
+
+When running `dm` under MSAN, you'll want to include `--nogpu` because MSAN won't have
+instrumented driver memory and such and will flag unrelated issues.
+
+### Symbolizing MSAN Traces
+
+By default, MSan will print hexadecimal addresses in stack traces. To see function names and line
+numbers, you must provide the path to `llvm-symbolizer` via an environment variable.
+
+<!--?prettify lang=sh?-->
+
+    CLANGDIR="${HOME}/clang"
+    export MSAN_SYMBOLIZER_PATH="${CLANGDIR}/bin/llvm-symbolizer"
+    ./out/msan/dm ...
 
 Configure and Compile Skia with ASAN
 ------------------------------------

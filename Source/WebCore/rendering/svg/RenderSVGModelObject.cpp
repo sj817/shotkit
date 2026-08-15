@@ -77,11 +77,28 @@ bool RenderSVGModelObject::requiresLayer() const
         return true;
     if (requiresLayerForSVGIntrinsicReasons())
         return true;
+    // A clip-path container needs a layer (even inside a resource container, which paints through the
+    // same machinery): its layered descendants are painted only by its own paintChildrenInDOMOrderForSVG(),
+    // and without a layer they would be orphaned. A leaf has no descendants and stays layer-free.
+    // Mirrors the transformed-container rule below.
+    if (hasClipPath() && isRenderSVGContainer())
+        return true;
+    // Other renderers inside a resource container are not composited, so the transformed-container rule
+    // below (which exists only to expose the induced transform to RenderLayerCompositor) is unneeded.
+    // paintRendererByApplyingTransformForSVG still dispatches transformed content without a layer.
+    if (isInsideSVGResourceContainer())
+        return false;
     // All transformed containers (not leaves) gain a layer, so the induced transformations are
     // visible to RenderLayerCompositor and the composition code paths.
     if (isTransformed() && isRenderSVGContainer())
         return true;
     return false;
+}
+
+bool RenderSVGModelObject::isInsideSVGResourceContainer() const
+{
+    RefPtr svgElement = dynamicDowncast<SVGElement>(RenderElement::element());
+    return svgElement && svgElement->isInSVGResourceContainer();
 }
 
 void RenderSVGModelObject::updateFromStyle()
@@ -119,9 +136,9 @@ auto RenderSVGModelObject::localRectsForRepaint(RepaintOutlineBounds repaintOutl
     return rects;
 }
 
-auto RenderSVGModelObject::computeVisibleRectsInContainer(const RepaintRects& rects, const RenderLayerModelObject* container, VisibleRectContext context) const -> std::optional<RepaintRects>
+auto RenderSVGModelObject::computeVisibleRectsInContainer(const RepaintRects& rects, const RenderLayerModelObject* container, const VisibleRectContext& context, VisibleRectState state) const -> std::optional<RepaintRects>
 {
-    return computeVisibleRectsInSVGContainer(rects, container, context);
+    return computeVisibleRectsInSVGContainer(rects, container, context, state);
 }
 
 const RenderElement* RenderSVGModelObject::pushMappingToContainer(const RenderLayerModelObject* ancestorToStopAt, RenderGeometryMap& geometryMap) const
@@ -171,6 +188,19 @@ void RenderSVGModelObject::styleDidChange(Style::Difference diff, const Style::C
 {
     RenderLayerModelObject::styleDidChange(diff, oldStyle);
 
+    // A non-layer renderer with a clip-path is an atomic paint boundary, so rebuild the enclosing
+    // layer's DOM-order paint cache when clip-path is added or removed.
+    if (oldStyle && oldStyle->clipPath().isNone() != style().clipPath().isNone()) {
+        if (CheckedPtr layer = enclosingLayer(); layer && layer->isSVGLayer())
+            layer->dirtyChildrenInDOMOrderForSVG();
+    }
+
+    // Invalidate cached transform origin when relevant styles change.
+    if (!oldStyle
+        || oldStyle->transformOrigin() != style().transformOrigin()
+        || oldStyle->usedZoomForLength().value != style().usedZoomForLength().value)
+        invalidateCachedTransformOrigin();
+
     // Invalidate cached visual overflow rect when relevant styles change.
     if (oldStyle && diff >= Style::DifferenceResult::Repaint) {
         auto visualOverflowStyleChanged = [](const Style::ComputedStyle& newStyle, const Style::ComputedStyle& oldStyle) {
@@ -212,6 +242,15 @@ void RenderSVGModelObject::styleDidChange(Style::Difference diff, const Style::C
     bool hasSVGMask = false;
     if (hasSVGMask && hasLayer() && style().usedVisibility() != Visibility::Visible)
         layer()->setHasVisibleContent();
+}
+
+std::optional<FloatPoint3D> RenderSVGModelObject::cachedTransformOriginForReferenceBox(const Style::ComputedStyle& style, const FloatRect& referenceBox) const
+{
+    if (!m_cachedTransformOrigin || m_cachedTransformOriginBox != referenceBox) {
+        m_cachedTransformOrigin = Style::TransformResolver::computeTransformOrigin(style, referenceBox);
+        m_cachedTransformOriginBox = referenceBox;
+    }
+    return m_cachedTransformOrigin;
 }
 
 void RenderSVGModelObject::mapAbsoluteToLocalPoint(OptionSet<MapCoordinatesMode> mode, TransformState& transformState) const
@@ -308,7 +347,7 @@ LayoutSize RenderSVGModelObject::cachedSizeForOverflowClip() const
     return currentSVGLayoutRect().size();
 }
 
-bool RenderSVGModelObject::applyCachedClipAndScrollPosition(RepaintRects& rects, const RenderLayerModelObject* container, VisibleRectContext context) const
+bool RenderSVGModelObject::applyCachedClipAndScrollPosition(RepaintRects& rects, const RenderLayerModelObject* container, const VisibleRectContext& context) const
 {
     // Based on RenderBox::applyCachedClipAndScrollPosition -- unused options removed.
     if (!context.options.contains(VisibleRectContext::Option::ApplyContainerClip) && this == container)
@@ -329,17 +368,25 @@ bool RenderSVGModelObject::applyCachedClipAndScrollPosition(RepaintRects& rects,
     return intersects;
 }
 
-Path RenderSVGModelObject::computeClipPath(AffineTransform& transform) const
+void RenderSVGModelObject::computeClipContentTransform(AffineTransform& transform) const
 {
     if (isTransformed())
         transform.multiply(computeRendererTransform());
 
+    RefPtr useElement = dynamicDowncast<SVGUseElement>(protect(element()));
+    if (!useElement)
+        return;
+
+    if (CheckedPtr clipChildRenderer = useElement->rendererClipChild()) {
+        CheckedRef layerModelObject = downcast<RenderLayerModelObject>(*clipChildRenderer);
+        if (layerModelObject->isTransformed())
+            transform.multiply(layerModelObject->computeRendererTransform());
+    }
+}
+
+Path RenderSVGModelObject::computeClipPathGeometry() const
+{
     if (RefPtr useElement = dynamicDowncast<SVGUseElement>(protect(element()))) {
-        if (CheckedPtr clipChildRenderer = useElement->rendererClipChild()) {
-            CheckedRef layerModelObject = downcast<RenderLayerModelObject>(*clipChildRenderer);
-            if (layerModelObject->isTransformed())
-                transform.multiply(layerModelObject->computeRendererTransform());
-        }
         if (RefPtr clipChild = useElement->clipChild())
             return pathFromGraphicsElement(*clipChild);
     }

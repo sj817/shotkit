@@ -11,12 +11,19 @@
             "enum": [
                 "PrivateClickMeasurementDebugModeEnabled",
                 "AuthorAndUserStylesEnabled",
+                "FixedBackgroundsPaintRelativeToDocument",
+                "FullScreenEnabled",
                 "ICECandidateFilteringEnabled",
                 "ITPDebugModeEnabled",
                 "ImagesEnabled",
+                "InputTypeMonthEnabled",
+                "InputTypeWeekEnabled",
                 "MediaCaptureRequiresSecureConnection",
                 "MockCaptureDevicesEnabled",
                 "NeedsSiteSpecificQuirks",
+                "NotificationsEnabled",
+                "PointerLockEnabled",
+                "PushAPIEnabled",
                 "ScriptEnabled",
                 "ShowDebugBorders",
                 "ShowRepaintCounter",
@@ -208,6 +215,7 @@
         {
             "name": "getResourceContent",
             "description": "Returns content of the given resource.",
+            "async": true,
             "parameters": [
                 { "name": "frameId", "$ref": "Network.FrameId", "description": "Frame id to get resource for." },
                 { "name": "url", "type": "string", "description": "URL of the resource to get content for." }

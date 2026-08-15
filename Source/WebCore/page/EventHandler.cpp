@@ -742,8 +742,11 @@ bool EventHandler::handleMousePressEventDoubleClick(const MouseEventWithHitTestR
 #if ENABLE(DRAG_SUPPORT)
         m_dragStartSelection = getWeakSimpleRangeFromSelection(m_frame->selection().selection());
 #endif
-    } else if (mouseDownMayStartSelect())
+    } else if (mouseDownMayStartSelect() && event.event().inputSource() != MouseEventInputSource::Automation) {
+        // If the event is an Automation event, avoid interfering with the platform text interaction,
+        // which handles selection itself.
         selectClosestWordFromHitTestResult(event.hitTestResult(), shouldAppendTrailingWhitespace(event, protect(m_frame)));
+    }
 
     return true;
 }
@@ -1975,7 +1978,7 @@ std::optional<RemoteUserInputEventData> EventHandler::userInputEventDataForRemot
 
     return RemoteUserInputEventData {
         remoteFrame->frameID(),
-        remoteFrameView->rootViewToContents(frameView->contentsToRootView(pointInFrame))
+        remoteFrameView->convertFromRootView(frameView->contentsToRootView(pointInFrame))
     };
 }
 
@@ -1998,7 +2001,8 @@ std::optional<RemoteFrameGeometryTransformer> EventHandler::geometryTransformerF
 static Scrollbar* scrollbarForMouseEvent(const MouseEventWithHitTestResults& mouseEvent, LocalFrameView* view)
 {
     if (view) {
-        if (auto* scrollbar = view->scrollbarAtPoint(flooredIntPoint(mouseEvent.event().position())))
+        const auto tolerance = mouseEvent.event().inputSource() == MouseEventInputSource::Automation ? ScrollbarHitTestTolerance::Expanded : ScrollbarHitTestTolerance::None;
+        if (auto* scrollbar = view->scrollbarAtPoint(flooredIntPoint(mouseEvent.event().position()), tolerance))
             return scrollbar;
     }
     return mouseEvent.scrollbar();
@@ -3408,8 +3412,9 @@ bool EventHandler::dispatchMouseEvent(const AtomString& eventType, Node* targetN
     // Form control elements are not mouse focusable on some platforms (see HTMLFormControlElement::isMouseFocusable())
     // which makes us behave differently than other browsers when a button is clicked,
     // because the button is not actually focused so we don't set the latest FocusTrigger.
-    if (!element && m_elementUnderMouse) {
-        for (RefPtr ancestor = m_elementUnderMouse.get(); ancestor; ancestor = ancestor->parentElementInComposedTree()) {
+    if (m_elementUnderMouse) {
+        // Stop at element: setFocusedElement records the trigger for it, unless it is already focused.
+        for (RefPtr ancestor = m_elementUnderMouse.get(); ancestor && ancestor != element; ancestor = ancestor->parentElementInComposedTree()) {
             if (is<HTMLFormControlElement>(*ancestor) && !ancestor->isMouseFocusable()) {
                 frame->document()->setLatestFocusTrigger(FocusTrigger::Click);
                 break;
@@ -4185,8 +4190,11 @@ bool EventHandler::keyEvent(const PlatformKeyboardEvent& keyEvent)
             if (page)
                 page->setUserDidInteractWithPage(savedUserDidInteractWithPage);
             document->updateLastHandledUserGestureTimestamp(savedLastHandledUserGestureTimestamp);
-        } else
+        } else {
             ResourceLoadObserver::singleton().logUserInteractionWithReducedTimeResolution(*document);
+            if (page)
+                page->didObserveFirstPartyUserGesture();
+        }
     }
 
     return wasHandled;

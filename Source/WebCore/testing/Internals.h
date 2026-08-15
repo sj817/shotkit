@@ -244,6 +244,7 @@ public:
 
     bool isPreloaded(const String& url);
     bool isLoadingFromMemoryCache(const String& url);
+    ExceptionOr<bool> frameNetworkingContextIsValid() const;
     String fetchResponseSource(FetchResponse&);
     String xhrResponseSource(XMLHttpRequest&);
     bool NODELETE isSharingStyleSheetContents(HTMLLinkElement&, HTMLLinkElement&);
@@ -382,6 +383,7 @@ public:
 #endif
 
     Ref<DOMRect> boundingBox(Element&);
+    Ref<DOMRect> boundingBoxInRootViewCoordinates(Element&);
 
     ExceptionOr<Ref<DOMRectList>> inspectorHighlightRects();
     ExceptionOr<unsigned> inspectorGridOverlayCount();
@@ -540,6 +542,7 @@ public:
     void setCachedFindMatchBufferLimitForTesting(unsigned maximumRunCount);
 #if ENABLE(VIDEO)
     ExceptionOr<Vector<double>> findCueMatches(const String&, const Vector<String>& findOptions);
+    void clearFindCaptionTracks();
 #endif
 
     unsigned numberOfScrollableAreas();
@@ -790,6 +793,9 @@ public:
     String toolTipFromElement(Element&) const;
 
     void forceAXObjectCacheUpdate() const;
+    void setAccessibilityAnnouncementTranslationTimeout(double seconds);
+    unsigned liveRegionSnapshotBuildCount() const;
+    void resetLiveRegionSnapshotBuildCount() const;
     void setShouldMockParentSearchResultsForTesting(bool);
     void setShouldMockChildFrameSearchResultsForTesting(bool);
     void forceReload(bool endToEnd);
@@ -860,6 +866,7 @@ public:
 
     bool NODELETE elementShouldBufferData(HTMLMediaElement&);
     String elementBufferingPolicy(HTMLMediaElement&);
+    String elementPreferredBufferingPolicy(HTMLMediaElement&);
     void setMediaElementBufferingPolicy(HTMLMediaElement&, const String&);
     double privatePlayerVolume(const HTMLMediaElement&);
     bool privatePlayerMuted(const HTMLMediaElement&);
@@ -1687,6 +1694,12 @@ public:
     bool NODELETE isModelElementIntersectingViewport(HTMLModelElement&);
 #endif
 
+#if ENABLE(SPATIAL_PORTAL)
+    unsigned NODELETE numberOfHostedModelsInSpatialPortal(Element&);
+    bool NODELETE establishesSpatialPortal(Element&);
+    std::optional<Vector<double>> NODELETE spatialPortalResolvedTransform(Element&);
+#endif
+
     ExceptionOr<void> copyImageAtLocation(int x, int y);
 
     bool NODELETE hasMediaSessionManager() const;
@@ -1722,7 +1735,7 @@ private:
     ExceptionOr<RenderedDocumentMarker*> markerAt(Node&, const String& markerType, unsigned index);
     ExceptionOr<ScrollableArea*> scrollableAreaForNode(Node*) const;
 
-#if ENABLE(IMAGE_ANALYSIS_ENHANCEMENTS)
+#if ENABLE(IMAGE_ANALYSIS)
     static RetainPtr<VKCImageAnalysis> fakeImageAnalysisResultForTesting(const Vector<ImageOverlayLine>&);
 #endif
 

@@ -1,6 +1,6 @@
 /*
  * Copyright (C) 2010 Google Inc. All rights reserved.
- * Copyright (C) 2020 Apple Inc. All rights reserved.
+ * Copyright (C) 2020-2026 Apple Inc. All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
  * modification, are permitted provided that the following conditions
@@ -219,8 +219,11 @@ bool AudioBufferSourceNode::renderFromBuffer(AudioBus& bus, unsigned destination
 
     // Avoid converting from time to sample-frames twice by computing
     // the grain end time first before computing the sample frame.
+    // When looping, playback is bounded by the loop points below (and stopped
+    // via m_endTime for a grain), so the grain duration must not clamp maxFrame
+    // here; otherwise a loopStart past the grain end collapses the loop range.
     unsigned maxFrame;
-    if (m_isGrain)
+    if (m_isGrain && !m_isLooping)
         maxFrame = AudioUtilities::timeToSampleFrame(m_grainOffset + m_grainDuration, bufferSampleRate);
     else
         maxFrame = bufferLength;
@@ -352,10 +355,10 @@ bool AudioBufferSourceNode::renderFromBuffer(AudioBus& bus, unsigned destination
         virtualReadIndex = readIndex;
     } else if (reverse) {
         unsigned maxFrame = static_cast<unsigned>(virtualMaxFrame);
-        unsigned minFrame = static_cast<unsigned>(floorf(virtualMinFrame));
+        unsigned minFrame = static_cast<unsigned>(std::floor(virtualMinFrame));
 
         while (framesToProcess--) {
-            unsigned readIndex = static_cast<unsigned>(floorf(virtualReadIndex));
+            unsigned readIndex = static_cast<unsigned>(std::floor(virtualReadIndex));
             float interpolationFactor = virtualReadIndex - readIndex;
 
             unsigned readIndex2 = readIndex + 1;
@@ -458,7 +461,7 @@ ExceptionOr<void> AudioBufferSourceNode::setBufferForBindings(RefPtr<AudioBuffer
 
     if (buffer && m_wasBufferSet)
         return Exception { ExceptionCode::InvalidStateError, "The buffer was already set"_s };
-    
+
     if (buffer) {
         m_wasBufferSet = true;
 
@@ -466,17 +469,20 @@ ExceptionOr<void> AudioBufferSourceNode::setBufferForBindings(RefPtr<AudioBuffer
         unsigned numberOfChannels = buffer->numberOfChannels();
         ASSERT(numberOfChannels <= AudioContext::maxNumberOfChannels);
 
-        protect(output(0))->setNumberOfChannels(numberOfChannels);
-
         m_sourceChannels = FixedVector<std::span<const float>>(numberOfChannels);
         m_destinationChannels = FixedVector<std::span<float>>(numberOfChannels);
 
-        for (unsigned i = 0; i < numberOfChannels; ++i) 
+        for (unsigned i = 0; i < numberOfChannels; ++i)
             m_sourceChannels[i] = buffer->channelData(i)->typedSpan();
+    } else {
+        m_sourceChannels = { };
+        m_destinationChannels = { };
     }
 
     m_virtualReadIndex = 0;
     m_buffer = WTF::move(buffer);
+
+    updateOutputChannelCount();
 
     // In case the buffer gets set after playback has started, we need to clamp the grain parameters now.
     if (m_isGrain)
@@ -485,6 +491,25 @@ ExceptionOr<void> AudioBufferSourceNode::setBufferForBindings(RefPtr<AudioBuffer
     acquireBufferContent();
 
     return { };
+}
+
+// https://webaudio.github.io/web-audio-api/#AudioNode-actively-processing
+// https://webaudio.github.io/web-audio-api/#AudioBufferSourceNode
+void AudioBufferSourceNode::updateOutputChannelCount()
+{
+    ASSERT(isMainThread());
+    ASSERT(m_processLock.isHeld());
+    ASSERT(context().isGraphOwner());
+
+    unsigned numberOfChannels = 1;
+    if (m_buffer && isPlayingOrScheduled())
+        numberOfChannels = m_buffer->numberOfChannels();
+
+    ASSERT(numberOfChannels <= AudioContext::maxNumberOfChannels);
+    if (numberOfChannels == output(0)->numberOfChannels())
+        return;
+
+    protect(output(0))->setNumberOfChannels(numberOfChannels);
 }
 
 unsigned AudioBufferSourceNode::numberOfChannels()
@@ -537,8 +562,12 @@ ExceptionOr<void> AudioBufferSourceNode::startPlaying(double when, double grainO
 
     context().sourceNodeWillBeginPlayback(*this);
 
-    // This synchronizes with process().
+    // This synchronizes with process(), it is important to acquire the processLock before the
+    // graphLock to avoid a deadlock given that this is the order process() acquires the locks in.
     Locker locker { m_processLock };
+
+    // Changing the number of output channels below re-configures the graph.
+    Locker contextLocker { context().graphLock() };
 
     m_isGrain = true;
     m_grainOffset = grainOffset;
@@ -553,6 +582,9 @@ ExceptionOr<void> AudioBufferSourceNode::startPlaying(double when, double grainO
 
     acquireBufferContent();
     m_playbackState = SCHEDULED_STATE;
+
+    // The node is now playing, so the output takes the buffer's channel count.
+    updateOutputChannelCount();
 
     return { };
 }

@@ -95,6 +95,7 @@
 #include "LLIntExceptions.h"
 #include "MarkedBlockInlines.h"
 #include "MegamorphicCache.h"
+#include "MicrotaskCall.h"
 #include "MicrotaskQueueInlines.h"
 #include "MinimumReservedZoneSize.h"
 #include "ModuleGraphLoadingStateInlines.h"
@@ -124,6 +125,7 @@
 #include "SideDataRepository.h"
 #include "SimpleTypedArrayController.h"
 #include "SourceProviderCache.h"
+#include "StringSplitCache.h"
 #include "StrongInlines.h"
 #include "StructureChainInlines.h"
 #include "StructureInlines.h"
@@ -270,6 +272,7 @@ VM::VM(VMType vmType, HeapType heapType, WTF::RunLoop* runLoop, bool* success)
 #endif
     , m_regExpCache(makeUnique<RegExpCache>())
     , m_compactVariableMap(adoptRef(*new CompactTDZEnvironmentMap))
+    , m_syncResumeCallCache(makeUniqueRef<MicrotaskCallCache>())
     , m_codeCache(makeUnique<CodeCache>())
     , m_intlCache(makeUnique<IntlCache>())
     , m_builtinExecutables(makeUnique<BuiltinExecutables>(*this))
@@ -287,6 +290,10 @@ VM::VM(VMType vmType, HeapType heapType, WTF::RunLoop* runLoop, bool* success)
 
         m_megamorphicCache.initLater([](VM&, auto& ref) {
             ref.set(makeUniqueRef<MegamorphicCache>());
+        });
+
+        m_stringSplitCache.initLater([](VM&, auto& ref) {
+            ref.set(makeUniqueRef<StringSplitCache>());
         });
 
         m_shadowChicken.initLater([](VM&, auto& ref) {
@@ -316,6 +323,16 @@ VM::VM(VMType vmType, HeapType heapType, WTF::RunLoop* runLoop, bool* success)
 
     // Need to be careful to keep everything consistent here
     JSLockHolder lock(this);
+
+    // A VM interns on the order of two thousand identifiers while starting up: CommonIdentifiers,
+    // BuiltinNames, SmallStrings, and whatever the embedder adds on top. On a fresh thread the table
+    // starts empty and rehashes its way up to that size, so size it once up front instead. Only when
+    // it is still empty, so a thread that already has atoms keeps whatever it has grown to.
+    if (m_atomStringTable->table().isEmpty()) {
+        m_atomStringTable->table().clear();
+        m_atomStringTable->table().reserveInitialCapacity(2048);
+    }
+
     AtomStringTable* existingEntryAtomStringTable = Thread::currentSingleton().setCurrentAtomStringTable(m_atomStringTable);
     structureStructure.setWithoutWriteBarrier(Structure::createStructure(*this));
     structureRareDataStructure.setWithoutWriteBarrier(StructureRareData::createStructure(*this, nullptr, jsNull()));
@@ -397,6 +414,7 @@ WTF_ALLOW_UNSAFE_BUFFER_USAGE_END
         m_fastSetValuesSentinel.setWithoutWriteBarrier(JSSentinel::create(*this, sentinelStructure));
         m_fastSetEntriesSentinel.setWithoutWriteBarrier(JSSentinel::create(*this, sentinelStructure));
         m_fastStringValuesSentinel.setWithoutWriteBarrier(JSSentinel::create(*this, sentinelStructure));
+        m_fastAsyncGeneratorSentinel.setWithoutWriteBarrier(JSSentinel::create(*this, sentinelStructure));
     }
 
     // Eagerly initialize constant cells since the concurrent compiler can access them.
@@ -802,12 +820,16 @@ static ThunkGenerator NODELETE thunkGeneratorForIntrinsic(Intrinsic intrinsic)
         return logThunkGenerator;
     case IMulIntrinsic:
         return imulThunkGenerator;
+#if CPU(ARM64)
+    case MaxIntrinsic:
+        return maxThunkGenerator;
+    case MinIntrinsic:
+        return minThunkGenerator;
+#endif
     case RandomIntrinsic:
         return randomThunkGenerator;
-#if USE(JSVALUE64)
     case ObjectIsIntrinsic:
         return objectIsThunkGenerator;
-#endif
     case BoundFunctionCallIntrinsic:
         return boundFunctionCallGenerator;
     case RemoteFunctionCallIntrinsic:
@@ -838,7 +860,7 @@ MacroAssemblerCodeRef<JITThunkPtrTag> VM::getCTIStub(ThunkGenerator generator)
 
 MacroAssemblerCodeRef<JITThunkPtrTag> VM::getCTIStub(CommonJITThunkID thunkID)
 {
-    return jitStubs->ctiStub(thunkID);
+    return jitStubs->ctiStub(*this, thunkID);
 }
 
 #endif // ENABLE(JIT)
@@ -1252,7 +1274,8 @@ void VM::pushCheckpointOSRSideState(std::unique_ptr<CheckpointOSRExitSideState>&
     m_checkpointSideState.append(WTF::move(payload));
 
 #if ASSERT_ENABLED
-    auto bounds = StackBounds::currentThreadStackBounds();
+    const auto& bounds = Thread::currentSingleton().stack();
+    ASSERT(bounds.contains(currentStackPointer()));
     void* previousCallFrame = bounds.end();
     for (size_t i = m_checkpointSideState.size(); i--;) {
         auto* callFrame = m_checkpointSideState[i]->associatedCallFrame;
@@ -1275,7 +1298,7 @@ std::unique_ptr<CheckpointOSRExitSideState> VM::popCheckpointOSRSideState(CallFr
 void VM::popAllCheckpointOSRSideStateUntil(CallFrame* target)
 {
     ASSERT(currentThreadIsHoldingAPILock());
-    auto bounds = StackBounds::currentThreadStackBounds().withSoftOrigin(target);
+    auto bounds = Thread::currentSingleton().stack().withSoftOrigin(target);
     ASSERT(bounds.contains(target));
 
     // We have to worry about migrating from another thread since there may be no checkpoints in our thread but one in the other threads.
@@ -1736,6 +1759,11 @@ NativeExecutable* VM::promiseAnySlowRejectFunctionExecutableSlow()
     return executable;
 }
 
+bool VM::hasLanguageChange()
+{
+    return m_intlCache->hasLanguageChange();
+}
+
 void VM::executeEntryScopeServicesOnEntry()
 {
     if (hasEntryScopeServiceRequest(EntryScopeService::FirePrimitiveGigacageEnabled)) [[unlikely]] {
@@ -1743,8 +1771,13 @@ void VM::executeEntryScopeServicesOnEntry()
         clearEntryScopeService(EntryScopeService::FirePrimitiveGigacageEnabled);
     }
 
-    if (dateCache.hasTimeZoneChange()) [[unlikely]]
+    if (dateCache.hasTimeZoneChange()) [[unlikely]] {
+        intlCache().clearForTimeZoneChange();
         dateCache.clearForTimeZoneChange();
+    }
+
+    if (intlCache().hasLanguageChange()) [[unlikely]]
+        intlCache().clearForLanguageChange();
 
     RefPtr watchdog = this->watchdog();
     if (watchdog) [[unlikely]]
@@ -1848,6 +1881,11 @@ void VM::beginMarking()
     });
 }
 
+void VM::reconcileWeakReferencesAtGCEnd()
+{
+    m_syncResumeCallCache->reconcileWeakReferencesAtGCEnd(*this);
+}
+
 template<typename Visitor>
 void VM::visitAggregateImpl(Visitor& visitor)
 {
@@ -1929,6 +1967,7 @@ void VM::visitAggregateImpl(Visitor& visitor)
     visitor.append(m_fastSetValuesSentinel);
     visitor.append(m_fastSetEntriesSentinel);
     visitor.append(m_fastStringValuesSentinel);
+    visitor.append(m_fastAsyncGeneratorSentinel);
     visitor.append(m_cachedSortScratch);
     visitor.append(m_sortScratchSentinel);
     visitor.append(m_fastCanConstructBoundExecutable);
@@ -1967,7 +2006,7 @@ void VM::removeDebugger(Debugger& debugger)
     m_debuggers.remove(&debugger);
 }
 
-void VM::performOpportunisticallyScheduledTasks(MonotonicTime deadline, OptionSet<SchedulerOptions> options)
+void VM::performOpportunisticallyScheduledTasks(ApproximateTime deadline, OptionSet<SchedulerOptions> options)
 {
     constexpr bool verbose = false;
 

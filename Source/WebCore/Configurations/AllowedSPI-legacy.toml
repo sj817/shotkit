@@ -69,37 +69,22 @@ selectors = [
 requires = ["!HAVE_LINK_PRESENTATION_CHANGE_FOR_RADAR_115801517"]
 
 [[legacy]]
-classes = [
-    "NSTextTable",
-    "NSTextTableBlock",
-]
-selectors = [
-    { name = "columnSpan", class = "?" },
-    { name = "initWithTable:startingRow:rowSpan:startingColumn:columnSpan:", class = "?" },
-    { name = "rowSpan", class = "?" },
-    { name = "setCollapsesBorders:", class = "?" },
-    { name = "setHidesEmptyCells:", class = "?" },
-    { name = "setLayoutAlgorithm:", class = "?" },
-    { name = "setTextBlocks:", class = "?" },
-    { name = "setValue:type:forDimension:", class = "?" },
-    { name = "startingColumn", class = "?" },
-    { name = "table", class = "?" },
-    { name = "textBlocks", class = "?" },
-    { name = "startingRow", class = "?" },
-    { name = "setVerticalAlignment:", class = "NSTextBlock" },
-    { name = "collapsesBorders", class = "?" },
-    { name = "hidesEmptyCells", class = "?" },
-    { name = "layoutAlgorithm", class = "?" },
-    { name = "valueForDimension:", class = "?" },
-    { name = "verticalAlignment", class = "?" },
-]
-requires-sdk = ["iOS <= 26.*"]
-
-[[legacy]]
 symbols = [
     "kCTFontDescriptorLanguageAttribute",
 ]
 requires-sdk = ["iOS <= 26.4"]
+
+[[legacy]]
+selectors = [
+    { name = "addData:", class = "?" },
+    { name = "dataComplete", class = "?" },
+    { name = "filterState", class = "?" },
+    { name = "initWithResponse:", class = "?" },
+    { name = "isManagedSession", class = "?" },
+    { name = "setBrowserAuditToken:", class = "?" },
+    { name = "unblockWithCompletion:", class = "?" },
+]
+requires = ["!HAVE_WEBCONTENTRESTRICTIONS", "HAVE_WEBCONTENTANALYSIS_FRAMEWORK"]
 
 # ------------------------------------------------------------------------
 # Below are uncategorized and unconditionally used SPI introduced in older
@@ -109,6 +94,7 @@ requires-sdk = ["iOS <= 26.4"]
 [[legacy]]
 selectors = [
     { name = "borderColorForEdge:", class = "?" },
+    { name = "webPlayerLayer", class = "?" },
     { name = "transferVideoViewTo:", class = "?" },
     { name = "widthForLayer:edge:", class = "?" },
 ]

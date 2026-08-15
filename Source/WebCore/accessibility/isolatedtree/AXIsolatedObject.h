@@ -109,6 +109,9 @@ public:
         return runs && runs->size();
     }
     TextEmissionBehavior textEmissionBehavior() const final;
+    bool isReplacedElementForTextEmission() const final { return boolAttributeValue(AXProperty::IsReplacedElementForTextEmission); }
+    bool isInUserAgentShadowTree() const final { return boolAttributeValue(AXProperty::IsInUserAgentShadowTree); }
+    bool isCollapsedTrailingLineBreak() const final { return boolAttributeValue(AXProperty::IsCollapsedTrailingLineBreak); }
     AXTextRunLineID listMarkerLineID() const final { return propertyValue<AXTextRunLineID>(AXProperty::ListMarkerLineID); };
     String listMarkerText() const final { return stringAttributeValue(AXProperty::ListMarkerText); }
     FontOrientation fontOrientation() const final { return propertyValue<FontOrientation>(AXProperty::FontOrientation); }
@@ -414,6 +417,7 @@ private:
 #endif
     std::optional<AccessibilityOrientation> explicitOrientation() const { return optionalAttributeValue<AccessibilityOrientation>(AXProperty::ExplicitOrientation); }
     unsigned ariaLevel() const final { return unsignedAttributeValue(AXProperty::ARIALevel); }
+    bool hasExplicitGroupRole() const final { return boolAttributeValue(AXProperty::HasExplicitGroupRole); }
     unsigned computedHeadingLevel() const final { return unsignedAttributeValue(AXProperty::HeadingLevel); }
     String language() const final { return stringAttributeValue(AXProperty::Language); }
     void setSelectedChildren(const AccessibilityChildrenVector&) final;
@@ -444,6 +448,9 @@ private:
     // CharacterRange support.
     CharacterRange selectedTextRange() const final { return propertyValue<CharacterRange>(AXProperty::SelectedTextRange); }
     int insertionPointLineNumber() const final;
+#if ENABLE(WRITING_TOOLS)
+    bool writingToolsAvailable() const final { return tree().writingToolsAvailable(); }
+#endif // ENABLE(WRITING_TOOLS)
     CharacterRange doAXRangeForLine(unsigned) const final;
     String doAXStringForRange(const CharacterRange&) const final;
     CharacterRange characterRangeForPoint(const IntPoint&) const final;

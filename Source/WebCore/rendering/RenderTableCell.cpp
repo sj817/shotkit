@@ -418,7 +418,7 @@ void RenderTableCell::layout()
     // FIXME: This value isn't the intrinsic content logical height, but we need
     // to update the value as its used by flexbox layout. crbug.com/367324
     if (CheckedPtr flexContainer = dynamicDowncast<RenderFlexibleBox>(parent()))
-        flexContainer->setFlexItemContentLogicalHeightIfNeeded(*this, contentBoxLogicalHeight());
+        flexContainer->setFlexItemContentLogicalHeightFromLayout(*this, contentBoxLogicalHeight());
 
     setCellWidthChanged(false);
 }
@@ -605,13 +605,13 @@ LayoutUnit RenderTableCell::containingBlockLogicalWidthForContent() const
     return totalWidth;
 }
 
-auto RenderTableCell::computeVisibleRectsInContainer(const RepaintRects& rects, const RenderLayerModelObject* container, VisibleRectContext context) const -> std::optional<RepaintRects>
+auto RenderTableCell::computeVisibleRectsInContainer(const RepaintRects& rects, const RenderLayerModelObject* container, const VisibleRectContext& context, VisibleRectState state) const -> std::optional<RepaintRects>
 {
     if (container == this)
         return rects;
 
     auto adjustedRects = rects;
-    return RenderBlockFlow::computeVisibleRectsInContainer(adjustedRects, container, context);
+    return RenderBlockFlow::computeVisibleRectsInContainer(adjustedRects, container, context, state);
 }
 
 LayoutUnit RenderTableCell::cellBaselinePosition() const

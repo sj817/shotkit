@@ -65,6 +65,8 @@ void collectCustomPropertyNames(const MQ::Feature& feature, HashSet<AtomString>&
             names.add(name);
 
         // var() references, at any nesting depth.
+        // FIXME: This only sees literal names. A name that comes from substitution, e.g.
+        // var(var(--name)), leaves the indirectly named property uncollected and so unwatched.
         for (size_t i = 0; i < tokens.size(); ++i) {
             if (tokens[i].type() != FunctionToken || tokens[i].functionId() != CSSValueVar)
                 continue;
@@ -97,15 +99,26 @@ void collectCustomPropertyNames(const MQ::Feature& feature, HashSet<AtomString>&
         collectFromValue(feature.rightComparison->value);
 }
 
+void serialize(StringBuilder& builder, const ContainerCondition& condition)
+{
+    auto name = condition.name;
+    // No-op if empty.
+    serializeIdentifier(builder, name);
+
+    StringBuilder conditionString;
+    serialize(conditionString, condition.condition);
+
+    // If the name and condition are both non-empty, put a space in-between to separate them.
+    if (!name.isEmpty() && !conditionString.isEmpty())
+        builder.append(' ');
+
+    // No-op if empty.
+    builder.append(conditionString);
+}
+
 void serialize(StringBuilder& builder, const ContainerQuery& query)
 {
-    auto name = query.name;
-    if (!name.isEmpty()) {
-        serializeIdentifier(builder, name);
-        builder.append(' ');
-    }
-
-    serialize(builder, query.condition);
+    builder.append(interleave(query, CQ::serialize, ", "_s));
 }
 
 }

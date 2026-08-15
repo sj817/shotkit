@@ -11,8 +11,8 @@
 #include "include/core/SkColor.h"
 #include "include/core/SkRefCnt.h"
 #include "include/gpu/vk/VulkanTypes.h"
-#include "include/private/base/SkAssert.h"
-#include "include/private/base/SkMath.h"
+#include "include/private/SkAssert.h"
+#include "include/private/SkMath.h"
 #include "include/private/gpu/vk/SkiaVulkan.h"
 #include "src/gpu/SkSLToBackend.h"
 #include "src/sksl/codegen/SkSLSPIRVCodeGenerator.h"
@@ -374,8 +374,8 @@ void InvokeDeviceLostCallback(const skgpu::VulkanInterface* vulkanInterface,
 
 sk_sp<skgpu::VulkanInterface> MakeInterface(const skgpu::VulkanBackendContext&,
                                             const skgpu::VulkanExtensions* extOverride,
-                                            uint32_t* physDevVersionOut,
-                                            uint32_t* instanceVersionOut);
+                                            uint32_t* instanceVersionOut,
+                                            uint32_t* physDevVersionOut);
 
 }  // namespace skgpu
 

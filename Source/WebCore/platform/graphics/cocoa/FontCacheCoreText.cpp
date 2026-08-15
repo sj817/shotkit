@@ -601,7 +601,7 @@ static std::optional<SpecialCaseFontLookupResult> fontDescriptorWithFamilySpecia
         return { { adoptCF(CTFontDescriptorCreateLastResort()), FontTypeForPreparation::NonSystemFont } };
 
     if (equalLettersIgnoringASCIICase(family, "-apple-system-monospaced-numbers"_s)) {
-        auto systemFontDescriptor = UnrealizedCoreTextFont { adoptCF(CTFontDescriptorCreateForUIType(kCTFontUIFontSystem, size, nullptr)) };
+        auto systemFontDescriptor = UnrealizedCoreTextFont { adoptCF(CTFontDescriptorCreateForUIType(kCTFontUIFontSystem, size, fontDescription.computedLocale().string().createCFString().get())) };
         systemFontDescriptor.modify([](CFMutableDictionaryRef attributes) {
             int numberSpacingType = kNumberSpacingType;
             int monospacedNumbersSelector = kMonospacedNumbersSelector;
@@ -738,7 +738,7 @@ std::unique_ptr<FontPlatformData> FontCache::createFontPlatformData(const FontDe
 
     auto [syntheticBold, syntheticOblique] = computeNecessarySynthesis(font.get(), fontDescription, options).boldObliquePair();
 
-    FontPlatformData platformData(font.get(), size, syntheticBold, syntheticOblique, fontDescription.orientation(), fontDescription.widthVariant(), fontDescription.textRenderingMode());
+    FontPlatformData platformData(font.get(), size, syntheticBold, syntheticOblique, fontDescription.orientation(), fontDescription.widthVariant(), fontDescription.textRenderingMode(), fontCreationContext.metricsOverrides());
 
     platformData.updateSizeWithFontSizeAdjust(fontDescription.fontSizeAdjust(), fontDescription.computedSize());
     return makeUnique<FontPlatformData>(platformData);
@@ -746,13 +746,9 @@ std::unique_ptr<FontPlatformData> FontCache::createFontPlatformData(const FontDe
 
 void FontCache::platformPurgeInactiveFontData()
 {
-    Vector<CTFontRef> toRemove;
-    for (auto& font : m_fallbackFonts) {
-        if (CFGetRetainCount(font.get()) == 1)
-            toRemove.append(font.get());
-    }
-    for (auto& font : toRemove)
-        m_fallbackFonts.remove(font);
+    m_fallbackFonts.removeIf([](auto& font) {
+        return CFGetRetainCount(font.get()) == 1;
+    });
 
     m_databaseAllowingUserInstalledFonts.clear();
     m_databaseDisallowingUserInstalledFonts.clear();
@@ -835,7 +831,7 @@ RefPtr<Font> FontCache::systemFallbackForCharacterCluster(const FontDescription&
     RefPtr<const FontCustomPlatformData> customPlatformData = nullptr;
     if (safeCFEqual(ctFont.get(), substituteFont.get()))
         customPlatformData = platformData.customPlatformData();
-    FontPlatformData alternateFont(substituteFont.get(), platformData.size(), syntheticBold, syntheticOblique, platformData.orientation(), platformData.widthVariant(), platformData.textRenderingMode(), customPlatformData.get());
+    FontPlatformData alternateFont(substituteFont.get(), platformData.size(), syntheticBold, syntheticOblique, platformData.orientation(), platformData.widthVariant(), platformData.textRenderingMode(), platformData.metricsOverrides(), customPlatformData.get());
 
     return fontForPlatformData(alternateFont);
 }

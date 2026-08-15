@@ -533,6 +533,16 @@ TextStream& operator<<(TextStream& ts, FieldSizing sizing)
     return ts;
 }
 
+TextStream& operator<<(TextStream& ts, BaselineSource source)
+{
+    switch (source) {
+    case BaselineSource::Auto: ts << "auto"_s; break;
+    case BaselineSource::First: ts << "first"_s; break;
+    case BaselineSource::Last: ts << "last"_s; break;
+    }
+    return ts;
+}
+
 TextStream& operator<<(TextStream& ts, FillAttachment attachment)
 {
     switch (attachment) {
@@ -976,7 +986,7 @@ TextStream& operator<<(TextStream& ts, RubyOverhang overhang)
 {
     switch (overhang) {
     case RubyOverhang::Auto: ts << "auto"_s; break;
-    case RubyOverhang::None: ts << "none"_s; break;
+    case RubyOverhang::Spaces: ts << "spaces"_s; break;
     }
     return ts;
 }
@@ -1037,6 +1047,24 @@ TextStream& operator<<(TextStream& ts, TableLayoutType layoutType)
     switch (layoutType) {
     case TableLayoutType::Auto: ts << "Auto"_s; break;
     case TableLayoutType::Fixed: ts << "Fixed"_s; break;
+    }
+    return ts;
+}
+
+TextStream& operator<<(TextStream& ts, SpatialType spatial)
+{
+    switch (spatial) {
+    case SpatialType::None: ts << "None"_s; break;
+    case SpatialType::Portal: ts << "Portal"_s; break;
+    }
+    return ts;
+}
+
+TextStream& operator<<(TextStream& ts, PortalActionType portalAction)
+{
+    switch (portalAction) {
+    case PortalActionType::None: ts << "None"_s; break;
+    case PortalActionType::Orbit: ts << "Orbit"_s; break;
     }
     return ts;
 }
@@ -1159,6 +1187,15 @@ TextStream& operator<<(TextStream& ts, TextWrapStyle style)
     return ts;
 }
 
+TextStream& operator<<(TextStream& ts, WrapInside wrapInside)
+{
+    switch (wrapInside) {
+    case WrapInside::Auto: ts << "auto"_s; break;
+    case WrapInside::Avoid: ts << "avoid"_s; break;
+    }
+    return ts;
+}
+
 TextStream& operator<<(TextStream& ts, TextBoxTrim textBoxTrim)
 {
     switch (textBoxTrim) {
@@ -1258,6 +1295,7 @@ TextStream& operator<<(TextStream& ts, UserModify userModify)
 TextStream& operator<<(TextStream& ts, UserSelect userSelect)
 {
     switch (userSelect) {
+    case UserSelect::Auto: ts << "auto"_s; break;
     case UserSelect::None: ts << "none"_s; break;
     case UserSelect::Text: ts << "text"_s; break;
     case UserSelect::All: ts << "all"_s; break;

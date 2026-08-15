@@ -45,6 +45,7 @@
 #include <wtf/SmallSet.h>
 #include <wtf/TZoneMalloc.h>
 #include <wtf/WeakRandom.h>
+#include <wtf/text/ASCIILiteral.h>
 
 namespace JSC {
 
@@ -74,7 +75,7 @@ typedef SharedTask<WasmBoundsCheckGeneratorFunction> WasmBoundsCheckGenerator;
 typedef void PrologueGeneratorFunction(CCallHelpers&, Code&);
 typedef SharedTask<PrologueGeneratorFunction> PrologueGenerator;
 
-extern const char* const tierName;
+inline constexpr ASCIILiteral tierName { "Air "_s };
 
 // This is an IR that is very close to the bare metal. It requires about 40x more bytes than the
 // generated machine code - for example if you're generating 1MB of machine code, you need about
@@ -362,9 +363,6 @@ public:
 
     std::unique_ptr<GenerateAndAllocateRegisters> m_generateAndAllocateRegisters;
 
-    void setForceIRCRegisterAllocation() { m_forceIRC = true; }
-    bool forceIRCRegisterAllocation() { return m_forceIRC; }
-
     void setIonGraphPasses(Ref<JSON::Array>&&);
     void appendIonGraphPass(ASCIILiteral);
 
@@ -405,7 +403,6 @@ private:
     unsigned m_optLevel { defaultOptLevel() };
     bool m_stackIsAllocated { false };
     bool m_preserveB3Origins { true };
-    bool m_forceIRC { false };
     RegisterAtOffsetList m_uncorrectedCalleeSaveRegisterAtOffsetList;
     RegisterSet m_calleeSaveRegisters;
     StackSlot* m_calleeSaveStackSlot { nullptr };

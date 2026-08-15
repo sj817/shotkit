@@ -31,6 +31,7 @@
 
 #pragma once
 
+#include <WebCore/FloatPoint3D.h>
 #include <WebCore/RenderBox.h>
 #include <WebCore/RenderLayerModelObject.h>
 #include <WebCore/SVGBoundingBoxComputation.h>
@@ -84,6 +85,7 @@ public:
         return *m_cachedVisualOverflowRect;
     }
 
+    std::optional<LayoutRect> cachedVisualOverflowRectIfAvailable() const { return m_cachedVisualOverflowRect; }
     void updateCachedVisualOverflowRect() { m_cachedVisualOverflowRect = SVGBoundingBoxComputation::computeVisualOverflowRect(*this); }
     LayoutSize locationOffsetEquivalent() const { return toLayoutSize(currentSVGLayoutLocation()); }
 
@@ -95,10 +97,14 @@ public:
     virtual LayoutRect overflowClipRect(const LayoutPoint& location, OverlayScrollbarSizeRelevancy = OverlayScrollbarSizeRelevancy::IgnoreOverlayScrollbarSize, PaintPhase = PaintPhase::BlockBackground) const;
     LayoutRect overflowClipRectForChildLayers(const LayoutPoint& location, OverlayScrollbarSizeRelevancy relevancy) { return overflowClipRect(location, relevancy); }
 
-    virtual Path computeClipPath(AffineTransform&) const;
+    Path computeClipPathGeometry() const;
+    void computeClipContentTransform(AffineTransform&) const;
     virtual void addFocusRingRects(Vector<LayoutRect>&, const LayoutPoint& additionalOffset, const RenderLayerModelObject* paintContainer) const;
 
     void invalidateCachedVisualOverflowRect() override { m_cachedVisualOverflowRect = std::nullopt; }
+
+    std::optional<FloatPoint3D> cachedTransformOriginForReferenceBox(const Style::ComputedStyle&, const FloatRect& referenceBox) const override;
+    void invalidateCachedTransformOrigin() const { m_cachedTransformOrigin = std::nullopt; }
 
 protected:
     RenderSVGModelObject(Type, Document&, Style::ComputedStyle&&, OptionSet<SVGModelObjectFlag> = { });
@@ -107,7 +113,7 @@ protected:
     void updateFromStyle() override;
 
     RepaintRects localRectsForRepaint(RepaintOutlineBounds) const override;
-    std::optional<RepaintRects> computeVisibleRectsInContainer(const RepaintRects&, const RenderLayerModelObject* container, VisibleRectContext) const override;
+    std::optional<RepaintRects> computeVisibleRectsInContainer(const RepaintRects&, const RenderLayerModelObject* container, const VisibleRectContext&, VisibleRectState) const override;
     void mapAbsoluteToLocalPoint(OptionSet<MapCoordinatesMode>, TransformState&) const override;
     void mapLocalToContainer(const RenderLayerModelObject* ancestorContainer, TransformState&, OptionSet<MapCoordinatesMode>, bool* wasFixed) const final;
     LayoutRect outlineBoundsForRepaint(const RenderLayerModelObject* repaintContainer, const RenderGeometryMap* = nullptr) const final;
@@ -121,7 +127,7 @@ protected:
 
     // Returns false if the rect has no intersection with the applied clip rect. When the context specifies edge-inclusive
     // intersection, this return value allows distinguishing between no intersection and zero-area intersection.
-    bool applyCachedClipAndScrollPosition(RepaintRects&, const RenderLayerModelObject* container, VisibleRectContext) const final;
+    bool applyCachedClipAndScrollPosition(RepaintRects&, const RenderLayerModelObject* container, const VisibleRectContext&) const final;
 
     mutable std::optional<LayoutRect> m_cachedVisualOverflowRect;
 
@@ -130,8 +136,13 @@ protected:
 private:
     LayoutSize NODELETE cachedSizeForOverflowClip() const;
 
+    bool isInsideSVGResourceContainer() const;
+
     LayoutRect m_layoutRect;
     std::optional<AffineTransform> m_localTransform;
+
+    mutable std::optional<FloatPoint3D> m_cachedTransformOrigin;
+    mutable FloatRect m_cachedTransformOriginBox;
 };
 
 } // namespace WebCore

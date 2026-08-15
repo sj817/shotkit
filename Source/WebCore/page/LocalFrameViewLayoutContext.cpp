@@ -51,6 +51,7 @@
 #include "RenderLayerCompositor.h"
 #include "RenderLayerModelObject.h"
 #include "RenderLayoutState.h"
+#include "RenderListItem.h"
 #include "RenderSVGModelObject.h"
 #include "RenderSVGText.h"
 #include "RenderObjectInlines.h"
@@ -744,7 +745,7 @@ void LocalFrameViewLayoutContext::scheduleLayout()
 #endif
 
     ASSERT(renderView());
-    InspectorInstrumentation::didInvalidateLayout(protect(frame()), *renderView());
+    InspectorInstrumentation::didScheduleLayout(*renderView());
 
     m_layoutTimer.startOneShot(0_s);
 }
@@ -782,7 +783,7 @@ void LocalFrameViewLayoutContext::scheduleSubtreeLayout(RenderElement& layoutRoo
     if (!isLayoutPending() && isLayoutSchedulingEnabled()) {
         ASSERT(!layoutRoot.container() || is<RenderView>(layoutRoot.container()) || !layoutRoot.container()->needsLayout());
         setSubtreeLayoutRoot(layoutRoot);
-        InspectorInstrumentation::didInvalidateLayout(protect(frame()), layoutRoot);
+        InspectorInstrumentation::didScheduleLayout(layoutRoot);
         m_layoutTimer.startOneShot(0_s);
         return;
     }
@@ -794,7 +795,7 @@ void LocalFrameViewLayoutContext::scheduleSubtreeLayout(RenderElement& layoutRoo
     if (!subtreeLayoutRoot) {
         // We already have a pending (full) layout. Just mark the subtree for layout.
         layoutRoot.markContainingBlocksForLayout(renderView.ptr());
-        InspectorInstrumentation::didInvalidateLayout(protect(frame()), renderView.get());
+        InspectorInstrumentation::didScheduleLayout(renderView);
         return;
     }
 
@@ -810,13 +811,13 @@ void LocalFrameViewLayoutContext::scheduleSubtreeLayout(RenderElement& layoutRoo
         subtreeLayoutRoot->markContainingBlocksForLayout(&layoutRoot);
         setSubtreeLayoutRoot(layoutRoot);
         ASSERT(!layoutRoot.container() || is<RenderView>(layoutRoot.container()) || !layoutRoot.container()->needsLayout());
-        InspectorInstrumentation::didInvalidateLayout(protect(frame()), layoutRoot);
+        InspectorInstrumentation::didScheduleLayout(layoutRoot);
         return;
     }
     // Two disjoint subtrees need layout. Mark both of them and issue a full layout instead.
     convertSubtreeLayoutToFullLayout();
     layoutRoot.markContainingBlocksForLayout(renderView.ptr());
-    InspectorInstrumentation::didInvalidateLayout(protect(frame()), renderView.get());
+    InspectorInstrumentation::didScheduleLayout(renderView);
 }
 
 void LocalFrameViewLayoutContext::layoutTimerFired()
@@ -1079,6 +1080,21 @@ bool LocalFrameViewLayoutContext::isPercentHeightResolveDisabledFor(const Render
     return m_percentHeightIgnoreList.contains(flexItem);
 }
 
+void LocalFrameViewLayoutContext::addIntrinsicLogicalHeightComputationFor(const RenderBox& box)
+{
+    m_intrinsicLogicalHeightComputationList.add(box);
+}
+
+void LocalFrameViewLayoutContext::removeIntrinsicLogicalHeightComputationFor(const RenderBox& box)
+{
+    m_intrinsicLogicalHeightComputationList.remove(box);
+}
+
+bool LocalFrameViewLayoutContext::isComputingIntrinsicLogicalHeightFor(const RenderBox& box) const
+{
+    return m_intrinsicLogicalHeightComputationList.contains(box);
+}
+
 #ifndef NDEBUG
 void LocalFrameViewLayoutContext::checkLayoutState()
 {
@@ -1172,6 +1188,20 @@ RenderView* LocalFrameViewLayoutContext::renderView() const
 Document* LocalFrameViewLayoutContext::document() const
 {
     return frame().document();
+}
+
+ListItemExcludedMarkerScope::ListItemExcludedMarkerScope(LocalFrameViewLayoutContext& layoutContext, RenderListMarker& excludedMarker)
+    : m_layoutContext(layoutContext)
+{
+    // Nested list items lay out inside their ancestor's layout, so this is a stack: an ancestor stays in it while
+    // its descendant list item lays out, because the line that descendant produces may well be the ancestor's
+    // first formatted line too, and then it has to align both markers.
+    layoutContext.m_excludedMarkers.append(excludedMarker);
+}
+
+ListItemExcludedMarkerScope::~ListItemExcludedMarkerScope()
+{
+    m_layoutContext->m_excludedMarkers.removeLast();
 }
 
 } // namespace WebCore

@@ -41,11 +41,13 @@ namespace WebCore {
 
 enum class WebTransportCongestionControl : uint8_t;
 
+class BufferSource;
 class DOMException;
 class DOMPromise;
 class DatagramSource;
 class DeferredPromise;
 class Exception;
+class FetchHeaders;
 class JSDOMGlobalObject;
 class ReadableStream;
 class ReadableStreamSource;
@@ -55,6 +57,7 @@ class WebTransportBidirectionalStreamSource;
 class WebTransportDatagramDuplexStream;
 class WebTransportDatagramsWritable;
 class WebTransportError;
+class WebTransportReceiveStreamByteSource;
 class WebTransportReceiveStreamSource;
 class WebTransportSendGroup;
 class WebTransportSendStream;
@@ -64,6 +67,7 @@ class WorkerWebTransportSession;
 class WritableStream;
 
 struct WebTransportCloseInfo;
+struct WebTransportConnectionInfo;
 struct WebTransportOptions;
 struct WebTransportSendStreamOptions;
 struct WebTransportHash;
@@ -80,6 +84,7 @@ public:
     void deref() const final { WebTransportSessionClient::deref(); }
 
     void getStats(ScriptExecutionContext&, Ref<DeferredPromise>&&);
+    void exportKeyingMaterial(ScriptExecutionContext&, BufferSource&& label, BufferSource&& context, uint32_t outputLength, Ref<DeferredPromise>&&);
     DOMPromise& NODELETE ready();
     WebTransportReliabilityMode NODELETE reliability();
     WebTransportCongestionControl NODELETE congestionControl();
@@ -88,6 +93,7 @@ public:
     std::optional<uint16_t> NODELETE anticipatedConcurrentIncomingBidirectionalStreams();
     void NODELETE setAnticipatedConcurrentIncomingBidirectionalStreams(std::optional<uint16_t>);
     String& NODELETE protocol();
+    FetchHeaders* NODELETE responseHeaders();
     DOMPromise& NODELETE closed();
     DOMPromise& NODELETE draining();
     void close(WebTransportCloseInfo&&);
@@ -99,17 +105,16 @@ public:
     Ref<WebTransportSendGroup> createSendGroup();
     static bool NODELETE supportsReliableOnly();
 
-    RefPtr<WebTransportSession> NODELETE session();
+    const Ref<WebTransportSession>& session() const { return m_session; };
     void datagramsWritableCreated(WebTransportDatagramsWritable&);
-    void cleanupContext(ScriptExecutionContext&);
+    void cleanupContext();
 
     void sendStreamClosed(WebTransportStreamIdentifier);
     void receiveStreamClosed(WebTransportStreamIdentifier);
 
 private:
-    WebTransport(ScriptExecutionContext&, JSDOMGlobalObject&, Ref<ReadableStream>&&, Ref<ReadableStream>&&, const WebTransportOptions&, Ref<WebTransportDatagramDuplexStream>&&, Ref<DatagramSource>&&, Ref<WebTransportReceiveStreamSource>&&, Ref<WebTransportBidirectionalStreamSource>&&);
+    WebTransport(ScriptExecutionContext&, JSDOMGlobalObject&, Ref<ReadableStream>&&, Ref<ReadableStream>&&, const WebTransportOptions&, Ref<WebTransportDatagramDuplexStream>&&, Ref<DatagramSource>&&, Ref<WebTransportReceiveStreamSource>&&, Ref<WebTransportBidirectionalStreamSource>&&, URL&&, Vector<KeyValuePair<String, String>>&&);
 
-    void initializeOverHTTP(SocketProvider&, ScriptExecutionContext&, URL&&, WebTransportOptions&&);
     void cleanup(Ref<DOMException>&&, std::optional<WebTransportCloseInfo>&&);
     void cleanupWithSessionError();
 
@@ -148,14 +153,15 @@ private:
     std::optional<uint16_t> m_anticipatedConcurrentIncomingUnidirectionalStreams;
     std::optional<uint16_t> m_anticipatedConcurrentIncomingBidirectionalStreams;
     String m_protocol;
+    RefPtr<FetchHeaders> m_responseHeaders;
     const PromiseAndWrapper m_closed;
     const PromiseAndWrapper m_draining;
     const Ref<WebTransportDatagramDuplexStream> m_datagrams;
-    RefPtr<WebTransportSession> m_session;
+    const Ref<WebTransportSession> m_session;
     const Ref<DatagramSource> m_datagramSource;
     const Ref<WebTransportReceiveStreamSource> m_receiveStreamSource;
     const Ref<WebTransportBidirectionalStreamSource> m_bidirectionalStreamSource;
-    HashMap<WebTransportStreamIdentifier, Ref<WebTransportReceiveStreamSource>> m_readStreamSources;
+    HashMap<WebTransportStreamIdentifier, Ref<WebTransportReceiveStreamByteSource>> m_readStreamSources;
     HashMap<WebTransportStreamIdentifier, Ref<WebTransportSendStreamSink>> m_sendStreamSinks;
     WeakHashSet<WebTransportDatagramsWritable> m_datagramsWritables;
 };

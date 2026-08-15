@@ -33,13 +33,15 @@ public:
     void styleDidChange(Style::Difference, const Style::ComputedStyle* oldStyle) override;
 
     void idChanged();
-    void repaintAllClients() const;
+    virtual void repaintAllClients() const;
 
     virtual void addReferencingCSSClient(const RenderElement&) { }
     virtual void removeReferencingCSSClient(const RenderElement&) { }
 
 protected:
     RenderSVGResourceContainer(Type, SVGElement&, Style::ComputedStyle&&);
+
+    virtual void clearCacheBeforeLayout() { }
 
 private:
     void layout() override;

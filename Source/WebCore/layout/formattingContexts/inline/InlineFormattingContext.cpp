@@ -354,7 +354,7 @@ UniqueRef<InlineLayoutResult> InlineFormattingContext::lineLayout(AbstractLineBu
             break;
         }
 
-        previousLine = PreviousLine { lineIndex, lineLayoutResult.contentGeometry.trailingOverflowingContentWidth, lineLayoutResult.endsWithLineBreak(), lineLayoutResult.hasContentfulInFlowContent(), lineLayoutResult.directionality.inlineBaseDirection, WTF::move(lineLayoutResult.floatContent.suspendedFloats) };
+        previousLine = PreviousLine { lineIndex, lineLayoutResult.contentGeometry.trailingOverflowingContentWidth, lineLayoutResult.endsWithLineBreak() || lineLayoutResult.isBlockContent(), lineLayoutResult.hasContentfulInFlowContent(), lineLayoutResult.directionality.inlineBaseDirection, WTF::move(lineLayoutResult.floatContent.suspendedFloats) };
         previousLineEnd = lineContentEnd;
         lineLogicalTop = formattingUtils().logicalTopForNextLine(lineLayoutResult, lineLogicalRect, floatingContext);
     }
@@ -617,6 +617,11 @@ void InlineFormattingContext::rebuildInlineItemListIfNeeded(InlineDamage* lineDa
         if (auto startPosition = lineDamage->layoutStartPosition()) {
             if (lineDamage->reasons().contains(InlineDamage::Reason::Pagination)) {
                 // FIXME: We don't support partial rebuild with certain types of content. Let's just re-collect inline items.
+                return { };
+            }
+            if (inlineContentCache.inlineItems().hasWhiteSpaceTrim()) {
+                // white-space-trim discards collapsible white space based on cross-box adjacency that a
+                // partial rebuild starting mid-content cannot resolve. Re-collect all inline items.
                 return { };
             }
             return startPosition->inlineItemPosition;
