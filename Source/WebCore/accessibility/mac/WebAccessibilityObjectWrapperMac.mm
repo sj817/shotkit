@@ -3166,6 +3166,12 @@ ALLOW_DEPRECATED_IMPLEMENTATIONS_BEGIN
         backingObject->performDismissActionIgnoringResult();
     else if (AXObjectCache::clientIsInTestMode() && [action isEqualToString:@"AXLogTrees"])
         [self _accessibilityPrintTrees];
+#if ENABLE(WRITING_TOOLS)
+    // ShotKit 偏离：上游这段无门控，但它调用的 ChromeClient::showWritingToolsAffordance()
+    // 声明在 ChromeClient.h 的 #if ENABLE(WRITING_TOOLS) 里。上游 Cocoa 的
+    // ENABLE_WRITING_TOOLS 恒为 ON（OptionsCocoa 的默认值）所以永远不会暴露；
+    // Shot 在 WEBKIT_OPTION_END() 之后才 include(OptionsCocoa)，特性矩阵仍归自己管，
+    // WRITING_TOOLS 保持 WebKitFeatures 的默认 OFF —— 无头截图不需要文本改写 UI。
     else if ([action isEqualToString:NSAccessibilityShowWritingToolsAction]) {
         Accessibility::performFunctionOnMainThread([protectedSelf = retainPtr(self)] {
             RefPtr<AXCoreObject> backingObject = protectedSelf.get().updateObjectBackingStore;
@@ -3173,6 +3179,7 @@ ALLOW_DEPRECATED_IMPLEMENTATIONS_BEGIN
                 page->chrome().client().showWritingToolsAffordance();
         });
     }
+#endif
 }
 ALLOW_DEPRECATED_IMPLEMENTATIONS_END
 

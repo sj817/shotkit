@@ -158,11 +158,37 @@ jobs:
             $env:Path = [Environment]::GetEnvironmentVariable('Path', 'Machine') + ';' +
                         [Environment]::GetEnvironmentVariable('Path', 'User')
           }
+          # gperf 没有同等的上游 Release 可回落；显式报错好过让 CMake 在几分钟后
+          # 以「Could NOT find Gperf (missing: GPERF_EXECUTABLE)」结尾。
+          if (-not (Get-Command gperf.exe -ErrorAction SilentlyContinue)) {
+            throw 'choco 连续 3 次未能装上 gperf（community.chocolatey.org 故障？）'
+          }
           $shim = Join-Path $env:RUNNER_TEMP 'webkit-tools'
           New-Item -ItemType Directory -Force -Path $shim | Out-Null
-          Copy-Item (Get-Command win_bison.exe).Source (Join-Path $shim 'bison.exe')
-          Copy-Item (Get-Command win_flex.exe).Source (Join-Path $shim 'flex.exe')
+          if ((Get-Command win_bison.exe -ErrorAction SilentlyContinue) -and
+              (Get-Command win_flex.exe -ErrorAction SilentlyContinue)) {
+            Copy-Item (Get-Command win_bison.exe).Source (Join-Path $shim 'bison.exe')
+            Copy-Item (Get-Command win_flex.exe).Source (Join-Path $shim 'flex.exe')
+          } else {
+            # 回落到上游 Release。2026-08-15 community.chocolatey.org 连续 503/504 挂了
+            # 一个多小时，跨掉两轮 CI，重试完全无效。choco 的 winflexbison3 包本身就是
+            # 转包 lexxmark/winflexbison 的 Release 产物，直接取源头少一个故障域。
+            # 版本与 SHA256 都钉死；bison 靠可执行文件所在目录找 m4 骨架，所以整包解压
+            # 到 shim 目录后就地改名，让 data/ 与 bison.exe 同级。
+            Write-Host '::warning::chocolatey 未能提供 win_flex/win_bison，回落到 lexxmark/winflexbison Release'
+            $zip = Join-Path $env:RUNNER_TEMP 'win_flex_bison.zip'
+            $url = 'https://github.com/lexxmark/winflexbison/releases/download/v2.5.25/win_flex_bison-2.5.25.zip'
+            $expected = '8D324B62BE33604B2C45AD1DD34AB93D722534448F55A16CA7292DE32B6AC135'
+            Invoke-WebRequest -Uri $url -OutFile $zip
+            $actual = (Get-FileHash -LiteralPath $zip -Algorithm SHA256).Hash
+            if ($actual -ne $expected) { throw "win_flex_bison-2.5.25.zip 校验失败：期望 $expected，实得 $actual" }
+            Expand-Archive -LiteralPath $zip -DestinationPath $shim -Force
+            Copy-Item (Join-Path $shim 'win_bison.exe') (Join-Path $shim 'bison.exe')
+            Copy-Item (Join-Path $shim 'win_flex.exe') (Join-Path $shim 'flex.exe')
+          }
           $shim | Out-File -FilePath $env:GITHUB_PATH -Encoding utf8 -Append
+          & (Join-Path $shim 'bison.exe') --version | Select-Object -First 1
+          & (Join-Path $shim 'flex.exe') --version
           ruby --version
           perl --version
           python --version

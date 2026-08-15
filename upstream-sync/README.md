@@ -154,6 +154,24 @@ git apply --3way ../upstream.patch
    > macOS(Xcode) 都不报。为一条纯咨询性诊断改上游头文件会变成永久偏离，所以在
    > `OptionsShot.cmake` 里关掉该诊断，并注明 Linux CI 升到 clang 19+ 后可删。
 
+8. **上游 Cocoa 代码漏了特性门控** → 只在 macOS 炸，且上游永远发现不了。
+   查：编译错误形如「no member named 'xxx' in 'WebCore::YyyClient'」时，看该成员在头文件里
+   的 `#if ENABLE(...)`，再看调用点有没有同样的门控。
+
+   > 根因是本端口的结构性选择：`OptionsShot.cmake` 在 `WEBKIT_OPTION_END()` **之后**才
+   > `include(OptionsCocoa)`（只借它的 SDK/工具链配置，特性矩阵仍归 Shot 自己管），
+   > 于是 OptionsCocoa 里 **71 个 `WEBKIT_OPTION_DEFAULT_PORT_VALUE(... ON)` 有 68 个
+   > 对我们是空操作**。上游 Cocoa 代码是按「这些都开着」写的，只要有一处漏门控就会炸。
+   > 这也是**为什么 macOS 是本 fork 最脆弱的平台**——Windows/Linux 端口在上游有真实的
+   > 关闭组合被持续构建，Cocoa 没有。
+   >
+   > 2026-08-15：上游给 AX 新增 `NSAccessibilityShowWritingToolsAction` 分支，无门控地
+   > 调用 `ChromeClient::showWritingToolsAffordance()`（声明在 `#if ENABLE(WRITING_TOOLS)`
+   > 内）。修法是给调用点补同样的门控并登记进 deviations.md。
+   >
+   > 补完一处后建议顺手扫同族：把该头文件里同一 `#if` 块内声明的方法全部列出，
+   > `git grep` 它们的调用点，逐个回溯所在的 `#if` 栈，确认没有第二处漏网。
+
 **内容对等校验**（第 2 节的不变量）：
 
 ```sh
