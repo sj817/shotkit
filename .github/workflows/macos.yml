@@ -181,7 +181,8 @@ jobs:
           otool -L "$stage/lib/libshot.dylib" > "$stage/DEPENDENCIES.txt"
           cp ReadMe.md "$stage/README.md"
           tar -C WebKitBuild/releases -cJf "WebKitBuild/releases/${name}.tar.xz" "$name"
-          shasum -a 256 "WebKitBuild/releases/${name}.tar.xz" > "WebKitBuild/releases/${name}.tar.xz.sha256"
+          # Bare file name, not the build path — see the note in linux.yml.
+          ( cd WebKitBuild/releases && shasum -a 256 "${name}.tar.xz" > "${name}.tar.xz.sha256" )
           ls -lh "$stage/bin/shotcli" "$stage/lib/libshot.dylib" "WebKitBuild/releases/${name}.tar.xz"
 
       - name: Upload compressed release
