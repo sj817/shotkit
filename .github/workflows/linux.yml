@@ -6,10 +6,6 @@ on:
     paths-ignore:
       - '**.md'
       - '.githooks/**'
-  pull_request:
-    paths-ignore:
-      - '**.md'
-      - '.githooks/**'
   workflow_dispatch:
     inputs:
       lto:

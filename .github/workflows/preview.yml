@@ -1,0 +1,102 @@
+name: PR Native Preview
+
+# PRs build the six native runtimes once, then publish an installable preview
+# for @shotkit/node and every optional platform package. Keeping orchestration
+# here avoids running the standalone platform workflows a second time.
+on:
+  pull_request:
+    paths-ignore:
+      - '**.md'
+      - '.githooks/**'
+
+concurrency:
+  group: preview-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  windows:
+    uses: ./.github/workflows/windows.yml
+
+  linux:
+    uses: ./.github/workflows/linux.yml
+
+  macos:
+    uses: ./.github/workflows/macos.yml
+
+  publish-preview:
+    needs: [windows, linux, macos]
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    permissions:
+      actions: read
+      contents: read
+    defaults:
+      run:
+        working-directory: apps/node
+    steps:
+      - name: Checkout the Node SDK
+        uses: actions/checkout@v7
+        with:
+          fetch-depth: 1
+          sparse-checkout-cone-mode: false
+          sparse-checkout: |
+            /apps/node/
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: npm
+          cache-dependency-path: apps/node/package-lock.json
+
+      - run: npm ci
+
+      - name: Download native runtimes
+        uses: actions/download-artifact@v7
+        with:
+          path: ${{ runner.temp }}/runtimes
+          pattern: shotkit-node-*
+
+      - name: Stage all platform packages
+        shell: bash
+        run: |
+          set -euo pipefail
+          staged=0
+          while IFS= read -r addon; do
+            runtime_dir="$(dirname "$addon")"
+            name="$(basename "$runtime_dir")"
+            if [[ ! "$name" =~ ^shotkit-node-(windows|linux|macos)-(x64|arm64)$ ]]; then
+              echo "unrecognized native runtime directory: $name" >&2
+              exit 1
+            fi
+
+            os="${BASH_REMATCH[1]}"
+            arch="${BASH_REMATCH[2]}"
+            case "$os" in
+              windows) platform="win32-$arch" ;;
+              macos)   platform="darwin-$arch" ;;
+              linux)   platform="linux-$arch" ;;
+            esac
+            npm run stage -- "$platform" "$runtime_dir"
+            staged=$((staged + 1))
+          done < <(find "$RUNNER_TEMP/runtimes" -type f -name 'shot.node' | sort)
+
+          if [[ "$staged" -ne 6 ]]; then
+            echo "expected 6 staged runtimes, got $staged" >&2
+            exit 1
+          fi
+
+      - run: npm run typecheck
+      - run: npm run build
+
+      # This injects the six optionalDependencies before pkg-pr-new rewrites
+      # every sibling package to its commit-specific preview URL.
+      - run: npm run sync-versions
+
+      - name: Publish installable PR packages
+        shell: bash
+        run: |
+          npm exec --call \
+            "pkg-pr-new publish --previewVersion --comment=update --packageManager=npm --no-template './npm/*' '.'"
