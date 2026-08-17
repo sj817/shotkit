@@ -46,6 +46,9 @@ jobs:
       # stays the shipped profile; thin remains available through the input.
       SHOT_LTO: ${{ inputs.lto || 'full' }}
       SCCACHE_GHA_ENABLED: 'true'
+      # shot.node adds a second whole-WebCore LTO link beside libshot. Keep
+      # those memory-heavy links serial, especially on the smaller arm64 host.
+      WEBKIT_NINJA_LINK_MAX: '1'
 
     steps:
       - name: Checkout the ShotKit build closure
