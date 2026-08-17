@@ -1,6 +1,6 @@
 {
   "name": "@shotkit/win32-x64",
-  "version": "0.2.0",
+  "version": "0.1.0",
   "description": "ShotKit native Node addon for Windows x64",
   "repository": {
     "type": "git",
