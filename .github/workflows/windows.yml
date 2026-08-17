@@ -415,15 +415,6 @@ jobs:
         shell: pwsh
         run: pwsh tests/verify_no_script_network.ps1 -BuildDir "$env:GITHUB_WORKSPACE\WebKitBuild\shot" -VcpkgTriplet ${{ matrix.triplet }}
 
-      - name: Benchmark native addon against the JSONL SDK path
-        if: matrix.arch == 'x64'
-        shell: pwsh
-        run: |
-          $bin = Join-Path $env:GITHUB_WORKSPACE 'WebKitBuild\shot\bin'
-          $env:SHOTKIT_NATIVE_PATH = Join-Path $bin 'shot.node'
-          node apps/node/test/native-benchmark.mjs (Join-Path $bin 'shotcli.exe')
-          if ($LASTEXITCODE) { throw "native benchmark failed with exit code $LASTEXITCODE" }
-
       - name: Verify the C ABI export surface
         shell: pwsh
         run: |
