@@ -163,10 +163,14 @@ jobs:
 
       - name: Verify C ABI thread ownership and native Node SDK
         run: |
-          WebKitBuild/shot-linux/bin/shot_capi_thread_test
+          # First isolate initialization, one render and cross-thread free. Run
+          # the longer C API soak after the addon tests so either side reports
+          # its own failure instead of being hidden behind a bare abort.
+          WebKitBuild/shot-linux/bin/shot_capi_thread_test 1
           SHOTKIT_NATIVE_PATH="$GITHUB_WORKSPACE/WebKitBuild/shot-linux/bin/shot.node" npm test --prefix apps/node
           SHOTKIT_NATIVE_PATH="$GITHUB_WORKSPACE/WebKitBuild/shot-linux/bin/shot.node" node apps/node/test/native-parity.mjs WebKitBuild/shot-linux/bin/shotcli
           SHOTKIT_NATIVE_PATH="$GITHUB_WORKSPACE/WebKitBuild/shot-linux/bin/shot.node" node --expose-gc apps/node/test/native-soak.mjs
+          WebKitBuild/shot-linux/bin/shot_capi_thread_test 1000
 
       - uses: actions/setup-node@v4
         if: matrix.arch == 'x64'

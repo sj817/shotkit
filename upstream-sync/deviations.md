@@ -11,7 +11,7 @@
 
 | 文件 | 改动 | 原因 | 里程碑 |
 |---|---|---|---|
-| `Source/WTF/wtf/cocoa/MainThreadCocoa.mm` | `PLATFORM(SHOT)` 以首次初始化 ShotKit 的 pthread 作为 WebCore 主线程，而非强制 `pthread_main_np()` | Node 等宿主占用进程主线程；原生绑定需要在专用线程串行渲染并使用该线程自己的 CFRunLoop，其他 Cocoa 端口行为不变 | M5/Node addon ✅ 已改，待 hosted macOS 验证 |
+| `Source/WTF/wtf/{MainThread.cpp,cocoa/MainThreadCocoa.mm}` | `PLATFORM(SHOT)` 以首次初始化 ShotKit 的 pthread 作为 WebCore 主线程，而非强制 `pthread_main_np()`；允许该宿主线程的 WTF `Thread` UID 不为 1 | Node 等宿主可能先在进程主线程触达 WTF，再由 addon 专用线程初始化 WebCore；该线程仍是唯一 ShotKit main thread，并使用自己的 CFRunLoop，其他端口行为不变 | M5/Node addon ✅ 已改，待 hosted macOS 验证 |
 | `Source/WebCore/bindings/scripts/CodeGeneratorJS.pm` | 新增退化绑定钩子：`SHOT_DEGENERATE_BINDINGS` 环境变量指向接口清单，`GenerateInterface` 入口把清单内接口的 attributes/operations/constants/constructors（带 `[LegacyFactoryFunction]` 者除外，JSDOMWindow 引用其 getLegacyFactoryFunction）/iterable/mapLike/setLike 清空后再生成；回调接口跳过 | 体积 Level 3（生成器路线）：JS 永不执行时绑定胶水运行期不可达，保留类/toJS/GC 底座维持兄弟绑定链接，不生成属性表与胶水即解除对 JS-only 子系统的引用锚。1612 接口退化实测 shot.dll **39,545,856 → 35,257,856（−4.29 MB）**，像素级回归一致 | 体积/L3 ✅ 已改 |
 | `Source/WebCore/bindings/scripts/CodeGeneratorJS.pm` | `GenerateForEachEventHandlerContentAttribute` 空表时改发空函数体 | 接口无事件处理器属性时（退化绑定触发）原生成空 `std::array {}` 无法推导元素类型，编译失败；通用健壮性修复 | 体积/L3 ✅ 已改 |
 | `Source/WebCore/WebCoreMacros.cmake` | `GENERATE_BINDINGS` 在 `SHOT_DEGENERATE_BINDINGS_FILE` 已定义时用 `cmake -E env` 把清单传给生成器，并把清单加入依赖 | 跨平台接线（Win/Linux/macOS 同一机制）；变量仅 Shot 端口设置，其他端口不受影响；清单入依赖保证改清单触发重新生成 | 体积/L3 ✅ 已改 |

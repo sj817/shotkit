@@ -3,13 +3,36 @@
 #include "shot.h"
 
 #include <condition_variable>
+#include <csignal>
 #include <cstdio>
 #include <cstdlib>
 #include <mutex>
 #include <thread>
 
+#if !defined(_WIN32)
+#include <execinfo.h>
+#include <unistd.h>
+
+static void printCrashBacktrace(int signal)
+{
+    static constexpr char message[] = "capi-thread: fatal signal, backtrace follows\n";
+    write(STDERR_FILENO, message, sizeof(message) - 1);
+    void* frames[64];
+    int count = backtrace(frames, 64);
+    backtrace_symbols_fd(frames, count, STDERR_FILENO);
+    _Exit(128 + signal);
+}
+#endif
+
 int main(int argc, char** argv)
 {
+#if !defined(_WIN32)
+    std::signal(SIGABRT, printCrashBacktrace);
+    std::signal(SIGSEGV, printCrashBacktrace);
+#if defined(SIGTRAP)
+    std::signal(SIGTRAP, printCrashBacktrace);
+#endif
+#endif
     int iterations = argc > 1 ? std::atoi(argv[1]) : 1000;
     if (iterations < 1)
         return 64;
@@ -33,6 +56,7 @@ int main(int argc, char** argv)
             fail(1);
             return;
         }
+        std::fprintf(stderr, "capi-thread: initialized\n");
         renderer = shot_renderer_create();
         if (!renderer) {
             fail(2);
@@ -49,6 +73,7 @@ int main(int argc, char** argv)
             fail(3);
             return;
         }
+        std::fprintf(stderr, "capi-thread: first render complete\n");
         {
             std::lock_guard lock(mutex);
             ready = true;
@@ -65,6 +90,8 @@ int main(int argc, char** argv)
                 break;
             }
             shot_image_free(&repeated);
+            if (!((iteration + 1) % 100))
+                std::fprintf(stderr, "capi-thread: %d renders complete\n", iteration + 1);
         }
         shot_renderer_destroy(renderer);
     });
@@ -94,6 +121,7 @@ int main(int argc, char** argv)
         std::fprintf(stderr, "cross-thread shot_image_free did not clear the image\n");
         result = 6;
     }
+    std::fprintf(stderr, "capi-thread: cross-thread checks complete\n");
     {
         std::lock_guard lock(mutex);
         released = true;

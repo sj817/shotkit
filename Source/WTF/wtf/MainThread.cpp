@@ -44,7 +44,16 @@ void initializeMainThread()
         initialize();
         initializeMainThreadPlatform();
         RunLoop::initializeMain();
+#if PLATFORM(SHOT)
+        // A language runtime may have touched WTF on the process main thread
+        // before ShotKit binds its dedicated renderer thread. In that case the
+        // renderer's Thread UID is not 1, but it is still the only WebKit main
+        // thread selected by initializeMainThreadPlatform().
+        Thread::currentSingleton();
+        RELEASE_ASSERT(isMainThread());
+#else
         RELEASE_ASSERT(!isMainThread() || Thread::currentSingleton().uid() == 1);
+#endif
     });
 }
 
