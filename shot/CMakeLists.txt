@@ -156,6 +156,11 @@ if (EXISTS "${SHOT_NODE_API_INCLUDE_DIR}/node_api.h")
         target_link_options(shotnode PRIVATE "-undefined" "dynamic_lookup")
         set_target_properties(shotnode PROPERTIES BUILD_RPATH "@loader_path/lib" INSTALL_RPATH "@loader_path/lib")
     elseif (UNIX)
+        # Node resolves N-API symbols from the host executable at dlopen time.
+        # WebKit globally links shared libraries with --no-undefined, so restore
+        # the normal addon policy for this target only (the later CI export/
+        # dependency checks still reject accidental ShotKit ABI leakage).
+        target_link_options(shotnode PRIVATE "-Wl,-z,undefs")
         set_target_properties(shotnode PROPERTIES BUILD_RPATH "$ORIGIN/lib" INSTALL_RPATH "$ORIGIN/lib")
     endif ()
 

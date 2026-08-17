@@ -156,7 +156,10 @@ jobs:
 
       - name: Verify C ABI thread ownership and native Node SDK
         run: |
-          WebKitBuild/shot-macos/bin/shot_capi_thread_test
+          # The addon soak below owns the 1000-render macOS stability gate.
+          # Keep this executable focused on cross-thread C ABI ownership/free;
+          # Windows/Linux run its default 1000 iterations.
+          WebKitBuild/shot-macos/bin/shot_capi_thread_test 1
           SHOTKIT_NATIVE_PATH="$GITHUB_WORKSPACE/WebKitBuild/shot-macos/bin/shot.node" npm test --prefix apps/node
           SHOTKIT_NATIVE_PATH="$GITHUB_WORKSPACE/WebKitBuild/shot-macos/bin/shot.node" node apps/node/test/native-parity.mjs WebKitBuild/shot-macos/bin/shotcli
           SHOTKIT_NATIVE_PATH="$GITHUB_WORKSPACE/WebKitBuild/shot-macos/bin/shot.node" node --expose-gc apps/node/test/native-soak.mjs

@@ -4,11 +4,15 @@
 
 #include <condition_variable>
 #include <cstdio>
+#include <cstdlib>
 #include <mutex>
 #include <thread>
 
-int main()
+int main(int argc, char** argv)
 {
+    int iterations = argc > 1 ? std::atoi(argv[1]) : 1000;
+    if (iterations < 1)
+        return 64;
     std::mutex mutex;
     std::condition_variable condition;
     shot_renderer* renderer = nullptr;
@@ -54,7 +58,7 @@ int main()
             std::unique_lock lock(mutex);
             condition.wait(lock, [&] { return released; });
         }
-        for (int iteration = 1; iteration < 1000; ++iteration) {
+        for (int iteration = 1; iteration < iterations; ++iteration) {
             shot_image repeated { nullptr, 0 };
             if (shot_render_html(renderer, html, sizeof(html) - 1, &options, &repeated) != SHOT_OK) {
                 workerResult = 7;
