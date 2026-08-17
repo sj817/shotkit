@@ -14,4 +14,8 @@ namespace ShotKit {
 // 返回 false 表示初始化失败。
 bool initialize();
 
+// 在绑定的 WebCore 线程退出前清理其 ThreadGlobalData。WebCore 的 worker
+// 线程也遵循同一协议；必须在线程仍存活且 renderer 已销毁时调用。
+void shutdownThread();
+
 } // namespace ShotKit

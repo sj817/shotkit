@@ -10,6 +10,7 @@
 #include <JavaScriptCore/InitializeThreading.h>
 #include <JavaScriptCore/Options.h>
 #include <WebCore/ServiceWorkerProvider.h>
+#include <WebCore/ThreadGlobalData.h>
 #include <wtf/CompletionHandler.h>
 #include <wtf/MainThread.h>
 #include <wtf/NeverDestroyed.h>
@@ -64,6 +65,16 @@ bool initialize()
 
     s_initialized = true;
     return true;
+}
+
+void shutdownThread()
+{
+    // ThreadGlobalData owns FontCache and fonts. Letting pthread/FLS teardown
+    // destroy those objects directly is unsafe because Font::~Font consults
+    // the current thread's cache after WTF::Thread has begun dismantling its
+    // client data. WebCore workers explicitly perform this cleanup before the
+    // Thread object goes away; ShotKit's dedicated host thread must do so too.
+    WebCore::threadGlobalDataSingleton().destroy();
 }
 
 } // namespace ShotKit

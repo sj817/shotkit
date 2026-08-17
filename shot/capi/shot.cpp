@@ -109,8 +109,11 @@ shot_status shot_init(const shot_init_options*)
 
 void shot_shutdown(void)
 {
-    // WebCore 的线程级单例被设计为进程退出时泄漏，不做静态析构（否则触发字体缓存
-    // teardown 崩溃）。库形态下宿主进程继续存活，故此处 no-op。
+    // 与 WebCore worker 相同，必须在 owner 线程仍存活且 renderer 已销毁时
+    // 先清理 ThreadGlobalData；否则 pthread/FLS 析构 FontCache 时会重入已处于
+    // teardown 的 threadGlobalData。
+    if (isOwnerThread())
+        ShotKit::shutdownThread();
 }
 
 void shot_render_options_default(shot_render_options* o)

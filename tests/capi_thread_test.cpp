@@ -59,6 +59,7 @@ int main(int argc, char** argv)
         std::fprintf(stderr, "capi-thread: initialized\n");
         renderer = shot_renderer_create();
         if (!renderer) {
+            shot_shutdown();
             fail(2);
             return;
         }
@@ -70,6 +71,7 @@ int main(int argc, char** argv)
         if (shot_render_html(renderer, html, sizeof(html) - 1, &options, &image) != SHOT_OK) {
             shot_renderer_destroy(renderer);
             renderer = nullptr;
+            shot_shutdown();
             fail(3);
             return;
         }
@@ -94,6 +96,7 @@ int main(int argc, char** argv)
                 std::fprintf(stderr, "capi-thread: %d renders complete\n", iteration + 1);
         }
         shot_renderer_destroy(renderer);
+        shot_shutdown();
     });
 
     {

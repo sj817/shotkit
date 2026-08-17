@@ -76,6 +76,7 @@ typedef shot_image shot_png; /* 源码兼容旧调用方；内容格式由 outpu
 
 /* 进程内仅一次；首次成功调用绑定当前线程为主线程。其他线程返回 WRONG_THREAD。 */
 SHOT_API shot_status shot_init(const shot_init_options*);
+/* renderer 销毁后、owner 线程退出前调用；其他线程调用无效果。 */
 SHOT_API void        shot_shutdown(void);
 
 /* 用默认值填充 options（推荐先调用，再改需要的字段）。 */
