@@ -22,12 +22,16 @@
 #include <WebCore/CurlResponse.h>
 #endif
 #include <WebCore/DestinationColorSpace.h>
+#include <WebCore/ContainerNodeInlines.h>
 #include <WebCore/Document.h>
 #include <WebCore/DocumentInlines.h>
 #include <WebCore/DocumentLoader.h>
 #include <WebCore/DocumentView.h>
 #include <WebCore/DocumentWriter.h>
+#include <WebCore/Element.h>
+#include <WebCore/ElementInlines.h>
 #include <WebCore/EmptyClients.h>
+#include <WebCore/ExceptionOr.h>
 #include <WebCore/FrameLoader.h>
 #include <WebCore/FrameSnapshotting.h>
 #include <WebCore/HTTPHeaderNames.h>
@@ -49,6 +53,9 @@
 #include <WebCore/PageConfiguration.h>
 #include <WebCore/PixelBuffer.h>
 #include <WebCore/PixelFormat.h>
+#include <WebCore/RenderElement.h>
+#include <WebCore/RenderObject.h>
+#include <WebCore/RenderObjectInlines.h>
 #include <WebCore/ResourceError.h>
 #include <WebCore/ResourceRequest.h>
 #include <WebCore/ResourceResponse.h>
@@ -62,6 +69,7 @@
 #include <wtf/Seconds.h>
 #include <wtf/StdLibExtras.h>
 #include <wtf/URL.h>
+#include <wtf/text/MakeString.h>
 #if PLATFORM(COCOA)
 #include <webp/encode.h>
 #endif
@@ -159,8 +167,49 @@ static Vector<uint8_t> encodeWebP(ImageBuffer& imageBuffer, OutputFormat outputF
 }
 #endif
 
+static void setError(WTF::String* outError, WTF::String&& message)
+{
+    if (outError)
+        *outError = WTF::move(message);
+}
+
+// ---- 解析 selector，算出要截的文档坐标矩形 ----
+// 取 absoluteBoundingBoxRect(useTransform=true)：元素自己的边框盒，transform 与 zoom 已折算
+// （模板常见的 zoom:0.5 靠的就是这个），语义等同 getBoundingClientRect + 滚动偏移，
+// 也就是 Puppeteer elementHandle.screenshot() 的取景。
+//
+// 不用 snapshotNode 那条路的 subtreePaintRootRect：它会把每个后代 layer 的矩形并进来，得到的是
+// 含 ink overflow 的绘制包围盒。独立绘制一个节点时那样才不丢阴影，但作为「截这个元素」会失真 ——
+// 实测某卡片模板的绘制盒 1080x1799 CSS px，比整个文档（1199 高）还大。
+static bool resolveSelectorRect(Document& document, const RenderOptions& options, IntRect& outRect, WTF::String* outError)
+{
+    auto queryResult = document.querySelector(options.selector);
+    if (queryResult.hasException()) {
+        setError(outError, makeString("invalid CSS selector: "_s, options.selector));
+        return false;
+    }
+    RefPtr element = queryResult.returnValue();
+    if (!element) {
+        setError(outError, makeString("selector matched no element: "_s, options.selector));
+        return false;
+    }
+    CheckedPtr<RenderElement> renderer = element->renderer();
+    if (!renderer) {
+        setError(outError, makeString("selector matched an element that is not rendered (display:none?): "_s, options.selector));
+        return false;
+    }
+
+    auto rect = renderer->absoluteBoundingBoxRect(true);
+    if (rect.isEmpty()) {
+        setError(outError, makeString("selector matched an element with an empty box: "_s, options.selector));
+        return false;
+    }
+    outRect = rect;
+    return true;
+}
+
 // ---- 把已备好的文档字节喂进 frame、等加载、截图、编码图像 ----
-static bool writeAndSnapshot(LocalFrame& frame, const URL& baseURL, const String& mimeType, Ref<SharedBuffer>&& data, const RenderOptions& options, WTF::Vector<uint8_t>& outImage)
+static bool writeAndSnapshot(LocalFrame& frame, const URL& baseURL, const String& mimeType, Ref<SharedBuffer>&& data, const RenderOptions& options, WTF::Vector<uint8_t>& outImage, WTF::String* outError)
 {
     Ref loader = frame.loader();
     RefPtr activeDocumentLoader = loader->activeDocumentLoader();
@@ -198,22 +247,29 @@ static bool writeAndSnapshot(LocalFrame& frame, const URL& baseURL, const String
     if (!frameView)
         return false;
 
-    IntSize snapshotSize(options.width, options.height);
-    if (options.fullPage) {
+    // selector 模式同样要先把视口撑到内容高度：目标元素可能比视口高，不撑开的话
+    // 下半截落在 contents 之外，取到的矩形会被截断。
+    bool needsFullContents = options.fullPage || !options.selector.isEmpty();
+    IntRect snapshotRect(IntPoint(), IntSize(options.width, options.height));
+    if (needsFullContents) {
         IntSize contents = frameView->contentsSize();
         if (!contents.isEmpty()) {
             frameView->resize(options.width, contents.height());
             document->updateLayoutIgnorePendingStylesheets();
-            snapshotSize = IntSize(options.width, contents.height());
+            snapshotRect = IntRect(IntPoint(), IntSize(options.width, contents.height()));
         }
     }
+
+    // selector 胜过 fullPage：命中元素的绘制矩形直接就是最终画幅。
+    if (!options.selector.isEmpty() && !resolveSelectorRect(*document, options, snapshotRect, outError))
+        return false;
 
     SnapshotOptions snapshotOptions {
         { },
         PixelFormat::BGRA8,
         DestinationColorSpace::SRGB()
     };
-    RefPtr<ImageBuffer> imageBuffer = snapshotFrameRect(frame, IntRect(IntPoint(), snapshotSize), WTF::move(snapshotOptions));
+    RefPtr<ImageBuffer> imageBuffer = snapshotFrameRect(frame, snapshotRect, WTF::move(snapshotOptions));
     if (!imageBuffer)
         return false;
 
@@ -243,7 +299,7 @@ static bool writeAndSnapshot(LocalFrame& frame, const URL& baseURL, const String
     return !outImage.isEmpty();
 }
 
-bool renderMarkupToImage(std::span<const uint8_t> markup, const RenderOptions& options, WTF::Vector<uint8_t>& outImage)
+bool renderMarkupToImage(std::span<const uint8_t> markup, const RenderOptions& options, WTF::Vector<uint8_t>& outImage, WTF::String* outError)
 {
     beginRenderSession();
     RefPtr<LocalFrame> mainFrame;
@@ -255,7 +311,7 @@ bool renderMarkupToImage(std::span<const uint8_t> markup, const RenderOptions& o
     if (!options.baseURL.isEmpty())
         baseURL = URL(URL(), options.baseURL);
 
-    return writeAndSnapshot(*mainFrame, baseURL, options.inputMIMEType.isEmpty() ? "text/html"_s : options.inputMIMEType, SharedBuffer::create(markup), options, outImage);
+    return writeAndSnapshot(*mainFrame, baseURL, options.inputMIMEType.isEmpty() ? "text/html"_s : options.inputMIMEType, SharedBuffer::create(markup), options, outImage, outError);
 }
 
 // ---- 主资源抓取器：Win/Linux 用 CurlRequest；Cocoa 用同步 CFNetwork ----
@@ -387,7 +443,7 @@ private:
 
 } // anonymous namespace
 
-bool renderURLToImage(const WTF::String& urlString, const RenderOptions& options, WTF::Vector<uint8_t>& outImage)
+bool renderURLToImage(const WTF::String& urlString, const RenderOptions& options, WTF::Vector<uint8_t>& outImage, WTF::String* outError)
 {
     beginRenderSession();
     URL url(URL(), urlString);
@@ -414,7 +470,7 @@ bool renderURLToImage(const WTF::String& urlString, const RenderOptions& options
         return false;
 
     URL finalURL = response.url().isValid() ? response.url() : url;
-    return writeAndSnapshot(*mainFrame, finalURL, response.mimeType(), SharedBuffer::create(bytes.span()), options, outImage);
+    return writeAndSnapshot(*mainFrame, finalURL, response.mimeType(), SharedBuffer::create(bytes.span()), options, outImage, outError);
 #else
     Ref<ShotURLFetcher> fetcher = ShotURLFetcher::create(url);
     fetcher->start();
@@ -437,7 +493,7 @@ bool renderURLToImage(const WTF::String& urlString, const RenderOptions& options
     if (!mainFrame)
         return false;
 
-    return writeAndSnapshot(*mainFrame, fetcher->finalURL(), fetcher->mimeType(), fetcher->takeData(), options, outImage);
+    return writeAndSnapshot(*mainFrame, fetcher->finalURL(), fetcher->mimeType(), fetcher->takeData(), options, outImage, outError);
 #endif
 }
 

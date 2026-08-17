@@ -6,14 +6,15 @@
 param(
     [string]$Root = [IO.Path]::GetFullPath((Join-Path $PSScriptRoot '..')),
     [string]$Out = '',
-    [string]$VcpkgTriplet = 'x64-windows-webkit'
+    [string]$VcpkgTriplet = 'x64-windows-webkit',
+    [switch]$NodeAddon
 )
 
 $ErrorActionPreference = 'Stop'
 $Root = [IO.Path]::GetFullPath($Root)
 $binShot = Join-Path $Root 'WebKitBuild\shot\bin'
 $binDeps = Join-Path $Root "WebKitBuild\vcpkg_installed\$VcpkgTriplet\bin"
-if (-not $Out) { $Out = Join-Path $Root 'WebKitBuild\shot-dist' }
+if (-not $Out) { $Out = Join-Path $Root $(if ($NodeAddon) { 'WebKitBuild\shot-node-dist' } else { 'WebKitBuild\shot-dist' }) }
 $Out = [IO.Path]::GetFullPath($Out)
 $allowedOutputRoot = [IO.Path]::GetFullPath((Join-Path $Root 'WebKitBuild'))
 if (-not $Out.StartsWith($allowedOutputRoot + [IO.Path]::DirectorySeparatorChar, [StringComparison]::OrdinalIgnoreCase)) {
@@ -22,7 +23,9 @@ if (-not $Out.StartsWith($allowedOutputRoot + [IO.Path]::DirectorySeparatorChar,
 
 $shot = Join-Path $binShot 'shot.dll'
 $cli = Join-Path $binShot 'shotcli.exe'
-foreach ($required in $shot, $cli) {
+$addon = Join-Path $binShot 'shot.node'
+$entryFiles = if ($NodeAddon) { @($addon) } else { @($shot, $cli) }
+foreach ($required in $entryFiles) {
     if (-not (Test-Path -LiteralPath $required)) { throw "missing build output: $required" }
 }
 
@@ -37,7 +40,7 @@ Get-ChildItem "$binShot\*.dll" | Where-Object { $_.Name -ne 'shot.dll' } | ForEa
 
 $need = [System.Collections.Generic.HashSet[string]]::new()
 $queue = [System.Collections.Generic.Queue[string]]::new()
-$shot, $cli | ForEach-Object { $queue.Enqueue($_) }
+$entryFiles | ForEach-Object { $queue.Enqueue($_) }
 
 # ShotKit disables accelerated compositing and renders through Skia CPU. These
 # two ANGLE imports are retained only to satisfy WebCore's WinCairo link ABI;
@@ -79,7 +82,7 @@ Get-ChildItem "$binDeps\icudt*.dll" | Where-Object { $_.Name -notmatch '\.orig\.
 
 Remove-Item $Out -Recurse -Force -ErrorAction SilentlyContinue
 New-Item -ItemType Directory -Force $Out | Out-Null
-Copy-Item $shot, $cli -Destination $Out
+Copy-Item $entryFiles -Destination $Out
 foreach ($dependency in $need) { Copy-Item $pool[$dependency] $Out }
 
 $distFiles = Get-ChildItem "$Out\*" -File
@@ -88,7 +91,8 @@ $allDeps = ($pool.Values | ForEach-Object { (Get-Item $_).Length } | Measure-Obj
 $shipped = ($need | ForEach-Object { (Get-Item $pool[$_]).Length } | Measure-Object -Sum).Sum
 $dead = $pool.Keys | Where-Object { -not $need.Contains($_) }
 Write-Host ("runtime: {0} files, {1:N1} MiB" -f $distFiles.Count, ($total / 1MB))
-Write-Host ("  shot.dll {0:N1} MiB + dependencies {1:N1} MiB" -f ((Get-Item $shot).Length / 1MB), ($shipped / 1MB))
+$primary = if ($NodeAddon) { $addon } else { $shot }
+Write-Host ("  {0} {1:N1} MiB + dependencies {2:N1} MiB" -f (Split-Path $primary -Leaf), ((Get-Item $primary).Length / 1MB), ($shipped / 1MB))
 Write-Host ("excluded {0} unused DLLs, saving {1:N1} MiB:" -f $dead.Count, (($allDeps - $shipped) / 1MB))
 $dead | Sort-Object | ForEach-Object { Write-Host ("    - {0} ({1:N2} MiB)" -f $_, ((Get-Item $pool[$_]).Length / 1MB)) }
 Write-Host "dist -> $Out"

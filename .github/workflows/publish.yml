@@ -63,7 +63,10 @@ jobs:
           # Every artifact the publish job needs, and the workflow that makes it.
           expected="shotkit-windows-x64 shotkit-windows-arm64
                     shotkit-linux-x64 shotkit-linux-arm64
-                    shotkit-macos-x64 shotkit-macos-arm64"
+                    shotkit-macos-x64 shotkit-macos-arm64
+                    shotkit-node-windows-x64 shotkit-node-windows-arm64
+                    shotkit-node-linux-x64 shotkit-node-linux-arm64
+                    shotkit-node-macos-x64 shotkit-node-macos-arm64"
 
           # Branch matters as much as commit: a tag and a throwaway branch can
           # point at the same SHA, and a manual run there (a different LTO mode,
@@ -162,8 +165,7 @@ jobs:
         uses: actions/download-artifact@v7
         with:
           path: ${{ runner.temp }}/runtimes
-          pattern: shotkit-*
-          merge-multiple: true
+          pattern: shotkit-node-*
 
       - name: Download runtime archives from the tagged commit's builds
         if: needs.resolve.outputs.reuse == 'true'
@@ -175,7 +177,7 @@ jobs:
           mkdir -p "$RUNNER_TEMP/runtimes"
           for id in $RUN_IDS; do
             gh run download "$id" --repo "$GITHUB_REPOSITORY" \
-              --pattern 'shotkit-*' --dir "$RUNNER_TEMP/runtimes"
+              --pattern 'shotkit-node-*' --dir "$RUNNER_TEMP/runtimes"
           done
 
       - run: npm ci
@@ -183,13 +185,12 @@ jobs:
       - name: Stage runtimes into platform packages
         shell: bash
         run: |
-          # Archives land flat from download-artifact and one directory deep
-          # from gh run download, so locate them rather than globbing a level.
           staged=0
-          while IFS= read -r archive; do
-            name="$(basename "$archive" .tar.xz)"
-            if [[ ! "$name" =~ -(windows|linux|macos)-(x64|arm64)$ ]]; then
-              echo "unrecognized runtime archive: $name" >&2
+          while IFS= read -r addon; do
+            runtime_dir="$(dirname "$addon")"
+            name="$(basename "$runtime_dir")"
+            if [[ ! "$name" =~ ^shotkit-node-(windows|linux|macos)-(x64|arm64)$ ]]; then
+              echo "unrecognized native runtime directory: $name" >&2
               exit 1
             fi
             os="${BASH_REMATCH[1]}"; arch="${BASH_REMATCH[2]}"
@@ -198,13 +199,9 @@ jobs:
               macos)   platform="darwin-$arch" ;;
               linux)   platform="linux-$arch" ;;
             esac
-            # Each archive holds a single top-level directory named after it;
-            # unpack beside the archive so both download layouts resolve.
-            extracted="$(dirname "$archive")/$name"
-            tar -xJf "$archive" -C "$(dirname "$archive")"
-            npx tsx tools/stage-platform.ts "$platform" "$extracted"
+            npx tsx tools/stage-platform.ts "$platform" "$runtime_dir"
             staged=$((staged + 1))
-          done < <(find "$RUNNER_TEMP/runtimes" -type f -name '*.tar.xz' | sort)
+          done < <(find "$RUNNER_TEMP/runtimes" -type f -name 'shot.node' | sort)
           # All six targets must be present — a missing platform would publish
           # a main package whose optional dependency cannot be resolved.
           if [[ "$staged" -ne 6 ]]; then
@@ -228,7 +225,7 @@ jobs:
             version="${TAG#v}"
             label="release tag '$TAG'"
           else
-            # A rehearsal used to keep the checked-in version (0.1.0), which npm
+            # A rehearsal used to keep the checked-in version, which npm
             # rejects outright once anything higher is published — so the
             # rehearsal could never pass, whatever it was actually testing. A
             # safety net that always fails is worse than none: it trains you to
@@ -265,7 +262,7 @@ jobs:
             # Now that a rehearsal stamps a version above the newest release,
             # unticking dry-run would push a real version that no tag, release
             # notes or archives back — the assets job is release-only. What used
-            # to block that was npm refusing the stale 0.1.0, which is luck, not
+            # to block that was npm refusing the stale checked-in version, which is luck, not
             # a guard. Republishing after a partial failure is a re-run of the
             # release-triggered run, so nothing legitimate needs this path.
             if [[ "${{ inputs.dry-run }}" != "true" ]]; then
@@ -311,12 +308,28 @@ jobs:
         with:
           node-version: 24
 
-      - name: Download runtime archives from this run
+      - name: Download Windows CLI archives from this run
         if: needs.resolve.outputs.reuse != 'true'
         uses: actions/download-artifact@v7
         with:
           path: ${{ runner.temp }}/runtimes
-          pattern: shotkit-*
+          pattern: shotkit-windows-*
+          merge-multiple: true
+
+      - name: Download Linux CLI archives from this run
+        if: needs.resolve.outputs.reuse != 'true'
+        uses: actions/download-artifact@v7
+        with:
+          path: ${{ runner.temp }}/runtimes
+          pattern: shotkit-linux-*
+          merge-multiple: true
+
+      - name: Download macOS CLI archives from this run
+        if: needs.resolve.outputs.reuse != 'true'
+        uses: actions/download-artifact@v7
+        with:
+          path: ${{ runner.temp }}/runtimes
+          pattern: shotkit-macos-*
           merge-multiple: true
 
       - name: Download runtime archives from the tagged commit's builds
@@ -328,8 +341,10 @@ jobs:
         run: |
           mkdir -p "$RUNNER_TEMP/runtimes"
           for id in $RUN_IDS; do
-            gh run download "$id" --repo "$GITHUB_REPOSITORY" \
-              --pattern 'shotkit-*' --dir "$RUNNER_TEMP/runtimes"
+            for pattern in 'shotkit-windows-*' 'shotkit-linux-*' 'shotkit-macos-*'; do
+              gh run download "$id" --repo "$GITHUB_REPOSITORY" \
+                --pattern "$pattern" --dir "$RUNNER_TEMP/runtimes"
+            done
           done
 
       # The build workflows name archives shotkit-<os>-<arch> with no version, so

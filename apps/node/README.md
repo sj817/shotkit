@@ -1,108 +1,76 @@
 # @shotkit/node
 
-ShotKit 的 Node.js SDK。它启动一个长期驻留的 `shotcli --serve` 子进程，通过 JSONL 协议提交截图任务，因此：
+ShotKit 的原生 Node.js SDK：把 HTML、文件或 URL 直接渲染成 PNG/WebP `Buffer`。页面 JavaScript 永不执行。
 
-- 不需要 node-gyp、Visual Studio 或 N-API 二进制适配；
-- ESM `import` 与 CommonJS `require` 都可用；
-- 每个 `ShotKit` 实例只冷启动一次，后续请求走热进程；
-- API 返回 `Buffer`，也可以同时写入指定文件；
-- 并发 Promise 会在 ShotKit 的渲染线程上安全串行执行。
+`@shotkit/node` 通过 Node-API 加载预编译的 `shot.node`，图片编码结果直接成为 Node Buffer；没有浏览器子进程、JSONL、临时图片文件、node-gyp 或安装后下载。CLI 与稳定 C ABI 继续通过 GitHub Release 独立分发。
 
-跨平台通过平台子包分发：`@shotkit/node` 本体是纯 JS，二进制运行时放在 6 个带 `os`/`cpu` 限制的可选依赖里（`@shotkit/win32-x64`、`@shotkit/win32-arm64`、`@shotkit/linux-x64`、`@shotkit/linux-arm64`、`@shotkit/darwin-x64`、`@shotkit/darwin-arm64`），npm 安装时只会落下与当前平台匹配的那一个。
-
-## 安装与使用
+## 安装
 
 ```bash
 npm install @shotkit/node
 ```
 
-ESM：
+npm 会根据 `os`/`cpu` 只安装六个平台包中的一个：Windows、Linux、macOS 的 x64 或 arm64。支持 Node.js 18.18 及以上版本。
 
-```js
+## 使用
+
+```ts
 import { launch } from '@shotkit/node';
 
 const shot = await launch();
 try {
-  const result = await shot.screenshotURL('https://example.com/', {
-    width: 1280,
-    height: 800,
-    fullPage: true,
-    outputPath: 'example.png',
-  });
-
+  const result = await shot.screenshotHTML(
+    '<main id="card"><h1>Hello ShotKit</h1></main>',
+    { width: 1200, height: 630, selector: '#card' },
+  );
   console.log(result.bytes, result.durationMs, result.data);
 } finally {
   await shot.close();
 }
 ```
 
-CommonJS：
+CommonJS 使用相同接口：
 
 ```js
 const { launch } = require('@shotkit/node');
-
-(async () => {
-  const shot = await launch();
-  try {
-    const { data } = await shot.screenshotHTML('<h1>Hello from Node</h1>', {
-      width: 640,
-      height: 360,
-      format: 'webp',
-      quality: 82,
-    });
-    // data 是 Buffer，可直接交给 HTTP response / S3 / sharp 等后续处理。
-  } finally {
-    await shot.close();
-  }
-})();
 ```
 
-本地文件：
-
-```js
-const result = await shot.screenshotURL('file:///D:/pages/report.html', {
-  allowFileURLs: true,
-  fullPage: true,
-});
-```
-
-## API
+输入三选一：
 
 ```ts
-const shot = await launch({
-  executablePath?: string,
-  env?: NodeJS.ProcessEnv,
-  launchTimeoutMs?: number,
-});
-
-await shot.screenshot({ url | html | htmlFile, ...settings });
-await shot.screenshotURL(url, settings);
-await shot.screenshotHTML(html, settings);
-await shot.close();
+await shot.screenshotURL('https://example.com/', { fullPage: true });
+await shot.screenshotHTML('<h1>Hello</h1>', { format: 'webp', quality: 82 });
+await shot.screenshot({ htmlFile: './page.xhtml', mimeType: 'application/xhtml+xml' });
 ```
 
-主要 settings：`outputPath`、`format: 'png' | 'webp' | 'webp-lossless'`、`quality: 0..100`、`width`、`height`、`scale`、`fullPage`、`timeoutMs`、`baseURL`、`userAgent`、`mimeType`、`allowFileURLs`。
+设置 `outputPath` 时仍返回同一个 Buffer，并额外通过 Node 文件 API 写入目标路径：
 
-结果字段：
+```ts
+await shot.screenshotHTML('<h1>Hello</h1>', { outputPath: './out/card.png' });
+```
 
-- `data: Buffer`：编码后的图片；
-- `bytes`：ShotKit 报告的编码大小；
-- `durationMs`：ShotKit 内部渲染、编码与写文件耗时；
-- `elapsedMs`：Node 端完整往返时间，额外包含读取 Buffer；
-- `outputPath`：指定输出路径时返回其绝对路径。
+## 线程与进程模型
 
-## 开发、测试、发布
+- 一个 Node 进程只有一条 ShotKit 原生渲染线程和 FIFO 队列。
+- 并发 Promise 可以同时提交，但会在 WebCore owner 线程串行执行；Node 主事件循环不会被截图阻塞。
+- 多次 `launch()` 返回独立逻辑 handle，共享底层队列；`close()` 只关闭当前 handle。
+- 第一版不支持在多个 `worker_threads` isolate 中重复加载 addon。需要真正并行或故障隔离时，使用多个 Node 子进程，或使用 GitHub Release 中的 `shotcli --serve`。
+- 原生崩溃会终止宿主 Node 进程，这是进程内绑定相对于 CLI 隔离模式的固有取舍。
+
+`durationMs` 只统计 C API 渲染与编码；`elapsedMs` 还包含排队、跨线程回传，以及可选的输入/输出文件 I/O。
+
+## 本地开发
 
 ```powershell
-cd apps\node   # 仓库根目录下
-npm install
+cd apps/node
+npm ci
 npm run typecheck
+npm run build
 
-# 把本地 Windows 构建产物装入 npm/win32-x64/（平台子包骨架），然后跑集成测试
-npm run stage:win
+# 配置并构建 WebKit 时增加 -NodeAddon
+pwsh ../../scripts/build-shot.ps1 -Configure -Build -NodeAddon
+$env:SHOTKIT_NATIVE_PATH = '../../WebKitBuild/shot/bin/shot.node'
 npm test
 ```
 
-运行时解析顺序：`launch({ executablePath })` > 环境变量 `SHOTKIT_EXECUTABLE` > 已安装的 `@shotkit/<platform>-<arch>` 子包 > 仓库内 `npm/<platform>/` 已 staging 的运行时 > `WebKitBuild/shot-dist`。
-
-发布走 `.github/workflows/publish.yml`：构建 6 个平台运行时 → `tools/stage-platform.ts` 装入各子包 → `tools/sync-versions.ts` 统一版本并注入 optionalDependencies → 经 npm Trusted Publishing(OIDC)免 token 发布。仓库里的 package.json 刻意不含 optionalDependencies(子包未发布前会破坏 `npm ci`),只有发布出去的 manifest 携带。
+发布流程从六个平台 CI 的 `shotkit-node-<os>-<arch>` artifact staging `shot.node` 和必要动态依赖，再发布平台子包与主包。`SHOTKIT_NATIVE_PATH` 仅用于仓库测试和自定义构建定位。

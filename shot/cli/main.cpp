@@ -346,12 +346,14 @@ static int runServer(const shot_render_options& defaults)
         std::string baseURL;
         std::string userAgent;
         std::string mimeType;
+        std::string selector;
         if (!getString(request, "url", url, false, error)
             || !getString(request, "html", html, false, error)
             || !getString(request, "html_file", htmlFile, false, error)
             || !getString(request, "out", outputPath, true, error)
             || !getString(request, "base_url", baseURL, false, error)
             || !getString(request, "ua", userAgent, false, error)
+            || !getString(request, "selector", selector, false, error)
             || !getString(request, "mime_type", mimeType, false, error)) {
             writeErrorResponse(id, SHOT_ERR_INVALID_ARG, error);
             continue;
@@ -421,6 +423,8 @@ static int runServer(const shot_render_options& defaults)
             options.user_agent = userAgent.c_str();
         if (!mimeType.empty())
             options.input_mime_type = mimeType.c_str();
+        if (!selector.empty())
+            options.selector = selector.c_str();
 
         auto start = std::chrono::steady_clock::now();
         shot_image image { nullptr, 0 };
@@ -455,9 +459,13 @@ static void usage()
         "usage: shotcli (--html <file> | --stdin | --url <url>) --out <image>\n"
         "       shotcli --serve\n"
         "               [--width W] [--height H] [--scale S] [--full-page]\n"
-        "               [--format png|webp|webp-lossless] [--quality 0..100]\n"
+        "               [--selector CSS] [--format png|webp|webp-lossless]\n"
+        "               [--quality 0..100]\n"
         "               [--mime-type TYPE] [--timeout MS] [--base-url URL]\n"
         "               [--ua STRING] [--allow-file-urls]\n"
+        "\n"
+        "--selector crops the image to the first element matching the CSS selector,\n"
+        "which takes precedence over --full-page.\n"
         "\n"
         "--serve reads one JSON object per line from stdin and writes one JSON response\n"
         "per line to stdout. Each render request requires 'out' and exactly one of\n"
@@ -472,6 +480,7 @@ int main(int argc, char** argv)
     std::string baseURLStore;
     std::string uaStore;
     std::string mimeTypeStore;
+    std::string selectorStore;
     bool useStdin = false;
     bool serve = false;
 
@@ -505,6 +514,10 @@ int main(int argc, char** argv)
             options.device_scale = std::stod(next("--scale"));
         else if (arg == "--full-page")
             options.full_page = 1;
+        else if (arg == "--selector") {
+            selectorStore = next("--selector");
+            options.selector = selectorStore.c_str();
+        }
         else if (arg == "--timeout")
             options.timeout_ms = std::stoi(next("--timeout"));
         else if (arg == "--format") {

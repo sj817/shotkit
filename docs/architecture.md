@@ -11,7 +11,7 @@ ShotKit 的定位、已拍板的核心决策、代码地图、嵌入库设计与
 - **输入**：HTML 字符串 / 本地 HTML 文件 / 远程 URL
 - **输出**：PNG / WebP（有损或无损）字节
 - **形态**：无头（headless）、单进程、跨平台（Windows / Linux / macOS）
-- **交付**：C ABI 动态库 `libshot` + 命令行工具 `shotcli`，供 Node / Python / Go 绑定
+- **交付**：C ABI 动态库 `libshot` + 命令行工具 `shotcli` + 原生 npm SDK `@shotkit/node`
 - **体积是一等目标**：产物追求极致小。任何新增依赖/特性都要回答"值多少 KB"；体积化清单见 [size-ledger.md](size-ledger.md)，每个里程碑都要记录体积基线
 
 **这不是一个浏览器。** 明确不做：JS 执行（页面脚本永不运行）、视频/音频、WebGL/WebGPU、Web Inspector、双进程架构、窗口系统、用户交互。它是一个"HTML/CSS → 像素"的确定性渲染器。
@@ -76,6 +76,8 @@ shot/
 │   └── shot.cpp
 ├── cli/
 │   └── main.cpp                            # shotcli（含 --serve JSONL 常驻模式）
+├── node/
+│   └── addon.cpp                           # 原始 Node-API v8，专用线程 + FIFO
 ├── config.h
 └── degenerate-bindings.txt                 # 退化绑定接口清单（构建输入）
 ```
@@ -160,7 +162,17 @@ shot/
 
 ### 5.5 线程模型
 
-WebCore 是进程级单主线程（`isMainThread()`）。`shot_init` 把**当前调用线程**绑定为主线程（`WTF::initializeMainThread()` → `JSC::initialize()` → `setPlatformStrategies`），此后所有 API 必须同线程调用，违者返回 `SHOT_ERR_WRONG_THREAD`。**不支持进程内并行渲染**；并行用多进程。绑定方文档要求：Node 用单一 worker_thread 串行、Python 用专属线程、Go 用 `runtime.LockOSThread` 专用 goroutine。
+WebCore 是进程级单主线程（`isMainThread()`）。首次成功 `shot_init` 的线程成为 owner
+（`WTF::initializeMainThread()` → `JSC::initialize()` → `setPlatformStrategies`）；后续
+初始化与 renderer API 只允许 owner，违者返回 `SHOT_ERR_WRONG_THREAD`。options 默认值和
+图片释放可跨线程，便于宿主 finalizer 回收编码内存。**不支持进程内并行渲染**；并行用多进程。
+
+`@shotkit/node` 不直接接触 WebCore/WTF，只调用同步 C API。Node 环境负责校验和复制输入，
+一个原生专用 OS 线程执行 `shot_init`、持有 renderer 并串行消费 FIFO；完成通过 Node-API
+thread-safe function 回到 JS 线程。编码 `Vector` 的 backing buffer 经 C API 转交给 external
+Buffer，finalizer 可跨线程释放。活动任务保持事件循环存活，空闲 dispatcher 不阻止进程退出。
+macOS 的 `PLATFORM(SHOT)` 以该专用 pthread 作为 ShotKit main thread，并在其
+`CFRunLoopGetCurrent()` 上驱动 CFNetwork；其他 Cocoa 端口仍使用系统 pthread 主线程。
 
 ## 6. C ABI 草案（capi/shot.h）
 
@@ -174,6 +186,7 @@ typedef enum {
     SHOT_ERR_TIMEOUT = 5,
     SHOT_ERR_RENDER_FAILED = 6,
     SHOT_ERR_FILE_ACCESS_DENIED = 7,
+    SHOT_ERR_SELECTOR_NOT_FOUND = 8,
 } shot_status;
 
 typedef struct shot_renderer shot_renderer;  /* 不透明，非线程安全 */
@@ -194,23 +207,30 @@ typedef struct {
     int best_effort_on_timeout;   /* 超时仍出图 */
     const char* user_agent;
     const char* base_url;         /* 仅 HTML 字符串模式 */
+    const char* input_mime_type;
     int allow_file_urls;
     uint32_t background_rgba;     /* 0 = 透明 */
+    shot_output_format output_format;
+    double output_quality;
+    const char* selector;         /* 追加字段；优先于 full_page */
 } shot_render_options;
 
-typedef struct { uint8_t* data; size_t size; } shot_png;
+typedef struct { uint8_t* data; size_t size; } shot_image;
 
 shot_renderer* shot_renderer_create(void);
 void           shot_renderer_destroy(shot_renderer*);
 shot_status shot_render_html(shot_renderer*, const char* html_utf8, size_t len,
-                             const shot_render_options*, shot_png* out);
+                             const shot_render_options*, shot_image* out);
 shot_status shot_render_url (shot_renderer*, const char* url,
-                             const shot_render_options*, shot_png* out);
-void        shot_png_free(shot_png*);
+                             const shot_render_options*, shot_image* out);
+void        shot_image_free(shot_image*); /* 可跨线程 */
 const char* shot_last_error(shot_renderer*);
 ```
 
 CLI（`shotcli`）是 ABI 的薄封装：一次性模式为 `shotcli --url <u> | --html <f> | --stdin`，参数 `--out --format --quality --mime-type --width --height --scale --full-page --timeout --ua --ca-bundle --allow-file-urls --base-url`，退出码映射 shot_status；`shotcli --serve` 提供 stdin/stdout JSONL 常驻协议，单次初始化后复用 renderer，逐请求返回 status/bytes/duration_ms。CLI 同时是三平台 CI 的验收载体。
+
+`shot.node` 与 `libshot` 是两个独立链接产物：前者用 `SHOT_STATIC` 静态汇入同一 C API 与
+WebCore OBJECT 闭包，只导出 Node-API 注册符号；后者继续供 CLI 与非 Node 语言动态链接。
 
 
 ## 9. 风险与规避（高优先级精选）

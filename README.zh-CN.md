@@ -118,14 +118,15 @@ iframe 目前尚未支持。
 
 - **预热在第二张就结束了。** 第一张渲染背着一次性初始化开销（Linux 约 10 ms、Windows 约 21 ms），
   之后曲线就是平的。所以让进程常驻。
-- **对单个实例加并发没有收益。** 引擎在它自己的渲染线程上串行化请求，`Promise.all` 省下的只是
-  IPC 往返（实测 1.02–1.06×）。**要扩吞吐就起一个 ShotKit 进程池**，大致按核数来，
+- **对单个实例加并发不会提高吞吐。** 原生 SDK 接受并发 Promise，但通过唯一 FIFO 渲染线程串行执行。
+  **要扩吞吐就起一个 ShotKit 进程池**，大致按核数来，
   而不是往一个实例里堆并发。
 
 ## Node.js SDK
 
-[`@shotkit/node`](https://www.npmjs.com/package/@shotkit/node) 封装了 JSONL 常驻协议。
-ESM 与 CommonJS 都支持，零运行时依赖，要求 Node.js 18.18 及以上。
+[`@shotkit/node`](https://www.npmjs.com/package/@shotkit/node) 在进程内加载预编译
+`shot.node`：单一原生线程渲染，编码内存直接成为 Buffer，不启动 CLI，也不创建临时图片文件。
+ESM 与 CommonJS 都支持，要求 Node.js 18.18 及以上。
 
 ```js
 import { launch } from '@shotkit/node';
@@ -154,27 +155,14 @@ try {
 ```
 
 选项：`outputPath`、`format`（`png` | `webp` | `webp-lossless`）、`quality`、`width`、`height`、
-`scale`、`fullPage`、`timeoutMs`、`baseURL`、`userAgent`、`mimeType`、`allowFileURLs`。
+`scale`、`fullPage`、`selector`、`timeoutMs`、`baseURL`、`userAgent`、`mimeType`、`allowFileURLs`。
 返回：`{ data: Buffer, bytes, durationMs, elapsedMs, outputPath? }`。
 
 完整 SDK 文档见 [`bindings/node/README.md`](apps/node/README.md)。
 
 ## CLI
 
-最快的方式是走 npm，它把同一份预编译运行时包装成 `sk` 命令：
-
-```bash
-# 什么都不装,跑一次
-npx @shotkit/node --url https://example.com/ --out example.png --full-page
-
-# 或者装成全局命令
-npm install -g @shotkit/node
-sk --html ./page.html --out page.png --width 1280 --height 800
-```
-
-全局安装会同时提供 `sk` 和更长的 `shotkit`，两者完全等价。
-
-也可以完全不碰 Node.js：下载 [release 归档](https://github.com/sj817/shotkit/releases)，
+下载 [release 归档](https://github.com/sj817/shotkit/releases)，
 **完整解压**后直接运行 `shotcli`。ShotKit 不会在运行时解压自身，也不写内核缓存。
 
 ```bash

@@ -1,7 +1,7 @@
 {
   "name": "@shotkit/win32-arm64",
-  "version": "0.1.0",
-  "description": "ShotKit runtime binaries for Windows arm64",
+  "version": "0.2.0",
+  "description": "ShotKit native Node addon for Windows arm64",
   "repository": {
     "type": "git",
     "url": "git+https://github.com/sj817/shotkit.git"
@@ -15,14 +15,14 @@
     "arm64"
   ],
   "files": [
-    "shotcli.exe",
+    "shot.node",
     "*.dll"
   ],
   "engines": {
     "node": ">=18.18"
   },
   "scripts": {
-    "prepublishOnly": "node -e \"require('node:fs').accessSync('shotcli.exe')\""
+    "prepublishOnly": "node -e \"require('node:fs').accessSync('shot.node')\""
   },
   "publishConfig": {
     "access": "public",

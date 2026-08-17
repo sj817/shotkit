@@ -118,15 +118,11 @@ npm install @shotkit/node
 <summary><b>Other ways to run it</b></summary>
 
 \`\`\`bash
-# One-off, no install
-npx @shotkit/node --url https://example.com --out shot.png
-
-# Global CLI — installs as \`sk\`, with \`shotkit\` as an equivalent alias
-npm install -g @shotkit/node
-sk --html page.html --out page.png --full-page
-
 # Node.js API
 node -e "const {launch}=require('@shotkit/node');launch().then(async s=>{await s.screenshotURL('https://example.com',{outputPath:'a.png'});await s.close()})"
+
+# Standalone CLI: download the matching GitHub Release archive below.
+./shotkit-linux-x64/bin/shotcli --url https://example.com --out shot.png
 \`\`\`
 
 </details>
@@ -162,6 +158,7 @@ Every runtime in this release passed, on its own platform and architecture:
 - [x] PNG and WebP screenshot smoke tests
 - [x] Page scripts are never fetched or executed
 - [x] Exactly 10 \`shot_*\` C ABI exports
+- [x] Native \`shot.node\` uses one N-API v8 build and does not export \`shot_*\`
 - [x] Relocatable CLI (\`$ORIGIN/../lib\` / \`@loader_path/../lib\`)
 - [x] Release archive within its size budget
 
@@ -182,12 +179,11 @@ npm install @shotkit/node
 npm 只会为当前平台装下唯一匹配的预编译运行时——不需要 node-gyp，不需要编译器，也没有安装后下载。
 
 \`\`\`bash
-# 不安装,直接跑一次
-npx @shotkit/node --url https://example.com --out shot.png
+# Node.js API
+node -e "const {launch}=require('@shotkit/node');launch().then(async s=>{await s.screenshotURL('https://example.com',{outputPath:'a.png'});await s.close()})"
 
-# 全局 CLI —— 命令为 \`sk\`,同时提供等价别名 \`shotkit\`
-npm install -g @shotkit/node
-sk --html page.html --out page.png --full-page
+# 独立 CLI 请下载下方对应平台的 GitHub Release 归档
+./shotkit-linux-x64/bin/shotcli --url https://example.com --out shot.png
 \`\`\`
 
 ### 预编译运行时
@@ -208,7 +204,8 @@ sha256sum -c shotkit-${version}-linux-x64.tar.xz.sha256
 ### CI 验证项
 
 本次发布的每个运行时，都在其对应的平台与架构上通过了：PNG/WebP 截图冒烟测试、
-页面脚本零请求零执行、10 个 \`shot_*\` C ABI 导出、可重定位 CLI、以及发布归档体积闸门。
+页面脚本零请求零执行、10 个 \`shot_*\` C ABI 导出、原生 \`shot.node\` 导出面、
+可重定位 CLI、以及发布归档体积闸门。
 
 npm 侧通过 Trusted Publishing(OIDC)发布，全程不涉及长期有效的 token。
 

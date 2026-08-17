@@ -41,6 +41,10 @@
 
 namespace WTF {
 
+#if PLATFORM(SHOT)
+static pthread_t s_shotMainThread;
+#endif
+
 #if USE(WEB_THREAD)
 // When the Web thread is enabled, we consider it to be the main thread, not pthread main.
 static pthread_t s_webThreadPthread;
@@ -53,9 +57,16 @@ static std::optional<uint32_t> s_webThreadID;
 
 void initializeMainThreadPlatform()
 {
+#if PLATFORM(SHOT)
+    // Node and other language runtimes own the process main thread. ShotKit is
+    // deliberately single-threaded, but its WebCore thread may be a dedicated
+    // host thread with its own CFRunLoop rather than pthread_main_np().
+    s_shotMainThread = pthread_self();
+#else
     if (!pthread_main_np())
         RELEASE_LOG_FAULT(Threading, "WebKit Threading Violation - initial use of WebKit from a secondary thread.");
     ASSERT(pthread_main_np());
+#endif
 }
 
 void dispatchAsyncOnMainThreadWithWebThreadLockIfNeeded(void (^block)())
@@ -96,7 +107,11 @@ static bool webThreadIsUninitializedOrLockedOrDisabled()
 
 bool isMainThread()
 {
+#if PLATFORM(SHOT)
+    return pthread_equal(pthread_self(), s_shotMainThread);
+#else
     SUPPRESS_NODELETE { return (isWebThread() || pthread_main_np()) && webThreadIsUninitializedOrLockedOrDisabled(); }
+#endif
 }
 
 bool isUIThread()
@@ -150,7 +165,11 @@ bool canCurrentThreadIDAccessThreadLocalData(uint32_t threadID)
 
 bool isMainThread()
 {
+#if PLATFORM(SHOT)
+    return pthread_equal(pthread_self(), s_shotMainThread);
+#else
     SUPPRESS_NODELETE { return pthread_main_np(); }
+#endif
 }
 
 #endif // USE(WEB_THREAD)

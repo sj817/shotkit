@@ -24,18 +24,22 @@ set(_shotkit_includes
 set(libshot_LIBRARY_TYPE SHARED)
 set(libshot_OUTPUT_NAME shot)
 
-set(libshot_SOURCES
+set(_shotkit_kernel_sources
     ${SHOTKIT_DIR}/ShotGlobal.cpp
     ${SHOTKIT_DIR}/ShotLoaderStrategy.cpp
     ${SHOTKIT_DIR}/ShotPage.cpp
     ${SHOTKIT_DIR}/ShotPlatformStrategies.cpp
     ${SHOTKIT_DIR}/ShotSession.cpp
-    ${CMAKE_CURRENT_SOURCE_DIR}/capi/shot.cpp
 )
 
 if (USE_CURL)
-    list(APPEND libshot_SOURCES ${SHOTKIT_DIR}/ShotCurlResourceLoader.cpp)
+    list(APPEND _shotkit_kernel_sources ${SHOTKIT_DIR}/ShotCurlResourceLoader.cpp)
 endif ()
+
+set(libshot_SOURCES
+    ${_shotkit_kernel_sources}
+    ${CMAKE_CURRENT_SOURCE_DIR}/capi/shot.cpp
+)
 
 # WebCore 等是 OBJECT 库，链接时把目标文件与 include 一并带入。
 set(libshot_FRAMEWORKS
@@ -94,6 +98,84 @@ if (WIN32)
 endif ()
 
 
+# ---- shot.node（Node-API，静态汇入同一 C ABI + WebCore OBJECT 闭包）----
+# 头文件来自 apps/node 的 build-only node-api-headers 依赖。没有 npm checkout
+# 时仍允许只构建 CLI；发布/平台 CI 会先 npm ci 并显式构建 shotnode。
+set(SHOT_NODE_API_INCLUDE_DIR "${CMAKE_SOURCE_DIR}/apps/node/node_modules/node-api-headers/include"
+    CACHE PATH "Directory containing node_api.h for the optional shot.node target")
+if (EXISTS "${SHOT_NODE_API_INCLUDE_DIR}/node_api.h")
+    set(shotnode_LIBRARY_TYPE SHARED)
+    set(shotnode_SOURCES
+        ${_shotkit_kernel_sources}
+        ${CMAKE_CURRENT_SOURCE_DIR}/capi/shot.cpp
+        ${CMAKE_CURRENT_SOURCE_DIR}/node/addon.cpp
+    )
+    set(shotnode_FRAMEWORKS ${libshot_FRAMEWORKS})
+    set(shotnode_PRIVATE_INCLUDE_DIRECTORIES
+        ${_shotkit_includes}
+        ${SHOT_NODE_API_INCLUDE_DIR}
+    )
+    if (APPLE)
+        list(APPEND shotnode_PRIVATE_INCLUDE_DIRECTORIES ${SHOT_WEBP_INCLUDE_DIR})
+    endif ()
+    set(shotnode_LIBRARIES ${libshot_LIBRARIES})
+
+    if (WIN32)
+        get_filename_component(_shot_node_api_root "${SHOT_NODE_API_INCLUDE_DIR}" DIRECTORY)
+        set(_shot_node_def "${_shot_node_api_root}/def/node_api.def")
+        set(_shot_node_import_library "${CMAKE_CURRENT_BINARY_DIR}/node_api.lib")
+        if (WTF_CPU_ARM64)
+            set(_shot_node_machine ARM64)
+        else ()
+            set(_shot_node_machine X64)
+        endif ()
+        execute_process(
+            COMMAND "${CMAKE_AR}" "/def:${_shot_node_def}" "/machine:${_shot_node_machine}" "/out:${_shot_node_import_library}"
+            RESULT_VARIABLE _shot_node_lib_result
+            OUTPUT_VARIABLE _shot_node_lib_output
+            ERROR_VARIABLE _shot_node_lib_error
+        )
+        if (NOT _shot_node_lib_result EQUAL 0)
+            message(FATAL_ERROR "Failed to create Node-API import library: ${_shot_node_lib_output}${_shot_node_lib_error}")
+        endif ()
+        list(APPEND shotnode_LIBRARIES "${_shot_node_import_library}")
+    endif ()
+
+    WEBKIT_LIBRARY_DECLARE(shotnode)
+    target_compile_definitions(shotnode PRIVATE SHOT_STATIC=1 NAPI_VERSION=8)
+    WEBKIT_LIBRARY(shotnode)
+    set_target_properties(shotnode PROPERTIES
+        OUTPUT_NAME shot
+        PREFIX ""
+        SUFFIX ".node"
+        RUNTIME_OUTPUT_DIRECTORY "${CMAKE_BINARY_DIR}/bin"
+        LIBRARY_OUTPUT_DIRECTORY "${CMAKE_BINARY_DIR}/bin"
+        ARCHIVE_OUTPUT_DIRECTORY "${CMAKE_CURRENT_BINARY_DIR}/import"
+    )
+    if (APPLE)
+        target_link_options(shotnode PRIVATE "-undefined" "dynamic_lookup")
+        set_target_properties(shotnode PROPERTIES BUILD_RPATH "@loader_path/lib" INSTALL_RPATH "@loader_path/lib")
+    elseif (UNIX)
+        set_target_properties(shotnode PROPERTIES BUILD_RPATH "$ORIGIN/lib" INSTALL_RPATH "$ORIGIN/lib")
+    endif ()
+
+    if (WIN32)
+        string(REGEX MATCH "^[0-9]+" _shot_node_icu_major "${ICU_VERSION}")
+        if (NOT _shot_node_icu_major)
+            message(FATAL_ERROR "Cannot derive the ICU DLL name for shot.node from ICU_VERSION='${ICU_VERSION}'")
+        endif ()
+        target_link_options(shotnode PRIVATE
+            "/DELAYLOAD:libEGL.dll"
+            "/DELAYLOAD:libGLESv2.dll"
+            "/DELAYLOAD:icuin${_shot_node_icu_major}.dll"
+        )
+        unset(_shot_node_icu_major)
+    endif ()
+else ()
+    message(STATUS "shot.node disabled: node_api.h not found under ${SHOT_NODE_API_INCLUDE_DIR}")
+endif ()
+
+
 # ---- shotcli（薄 CLI，只用 C ABI，链接 libshot）----
 set(shotcli_SOURCES
     ${CMAKE_CURRENT_SOURCE_DIR}/cli/main.cpp
@@ -115,4 +197,16 @@ elseif (UNIX)
         BUILD_RPATH "$ORIGIN/../lib"
         INSTALL_RPATH "$ORIGIN/../lib"
     )
+endif ()
+
+# Small cross-platform C ABI ownership regression used by every platform CI.
+set(shot_capi_thread_test_SOURCES ${CMAKE_SOURCE_DIR}/tests/capi_thread_test.cpp)
+set(shot_capi_thread_test_LIBRARIES libshot)
+set(shot_capi_thread_test_PRIVATE_INCLUDE_DIRECTORIES ${CMAKE_CURRENT_SOURCE_DIR}/capi)
+WEBKIT_EXECUTABLE_DECLARE(shot_capi_thread_test)
+WEBKIT_EXECUTABLE(shot_capi_thread_test)
+if (APPLE)
+    set_target_properties(shot_capi_thread_test PROPERTIES BUILD_RPATH "@loader_path/../lib")
+elseif (UNIX)
+    set_target_properties(shot_capi_thread_test PROPERTIES BUILD_RPATH "$ORIGIN/../lib")
 endif ()

@@ -61,6 +61,7 @@ jobs:
             /.github/
             /Source/
             /shot/
+            /apps/node/
             /scripts/
             /tests/
             /Tools/
@@ -68,6 +69,16 @@ jobs:
             /CMakePresets.json
             /AGENTS.md
             /ReadMe.md
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: npm
+          cache-dependency-path: apps/node/package-lock.json
+
+      - name: Install Node binding build dependencies
+        working-directory: apps/node
+        run: npm ci
 
       - name: Install build dependencies
         run: |
@@ -128,12 +139,13 @@ jobs:
             -DCMAKE_RANLIB="$(command -v llvm-ranlib-18)" \
             -DCMAKE_EXE_LINKER_FLAGS="-fuse-ld=lld $lto_link_flags" \
             -DCMAKE_SHARED_LINKER_FLAGS="-fuse-ld=lld $lto_link_flags" \
+            -DSHOT_NODE_API_INCLUDE_DIR="$GITHUB_WORKSPACE/apps/node/node_modules/node-api-headers/include" \
             -DLTO_MODE="$SHOT_LTO" \
             "${launcher_args[@]}"
 
       - name: Build ShotKit
         run: |
-          ninja -C WebKitBuild/shot-linux -j3 shotcli
+          ninja -C WebKitBuild/shot-linux -j3 shotcli shotnode shot_capi_thread_test
           free -h
 
       - name: Compiler cache statistics
@@ -148,6 +160,49 @@ jobs:
           WebKitBuild/shot-linux/bin/shotcli --html "$RUNNER_TEMP/shot-smoke.html" --out "$RUNNER_TEMP/shot-smoke.webp" --format webp --quality 82 --width 640 --height 360
           test "$(stat -c %s "$RUNNER_TEMP/shot-smoke.png")" -gt 100
           test "$(stat -c %s "$RUNNER_TEMP/shot-smoke.webp")" -gt 100
+
+      - name: Verify C ABI thread ownership and native Node SDK
+        run: |
+          WebKitBuild/shot-linux/bin/shot_capi_thread_test
+          SHOTKIT_NATIVE_PATH="$GITHUB_WORKSPACE/WebKitBuild/shot-linux/bin/shot.node" npm test --prefix apps/node
+          SHOTKIT_NATIVE_PATH="$GITHUB_WORKSPACE/WebKitBuild/shot-linux/bin/shot.node" node apps/node/test/native-parity.mjs WebKitBuild/shot-linux/bin/shotcli
+          SHOTKIT_NATIVE_PATH="$GITHUB_WORKSPACE/WebKitBuild/shot-linux/bin/shot.node" node --expose-gc apps/node/test/native-soak.mjs
+
+      - uses: actions/setup-node@v4
+        if: matrix.arch == 'x64'
+        with:
+          node-version: 18.18
+
+      - name: Verify the same addon on Node 18.18
+        if: matrix.arch == 'x64'
+        run: SHOTKIT_NATIVE_PATH="$GITHUB_WORKSPACE/WebKitBuild/shot-linux/bin/shot.node" node apps/node/test/native-compat.mjs
+
+      - uses: actions/setup-node@v4
+        if: matrix.arch == 'x64'
+        with:
+          node-version: 20
+
+      - name: Verify the same addon on Node 20
+        if: matrix.arch == 'x64'
+        run: SHOTKIT_NATIVE_PATH="$GITHUB_WORKSPACE/WebKitBuild/shot-linux/bin/shot.node" node apps/node/test/native-compat.mjs
+
+      - uses: actions/setup-node@v4
+        if: matrix.arch == 'x64'
+        with:
+          node-version: 22
+
+      - name: Verify the same addon on Node 22
+        if: matrix.arch == 'x64'
+        run: SHOTKIT_NATIVE_PATH="$GITHUB_WORKSPACE/WebKitBuild/shot-linux/bin/shot.node" node apps/node/test/native-compat.mjs
+
+      - uses: actions/setup-node@v4
+        if: matrix.arch == 'x64'
+        with:
+          node-version: 24
+
+      - name: Verify the same addon on Node 24
+        if: matrix.arch == 'x64'
+        run: SHOTKIT_NATIVE_PATH="$GITHUB_WORKSPACE/WebKitBuild/shot-linux/bin/shot.node" node apps/node/test/native-compat.mjs
 
       - name: Verify scripts are never fetched
         run: |
@@ -169,7 +224,19 @@ jobs:
           exports=$(llvm-nm-18 -D --defined-only WebKitBuild/shot-linux/lib/libshot.so | awk '{print $3}' | grep '^shot_' | sort)
           test "$(printf '%s\n' "$exports" | grep -c '^shot_')" -eq 10
           readelf -d WebKitBuild/shot-linux/bin/shotcli | grep -F '$ORIGIN/../lib'
-          ls -lh WebKitBuild/shot-linux/lib/libshot.so WebKitBuild/shot-linux/bin/shotcli
+          addon_exports=$(llvm-nm-18 -D --defined-only WebKitBuild/shot-linux/bin/shot.node | awk '{print $3}')
+          grep -q '^napi_register_module_v1$' <<<"$addon_exports"
+          if grep -q '^shot_' <<<"$addon_exports"; then echo 'shot.node leaked C ABI exports' >&2; exit 1; fi
+          ls -lh WebKitBuild/shot-linux/lib/libshot.so WebKitBuild/shot-linux/bin/shotcli WebKitBuild/shot-linux/bin/shot.node
+
+      - name: Stage native npm runtime
+        run: |
+          stage=WebKitBuild/node-runtime
+          rm -rf "$stage"
+          mkdir -p "$stage"
+          cp WebKitBuild/shot-linux/bin/shot.node "$stage/"
+          llvm-strip-18 --strip-unneeded "$stage/shot.node"
+          ldd "$stage/shot.node" > "$stage/DEPENDENCIES.txt"
 
       - name: Package release archive
         run: |
@@ -197,6 +264,13 @@ jobs:
           test "$archive_bytes" -le 18000000
           ls -lh "$stage/bin/shotcli" "$stage/lib/libshot.so" "WebKitBuild/releases/${name}.tar.xz"
 
+      - name: Enforce native runtime closure budget
+        run: |
+          node_bytes=$(stat -c %s WebKitBuild/node-runtime/shot.node)
+          cli_bytes=$(( $(stat -c %s WebKitBuild/releases/shotkit-linux-${{ matrix.arch }}/lib/libshot.so) + $(stat -c %s WebKitBuild/releases/shotkit-linux-${{ matrix.arch }}/bin/shotcli) ))
+          echo "shot.node closure: $node_bytes bytes; CLI closure: $cli_bytes bytes" | tee -a "$GITHUB_STEP_SUMMARY"
+          test "$node_bytes" -le $(( cli_bytes * 105 / 100 ))
+
       - name: Upload compressed release
         uses: actions/upload-artifact@v7
         with:
@@ -206,4 +280,12 @@ jobs:
             WebKitBuild/releases/*.tar.xz.sha256
           if-no-files-found: error
           compression-level: 0
+          retention-days: 7
+
+      - name: Upload native npm runtime
+        uses: actions/upload-artifact@v7
+        with:
+          name: shotkit-node-linux-${{ matrix.arch }}
+          path: WebKitBuild/node-runtime/
+          if-no-files-found: error
           retention-days: 7

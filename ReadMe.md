@@ -123,14 +123,15 @@ Two things worth knowing before you plan capacity:
 
 - **Warm-up finishes on the second image.** The first render carries one-time initialization
   (~10 ms on Linux, ~21 ms on Windows); after that the curve is flat. Keep the process resident.
-- **Concurrency on one instance buys nothing.** The engine serializes requests on its render
-  thread, so `Promise.all` only saves IPC round-trips (measured 1.02–1.06×). **To scale, run a pool
-  of ShotKit processes**, roughly one per core — not more concurrent calls into one.
+- **Concurrency on one instance does not increase throughput.** The native SDK accepts concurrent
+  Promises but serializes them through one FIFO render thread. **To scale, run a pool of ShotKit
+  processes**, roughly one per core — not more concurrent calls into one.
 
 ## Node.js SDK
 
-[`@shotkit/node`](https://www.npmjs.com/package/@shotkit/node) wraps the JSONL server mode. ESM and
-CommonJS, zero runtime dependencies, Node.js 18.18+.
+[`@shotkit/node`](https://www.npmjs.com/package/@shotkit/node) loads a prebuilt in-process
+`shot.node`. It uses one native render thread, returns the encoded allocation as a Buffer, and does
+not launch the CLI or create temporary image files. ESM and CommonJS, Node.js 18.18+.
 
 ```js
 import { launch } from '@shotkit/node';
@@ -159,27 +160,14 @@ try {
 ```
 
 Options: `outputPath`, `format` (`png` | `webp` | `webp-lossless`), `quality`, `width`, `height`,
-`scale`, `fullPage`, `timeoutMs`, `baseURL`, `userAgent`, `mimeType`, `allowFileURLs`.
+`scale`, `fullPage`, `selector`, `timeoutMs`, `baseURL`, `userAgent`, `mimeType`, `allowFileURLs`.
 Result: `{ data: Buffer, bytes, durationMs, elapsedMs, outputPath? }`.
 
 Full SDK docs: [`bindings/node/README.md`](apps/node/README.md).
 
 ## CLI
 
-The quickest way in is npm, which wraps the same prebuilt runtime in an `sk` command:
-
-```bash
-# One-off, nothing installed
-npx @shotkit/node --url https://example.com/ --out example.png --full-page
-
-# Or keep it around
-npm install -g @shotkit/node
-sk --html ./page.html --out page.png --width 1280 --height 800
-```
-
-The global install provides both `sk` and the longer `shotkit`; they are the same command.
-
-Or skip Node.js entirely: download a [release archive](https://github.com/sj817/shotkit/releases),
+Download a [release archive](https://github.com/sj817/shotkit/releases),
 extract it completely, and run `shotcli`. ShotKit never unpacks itself at runtime and never writes a
 kernel cache.
 

@@ -11,7 +11,7 @@ import { launch, ShotKitError } from '@shotkit/node';
 
 const outputDirectory = path.join(tmpdir(), 'shotkit-node-sdk-test');
 
-test('persistent ESM client returns buffers and writes optional output', async () => {
+test('native ESM client returns buffers and writes optional output', async () => {
   await mkdir(outputDirectory, { recursive: true });
   const outputPath = path.join(outputDirectory, 'esm-output.webp');
   const shot = await launch();
@@ -32,10 +32,164 @@ test('persistent ESM client returns buffers and writes optional output', async (
   }
 });
 
+test('multiple handles share a non-blocking FIFO renderer', async () => {
+  const [first, second] = await Promise.all([launch(), launch()]);
+  let timerTicks = 0;
+  const timer = setInterval(() => ++timerTicks, 1);
+  try {
+    const completionOrder = [];
+    const results = await Promise.all(Array.from({ length: 8 }, (_, index) => {
+      const handle = index % 2 ? first : second;
+      return handle.screenshotHTML(`<style>body{margin:0;background:hsl(${index * 30} 70% 50%)}</style><h1>${index}</h1>`, {
+        width: 320,
+        height: 180,
+      }).then((result) => {
+        completionOrder.push(index);
+        return result;
+      });
+    }));
+    assert.equal(results.length, 8);
+    assert.deepEqual(completionOrder, [0, 1, 2, 3, 4, 5, 6, 7]);
+    assert.ok(results.every((result) => result.data[0] === 0x89));
+    assert.ok(timerTicks > 0, 'native rendering blocked the Node event loop');
+
+    await first.close();
+    await assert.rejects(() => first.screenshotHTML('<p>closed</p>'), ShotKitError);
+    assert.ok((await second.screenshotHTML('<p>still open</p>')).bytes > 8);
+  } finally {
+    clearInterval(timer);
+    await first.close();
+    await second.close();
+  }
+});
+
+test('close waits for requests already submitted by that handle', async () => {
+  const shot = await launch();
+  const render = shot.screenshotHTML('<style>body{height:1600px;background:linear-gradient(#123,#def)}</style>', {
+    width: 800,
+    height: 600,
+    fullPage: true,
+  });
+  const closing = shot.close();
+  const result = await render;
+  await closing;
+  assert.ok(result.bytes > 8);
+});
+
+test('htmlFile is read by Node and does not require a native file API', async () => {
+  await mkdir(outputDirectory, { recursive: true });
+  const htmlPath = path.join(outputDirectory, 'input-中文.html');
+  await writeFile(htmlPath, '<!doctype html><meta charset=utf-8><h1>HTML file</h1>');
+  const shot = await launch();
+  try {
+    const result = await shot.screenshot({ htmlFile: htmlPath, width: 320, height: 180 });
+    assert.equal(result.data[0], 0x89);
+    assert.equal(result.outputPath, undefined);
+  } finally {
+    await shot.close();
+    await rm(outputDirectory, { recursive: true, force: true });
+  }
+});
+
 test('invalid options reject without killing the persistent process', async () => {
   const shot = await launch();
   try {
     await assert.rejects(() => shot.screenshotHTML('<p>x</p>', { quality: 101 }), ShotKitError);
+    await assert.rejects(() => shot.screenshotHTML('<p>x</p>', { scale: Number.NaN }), ShotKitError);
+    await assert.rejects(() => shot.screenshotHTML('<p>x</p>', { width: 12.5 }), ShotKitError);
+    const result = await shot.screenshotHTML('<p>still alive</p>', { width: 200, height: 100 });
+    assert.ok(result.bytes > 8);
+  } finally {
+    await shot.close();
+  }
+});
+
+// PNG 尺寸就在 IHDR 里，读头 24 字节即可，不必引入解码依赖。
+function pngSize(buffer) {
+  assert.deepEqual([...buffer.subarray(0, 4)], [0x89, 0x50, 0x4e, 0x47]);
+  return { width: buffer.readUInt32BE(16), height: buffer.readUInt32BE(20) };
+}
+
+test('selector crops to the matched element instead of the viewport', async () => {
+  const shot = await launch();
+  try {
+    const html = '<!doctype html><body style="margin:0;display:flex">'
+      + '<div id="card" style="width:300px;height:200px;flex-shrink:0;background:#4a7"></div></body>';
+
+    // 不传 selector：画幅是视口，右边留白。
+    const full = await shot.screenshotHTML(html, { width: 1280, height: 400 });
+    assert.deepEqual(pngSize(full.data), { width: 1280, height: 400 });
+
+    // 传 selector：画幅收敛到元素自身。
+    const cropped = await shot.screenshotHTML(html, { width: 1280, height: 400, selector: '#card' });
+    assert.deepEqual(pngSize(cropped.data), { width: 300, height: 200 });
+  } finally {
+    await shot.close();
+  }
+});
+
+test('selector geometry accounts for zoom and honours deviceScale', async () => {
+  const shot = await launch();
+  try {
+    // 布局宽 600 + zoom:0.5 = 实占 300 CSS px，与模板里那套写法一致。
+    const html = '<!doctype html><body style="margin:0;display:flex">'
+      + '<div id="card" style="zoom:0.5;width:600px;height:400px;flex-shrink:0;background:#4a7"></div></body>';
+
+    const cropped = await shot.screenshotHTML(html, { width: 1280, height: 400, selector: '#card' });
+    assert.deepEqual(pngSize(cropped.data), { width: 300, height: 200 });
+
+    const retina = await shot.screenshotHTML(html, { width: 1280, height: 400, selector: '#card', scale: 2 });
+    assert.deepEqual(pngSize(retina.data), { width: 600, height: 400 });
+  } finally {
+    await shot.close();
+  }
+});
+
+// 取的是元素边框盒，不是含 ink overflow 的绘制包围盒 —— 后者会被后代的阴影/绝对定位装饰撑大，
+// 真实模板上实测能超出整个文档。
+test('selector uses the border box, not the descendant ink overflow', async () => {
+  const shot = await launch();
+  try {
+    const html = '<!doctype html><body style="margin:0;display:flex">'
+      + '<div id="card" style="width:300px;height:200px;flex-shrink:0;background:#4a7">'
+      + '<div style="position:absolute;left:900px;top:900px;width:200px;height:200px;background:#c44"></div>'
+      + '<div style="width:10px;height:10px;box-shadow:0 0 0 400px #00f"></div>'
+      + '</div></body>';
+    const cropped = await shot.screenshotHTML(html, { width: 1280, height: 400, selector: '#card' });
+    assert.deepEqual(pngSize(cropped.data), { width: 300, height: 200 });
+  } finally {
+    await shot.close();
+  }
+});
+
+test('selector taller than the viewport is captured whole', async () => {
+  const shot = await launch();
+  try {
+    const html = '<!doctype html><body style="margin:0;display:flex">'
+      + '<div id="card" style="width:300px;height:2000px;flex-shrink:0;background:#4a7"></div></body>';
+    const cropped = await shot.screenshotHTML(html, { width: 1280, height: 400, selector: '#card' });
+    assert.deepEqual(pngSize(cropped.data), { width: 300, height: 2000 });
+  } finally {
+    await shot.close();
+  }
+});
+
+test('a selector that matches nothing rejects without killing the process', async () => {
+  const shot = await launch();
+  try {
+    await assert.rejects(
+      () => shot.screenshotHTML('<div id="card">x</div>', { selector: '#missing' }),
+      (error) => error instanceof ShotKitError && /selector matched no element/.test(error.message),
+    );
+    await assert.rejects(
+      () => shot.screenshotHTML('<div id="card">x</div>', { selector: ':::nonsense' }),
+      ShotKitError,
+    );
+    await assert.rejects(
+      () => shot.screenshotHTML('<div id="card" style="display:none">x</div>', { selector: '#card' }),
+      (error) => error instanceof ShotKitError && /not rendered/.test(error.message),
+    );
+    // 进程要活着。
     const result = await shot.screenshotHTML('<p>still alive</p>', { width: 200, height: 100 });
     assert.ok(result.bytes > 8);
   } finally {

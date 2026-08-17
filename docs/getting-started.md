@@ -1,6 +1,24 @@
 # ShotKit 入门指南
 
-本页说明如何使用 CI 构建归档、运行 `shotcli`，以及在 Windows、Linux 和 macOS 上从源码构建 ShotKit。C ABI 与 JSONL 集成方式见 [跨语言调用](language-bindings.md)。
+本页说明如何使用 npm 原生 SDK、CI 构建归档、运行 `shotcli`，以及在 Windows、Linux 和 macOS 上从源码构建 ShotKit。C ABI 与 JSONL 集成方式见 [跨语言调用](language-bindings.md)。
+
+## Node.js
+
+```bash
+npm install @shotkit/node
+```
+
+```js
+import { launch } from '@shotkit/node';
+
+const shot = await launch();
+const result = await shot.screenshotHTML('<h1>Hello</h1>', { outputPath: 'shot.png' });
+console.log(result.bytes, result.durationMs, result.elapsedMs);
+await shot.close();
+```
+
+npm 包按平台安装预编译的 `shot.node`，不启动 CLI、不写临时截图文件。要求 Node 18.18+
+并使用同一 N-API v8 构建；当前版本只支持主 Node 环境，不支持 `worker_threads` isolate。
 
 ## 平台支持
 
@@ -169,4 +187,5 @@ ninja -C WebKitBuild/shot-macos -j3 shotcli
 - CSR/SPA 页面如果服务端不返回可渲染内容，截图可能为空；
 - iframe 导航尚未实现；
 - C ABI 绑定初始化线程，renderer 不能跨线程并发调用；
+- Node SDK 在进程内运行，原生崩溃会终止 Node；需要隔离时使用独立 `shotcli` 进程；
 - ShotKit 是单进程渲染内核，不提供浏览器级进程隔离。处理不可信内容时，应在受限账户、容器或独立进程中运行，并设置资源和时间限制。

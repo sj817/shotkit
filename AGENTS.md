@@ -30,7 +30,9 @@ WebGL/WebGPU、Web Inspector、双进程架构、窗口系统、用户交互。
 在 hosted CI 全绿：PNG/WebP、无脚本网络闭包、C ABI 导出面、可重定位 CLI 与发布归档
 全部通过；macOS 另通过内部链接完整性、CFNetwork 与 XML/XSLT 回归。
 
-M5（交付硬化）进行中。**已知限制**：不支持 iframe。
+M5（交付硬化）进行中。基于 C API 的进程内 `shot.node`、Node 专用线程 FIFO 与六平台
+构建/发布接线已进入实现阶段，完整编译和 macOS 非系统主线程验证以 hosted CI 为准。
+**已知限制**：不支持 iframe、Node `worker_threads` 多 isolate。
 
 明细、实测数据与踩坑记录见 [docs/CHANGELOG.md](docs/CHANGELOG.md)。
 

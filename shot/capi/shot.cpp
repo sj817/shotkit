@@ -7,16 +7,27 @@
 
 #include "ShotGlobal.h"
 #include "ShotPage.h"
-#include <cstdlib>
-#include <cstring>
+#include <mutex>
 #include <span>
 #include <string>
+#include <thread>
+#include <wtf/AutodrainedPool.h>
+#include <wtf/FastMalloc.h>
 #include <wtf/Vector.h>
 #include <wtf/text/WTFString.h>
 
 struct shot_renderer {
     std::string lastError;
 };
+
+static std::mutex s_initMutex;
+static std::thread::id s_ownerThread;
+
+static bool isOwnerThread()
+{
+    std::lock_guard lock(s_initMutex);
+    return s_ownerThread != std::thread::id { } && s_ownerThread == std::this_thread::get_id();
+}
 
 static ShotKit::RenderOptions convertOptions(const shot_render_options* o)
 {
@@ -40,6 +51,8 @@ static ShotKit::RenderOptions convertOptions(const shot_render_options* o)
         r.inputMIMEType = WTF::String::fromUTF8(o->input_mime_type);
     if (o->user_agent)
         r.userAgent = WTF::String::fromUTF8(o->user_agent);
+    if (o->selector)
+        r.selector = WTF::String::fromUTF8(o->selector);
     switch (o->output_format) {
     case SHOT_FORMAT_WEBP:
         r.outputFormat = ShotKit::OutputFormat::WebPLossy;
@@ -57,15 +70,23 @@ static ShotKit::RenderOptions convertOptions(const shot_render_options* o)
     return r;
 }
 
-static shot_status emitImage(const WTF::Vector<uint8_t>& image, shot_image* out)
+// 内核只有 selector 路径会填 detail；其余失败仍是笼统的 "render failed"，状态码也维持原样，
+// 免得既有调用方的错误分支被这次改动挪位置。
+static shot_status reportFailure(shot_renderer* r, const WTF::String& detail)
+{
+    if (r)
+        r->lastError = detail.isEmpty() ? "render failed" : detail.utf8().data();
+    return detail.isEmpty() ? SHOT_ERR_RENDER_FAILED : SHOT_ERR_SELECTOR_NOT_FOUND;
+}
+
+static shot_status emitImage(WTF::Vector<uint8_t>&& image, shot_image* out)
 {
     if (image.isEmpty())
         return SHOT_ERR_RENDER_FAILED;
-    out->data = static_cast<uint8_t*>(malloc(image.size()));
-    if (!out->data)
-        return SHOT_ERR_RENDER_FAILED;
-    memcpy(out->data, image.span().data(), image.size());
-    out->size = image.size();
+    auto buffer = image.releaseBuffer();
+    auto span = buffer.leakSpan();
+    out->data = span.data();
+    out->size = span.size();
     return SHOT_OK;
 }
 
@@ -73,7 +94,16 @@ extern "C" {
 
 shot_status shot_init(const shot_init_options*)
 {
-    return ShotKit::initialize() ? SHOT_OK : SHOT_ERR_INIT_FAILED;
+    std::lock_guard lock(s_initMutex);
+    auto currentThread = std::this_thread::get_id();
+    if (s_ownerThread != std::thread::id { })
+        return s_ownerThread == currentThread ? SHOT_OK : SHOT_ERR_WRONG_THREAD;
+
+    AutodrainedPool pool;
+    if (!ShotKit::initialize())
+        return SHOT_ERR_INIT_FAILED;
+    s_ownerThread = currentThread;
+    return SHOT_OK;
 }
 
 void shot_shutdown(void)
@@ -99,54 +129,61 @@ void shot_render_options_default(shot_render_options* o)
     o->background_rgba = 0xFFFFFFFFu;
     o->output_format = SHOT_FORMAT_PNG;
     o->output_quality = 0.8;
+    o->selector = nullptr;
 }
 
 shot_renderer* shot_renderer_create(void)
 {
+    if (!isOwnerThread())
+        return nullptr;
     return new shot_renderer();
 }
 
 void shot_renderer_destroy(shot_renderer* r)
 {
+    if (!isOwnerThread())
+        return;
     delete r;
 }
 
 shot_status shot_render_html(shot_renderer* r, const char* html, size_t len, const shot_render_options* o, shot_image* out)
 {
+    if (!isOwnerThread())
+        return SHOT_ERR_WRONG_THREAD;
     if (!out || (!html && len))
         return SHOT_ERR_INVALID_ARG;
+    AutodrainedPool pool;
     out->data = nullptr;
     out->size = 0;
     WTF::Vector<uint8_t> image;
     auto opts = convertOptions(o);
-    if (!ShotKit::renderMarkupToImage(std::span<const uint8_t>(reinterpret_cast<const uint8_t*>(html), len), opts, image)) {
-        if (r)
-            r->lastError = "render failed";
-        return SHOT_ERR_RENDER_FAILED;
-    }
-    return emitImage(image, out);
+    WTF::String renderError;
+    if (!ShotKit::renderMarkupToImage(std::span<const uint8_t>(reinterpret_cast<const uint8_t*>(html), len), opts, image, &renderError))
+        return reportFailure(r, renderError);
+    return emitImage(WTFMove(image), out);
 }
 
 shot_status shot_render_url(shot_renderer* r, const char* url, const shot_render_options* o, shot_image* out)
 {
+    if (!isOwnerThread())
+        return SHOT_ERR_WRONG_THREAD;
     if (!out || !url)
         return SHOT_ERR_INVALID_ARG;
+    AutodrainedPool pool;
     out->data = nullptr;
     out->size = 0;
     WTF::Vector<uint8_t> image;
     auto opts = convertOptions(o);
-    if (!ShotKit::renderURLToImage(WTF::String::fromUTF8(url), opts, image)) {
-        if (r)
-            r->lastError = "render failed";
-        return SHOT_ERR_RENDER_FAILED;
-    }
-    return emitImage(image, out);
+    WTF::String renderError;
+    if (!ShotKit::renderURLToImage(WTF::String::fromUTF8(url), opts, image, &renderError))
+        return reportFailure(r, renderError);
+    return emitImage(WTFMove(image), out);
 }
 
 void shot_image_free(shot_image* p)
 {
     if (p && p->data) {
-        free(p->data);
+        WTF::fastFree(p->data);
         p->data = nullptr;
         p->size = 0;
     }
@@ -159,7 +196,7 @@ void shot_png_free(shot_png* p)
 
 const char* shot_last_error(shot_renderer* r)
 {
-    return r ? r->lastError.c_str() : "";
+    return r && isOwnerThread() ? r->lastError.c_str() : "";
 }
 
 } // extern "C"

@@ -70,6 +70,7 @@ jobs:
             /.github/
             /Source/
             /shot/
+            /apps/node/
             /scripts/
             /tests/
             /Tools/
@@ -80,6 +81,16 @@ jobs:
             /vcpkg-configuration.json
             /AGENTS.md
             /ReadMe.md
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: npm
+          cache-dependency-path: apps/node/package-lock.json
+
+      - name: Install Node binding build dependencies
+        working-directory: apps/node
+        run: npm ci
 
       - name: Cache vcpkg binary packages
         id: vcpkg-cache
@@ -286,6 +297,7 @@ jobs:
           $buildArguments = @(
             'scripts/build-shot.ps1',
             '-Configure', '-Build',
+            '-NodeAddon',
             '-Root', $env:GITHUB_WORKSPACE,
             '-VcpkgRoot', $env:SHOT_VCPKG_ROOT,
             '-VcpkgInstalledDir', $env:SHOT_VCPKG_INSTALLED,
@@ -389,9 +401,32 @@ jobs:
           if ($LASTEXITCODE) { throw "WebP smoke failed with exit code $LASTEXITCODE" }
           if ((Get-Item $png).Length -lt 100 -or (Get-Item $webp).Length -lt 100) { throw 'encoded image is unexpectedly small' }
 
+      - name: Verify C ABI thread ownership and native Node SDK
+        shell: pwsh
+        run: |
+          $bin = Join-Path $env:GITHUB_WORKSPACE 'WebKitBuild\shot\bin'
+          & (Join-Path $bin 'shot_capi_thread_test.exe')
+          if ($LASTEXITCODE) { throw "C ABI thread test failed with exit code $LASTEXITCODE" }
+          $env:SHOTKIT_NATIVE_PATH = Join-Path $bin 'shot.node'
+          Push-Location apps/node
+          try { npm test } finally { Pop-Location }
+          node apps/node/test/native-parity.mjs (Join-Path $bin 'shotcli.exe')
+          if ($LASTEXITCODE) { throw "native/CLI parity failed with exit code $LASTEXITCODE" }
+          node --expose-gc apps/node/test/native-soak.mjs
+          if ($LASTEXITCODE) { throw "native soak failed with exit code $LASTEXITCODE" }
+
       - name: Verify scripts are never fetched
         shell: pwsh
         run: pwsh tests/verify_no_script_network.ps1 -BuildDir "$env:GITHUB_WORKSPACE\WebKitBuild\shot" -VcpkgTriplet ${{ matrix.triplet }}
+
+      - name: Benchmark native addon against the JSONL SDK path
+        if: matrix.arch == 'x64'
+        shell: pwsh
+        run: |
+          $bin = Join-Path $env:GITHUB_WORKSPACE 'WebKitBuild\shot\bin'
+          $env:SHOTKIT_NATIVE_PATH = Join-Path $bin 'shot.node'
+          node apps/node/test/native-benchmark.mjs (Join-Path $bin 'shotcli.exe')
+          if ($LASTEXITCODE) { throw "native benchmark failed with exit code $LASTEXITCODE" }
 
       - name: Verify the C ABI export surface
         shell: pwsh
@@ -403,7 +438,18 @@ jobs:
           $dll = Join-Path $env:GITHUB_WORKSPACE 'WebKitBuild\shot\bin\shot.dll'
           $exports = @(& $dumpbin /EXPORTS $dll | Select-String '^\s+\d+\s+[0-9A-F]+\s+[0-9A-F]+\s+(shot_\S+)\s*$')
           if ($exports.Count -ne 10) { throw "expected 10 shot_* exports, found $($exports.Count)" }
-          Get-Item $dll, (Join-Path (Split-Path $dll) 'shotcli.exe') | Format-Table Name, Length
+          $addon = Join-Path (Split-Path $dll) 'shot.node'
+          $addonExports = @(& $dumpbin /EXPORTS $addon | Select-String 'napi_register_module_v1')
+          if ($addonExports.Count -ne 1) { throw "shot.node is missing its Node-API registration export" }
+          if (& $dumpbin /EXPORTS $addon | Select-String '\bshot_') { throw 'shot.node leaked C ABI exports' }
+          Get-Item $dll, (Join-Path (Split-Path $dll) 'shotcli.exe'), $addon | Format-Table Name, Length
+
+      - name: Collect native npm runtime
+        shell: pwsh
+        run: |
+          pwsh scripts/collect-dist.ps1 -Root $env:GITHUB_WORKSPACE -VcpkgTriplet ${{ matrix.triplet }} -NodeAddon
+          if (Test-Path 'WebKitBuild\shot-node-dist\shot.dll') { throw 'native npm runtime must not contain shot.dll' }
+          if (Test-Path 'WebKitBuild\shot-node-dist\shotcli.exe') { throw 'native npm runtime must not contain shotcli.exe' }
 
       - name: Package release archive
         shell: pwsh
@@ -417,6 +463,16 @@ jobs:
             -VcpkgTriplet ${{ matrix.triplet }} `
             -MaxPackageBytes 22000000
 
+      - name: Enforce native runtime closure budget
+        shell: pwsh
+        run: |
+          $nodeBytes = (Get-ChildItem 'WebKitBuild\shot-node-dist' -File | Where-Object Extension -in '.node', '.dll' | Measure-Object Length -Sum).Sum
+          $cliBytes = (Get-ChildItem 'WebKitBuild\releases\shotkit-windows-${{ matrix.arch }}' -File | Where-Object Extension -in '.exe', '.dll' | Measure-Object Length -Sum).Sum
+          "shot.node closure: $nodeBytes bytes; CLI closure: $cliBytes bytes" | Add-Content $env:GITHUB_STEP_SUMMARY
+          if ($nodeBytes -gt [Math]::Floor($cliBytes * 1.05)) {
+            throw "shot.node runtime closure exceeds the corresponding CLI closure by more than 5%; attribute the growth before release"
+          }
+
       - name: Upload compressed release
         uses: actions/upload-artifact@v7
         with:
@@ -426,4 +482,12 @@ jobs:
             WebKitBuild/releases/*.tar.xz.sha256
           if-no-files-found: error
           compression-level: 0
+          retention-days: 7
+
+      - name: Upload native npm runtime
+        uses: actions/upload-artifact@v7
+        with:
+          name: shotkit-node-windows-${{ matrix.arch }}
+          path: WebKitBuild/shot-node-dist/
+          if-no-files-found: error
           retention-days: 7

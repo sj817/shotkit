@@ -1,7 +1,8 @@
 /*
  * shot.h — ShotKit C ABI（libshot 导出的唯一表面）。
  *
- * 线程模型：shot_init 把当前线程绑定为主线程，此后所有调用须同线程。
+ * 线程模型：shot_init 把首次成功初始化的线程绑定为 owner。renderer 创建、
+ * 渲染、销毁与错误读取须在 owner 线程；默认 options 与图片释放可跨线程。
  * 见仓库根 AGENTS.md 第 6 节。
  */
 
@@ -11,7 +12,9 @@
 #include <stddef.h>
 #include <stdint.h>
 
-#if defined(_WIN32)
+#if defined(SHOT_STATIC)
+#  define SHOT_API
+#elif defined(_WIN32)
 #  ifdef BUILDING_LIBSHOT
 #    define SHOT_API __declspec(dllexport)
 #  else
@@ -34,6 +37,7 @@ typedef enum {
     SHOT_ERR_TIMEOUT = 5,
     SHOT_ERR_RENDER_FAILED = 6,
     SHOT_ERR_FILE_ACCESS_DENIED = 7,
+    SHOT_ERR_SELECTOR_NOT_FOUND = 8,  /* selector 非法、没命中，或命中的元素不可渲染 */
 } shot_status;
 
 typedef struct shot_renderer shot_renderer;  /* 不透明，非线程安全 */
@@ -63,12 +67,14 @@ typedef struct {
     uint32_t background_rgba;     /* 0=透明（暂未接线，页面自带背景优先） */
     shot_output_format output_format; /* PNG / WebP 有损 / WebP 无损 */
     double output_quality;        /* WebP 有损质量 0..1，默认 0.8 */
+    /* 新字段一律追加在末尾：libshot 与调用方须同版本编译，结构体尺寸变化即 ABI 变化。 */
+    const char* selector;         /* NULL/空=整页；否则裁到该 CSS 选择器命中的首个元素，优先于 full_page */
 } shot_render_options;
 
 typedef struct { uint8_t* data; size_t size; } shot_image;
 typedef shot_image shot_png; /* 源码兼容旧调用方；内容格式由 output_format 决定。 */
 
-/* 进程内仅一次；绑定当前线程为主线程。 */
+/* 进程内仅一次；首次成功调用绑定当前线程为主线程。其他线程返回 WRONG_THREAD。 */
 SHOT_API shot_status shot_init(const shot_init_options*);
 SHOT_API void        shot_shutdown(void);
 
@@ -82,6 +88,7 @@ SHOT_API shot_status shot_render_html(shot_renderer*, const char* html_utf8, siz
                                       const shot_render_options*, shot_image* out);
 SHOT_API shot_status shot_render_url(shot_renderer*, const char* url,
                                      const shot_render_options*, shot_image* out);
+/* 图片内存可在任意线程释放；其余 renderer API 均须在 shot_init 的线程调用。 */
 SHOT_API void        shot_image_free(shot_image*);
 SHOT_API void        shot_png_free(shot_png*);
 SHOT_API const char* shot_last_error(shot_renderer*);

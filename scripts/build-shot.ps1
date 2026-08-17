@@ -3,6 +3,7 @@
 param(
     [switch]$Configure,
     [switch]$Build,
+    [switch]$NodeAddon,
     [switch]$Clean,
     [string]$Root = [IO.Path]::GetFullPath((Join-Path $PSScriptRoot '..')),
     [string]$BuildDir = '',
@@ -142,6 +143,13 @@ if ($Configure) {
         $cmakeArguments += "-DCMAKE_C_COMPILER_LAUNCHER=$CompilerLauncher"
         $cmakeArguments += "-DCMAKE_CXX_COMPILER_LAUNCHER=$CompilerLauncher"
     }
+    if ($NodeAddon) {
+        $nodeApiInclude = Join-Path $Root 'apps\node\node_modules\node-api-headers\include'
+        if (-not (Test-Path -LiteralPath (Join-Path $nodeApiInclude 'node_api.h'))) {
+            throw 'Node-API headers are missing; run npm ci in apps/node first.'
+        }
+        $cmakeArguments += "-DSHOT_NODE_API_INCLUDE_DIR=$($nodeApiInclude.Replace('\', '/'))"
+    }
 
     & cmake @cmakeArguments
     if ($LASTEXITCODE) { throw "CMake configure failed with exit code $LASTEXITCODE" }
@@ -152,6 +160,7 @@ if ($Build -or $Configure) {
     $ninjaArguments = @('-C', $BuildDir)
     if ($Jobs) { $ninjaArguments += "-j$Jobs" }
     $ninjaArguments += 'shotcli'
+    if ($NodeAddon) { $ninjaArguments += @('shotnode', 'shot_capi_thread_test') }
     & ninja @ninjaArguments
     if ($LASTEXITCODE) { throw "Ninja failed with exit code $LASTEXITCODE" }
 } elseif (-not $Clean) {

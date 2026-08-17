@@ -1,7 +1,7 @@
 {
   "name": "@shotkit/linux-arm64",
-  "version": "0.1.0",
-  "description": "ShotKit runtime binaries for Linux arm64",
+  "version": "0.2.0",
+  "description": "ShotKit native Node addon for Linux arm64",
   "repository": {
     "type": "git",
     "url": "git+https://github.com/sj817/shotkit.git"
@@ -15,14 +15,14 @@
     "arm64"
   ],
   "files": [
-    "bin/",
+    "shot.node",
     "lib/"
   ],
   "engines": {
     "node": ">=18.18"
   },
   "scripts": {
-    "prepublishOnly": "node -e \"require('node:fs').accessSync('bin/shotcli')\""
+    "prepublishOnly": "node -e \"require('node:fs').accessSync('shot.node')\""
   },
   "publishConfig": {
     "access": "public",

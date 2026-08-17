@@ -1,15 +1,10 @@
-// Stage a ShotKit runtime into a platform subpackage (npm/<platform>/).
+// Stage a native shot.node runtime into a platform subpackage (npm/<platform>/).
 //
 // Usage: tsx tools/stage-platform.ts <platform> [sourceDir]
 //   platform:  win32-x64 | win32-arm64 | linux-x64 | linux-arm64 | darwin-x64 | darwin-arm64
-//   sourceDir: an extracted release archive (or any dir with the same layout).
-//              Defaults, for local Windows development, to the compact release
-//              WebKitBuild/releases/shotkit-windows-<arch> and falls back to
-//              WebKitBuild/shot-dist.
-//
-// Windows runtimes are flat (shotcli.exe + *.dll); Linux/macOS use bin/ + lib/
-// (the executable finds libshot via $ORIGIN/../lib or @loader_path/../lib).
-// Non-runtime payload (include/, docs, checksums, screenshots) is skipped.
+//   sourceDir: an extracted native CI artifact containing shot.node and its
+//              non-system runtime dependencies. Local development defaults to
+//              WebKitBuild/shot/bin.
 
 import { cp, mkdir, readdir, rm, stat } from 'node:fs/promises';
 import path from 'node:path';
@@ -18,6 +13,7 @@ import { fileURLToPath } from 'node:url';
 const PLATFORMS = ['win32-x64', 'win32-arm64', 'linux-x64', 'linux-arm64', 'darwin-x64', 'darwin-arm64'];
 const SKIPPED_DIRECTORIES = new Set(['include']);
 const SKIPPED_EXTENSIONS = new Set(['.txt', '.md', '.png', '.sha256', '.h']);
+const SKIPPED_NAMES = new Set(['shotcli', 'shotcli.exe', 'shot.dll', 'libshot.so', 'libshot.dylib']);
 
 const packageDirectory = path.dirname(path.dirname(fileURLToPath(import.meta.url)));
 const repositoryRoot = path.resolve(packageDirectory, '..', '..');
@@ -38,11 +34,7 @@ async function exists(candidate: string): Promise<boolean> {
 }
 
 async function defaultSource(): Promise<string> {
-  const [, arch] = platform.split('-');
-  const compact = path.join(repositoryRoot, 'WebKitBuild', 'releases', `shotkit-windows-${arch}`);
-  if (platform.startsWith('win32-') && await exists(path.join(compact, 'shotcli.exe')))
-    return compact;
-  return path.join(repositoryRoot, 'WebKitBuild', 'shot-dist');
+  return path.join(repositoryRoot, 'WebKitBuild', 'shot', 'bin');
 }
 
 const source = path.resolve(explicitSource || await defaultSource());
@@ -57,7 +49,8 @@ async function copyRuntime(from: string, to: string): Promise<void> {
       await copyRuntime(path.join(from, entry.name), path.join(to, entry.name));
       continue;
     }
-    if (!entry.isFile() || SKIPPED_EXTENSIONS.has(path.extname(entry.name).toLowerCase()))
+    if (!entry.isFile() || SKIPPED_NAMES.has(entry.name)
+        || SKIPPED_EXTENSIONS.has(path.extname(entry.name).toLowerCase()))
       continue;
     await cp(path.join(from, entry.name), path.join(to, entry.name));
   }
@@ -74,9 +67,7 @@ for (const entry of await readdir(target)) {
 }
 await copyRuntime(source, target);
 
-const required = platform.startsWith('win32-')
-  ? [path.join(target, 'shotcli.exe'), path.join(target, 'shot.dll')]
-  : [path.join(target, 'bin', 'shotcli'), path.join(target, 'lib', platform.startsWith('darwin-') ? 'libshot.dylib' : 'libshot.so')];
+const required = [path.join(target, 'shot.node')];
 for (const file of required) {
   if (!await exists(file))
     throw new Error(`staged runtime is missing ${path.relative(target, file)} (source: ${source})`);

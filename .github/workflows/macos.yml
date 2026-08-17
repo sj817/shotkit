@@ -47,6 +47,7 @@ jobs:
             /.github/
             /Source/
             /shot/
+            /apps/node/
             /scripts/
             /tests/
             /Tools/
@@ -55,6 +56,16 @@ jobs:
             /CMakePresets.json
             /AGENTS.md
             /ReadMe.md
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: npm
+          cache-dependency-path: apps/node/package-lock.json
+
+      - name: Install Node binding build dependencies
+        working-directory: apps/node
+        run: npm ci
 
       - name: Select the newest supported Xcode
         run: |
@@ -115,11 +126,12 @@ jobs:
             -DPORT=Shot \
             -DCMAKE_BUILD_TYPE=MinSizeRel \
             -DCMAKE_PREFIX_PATH="$CMAKE_PREFIX_PATH" \
-            -DLTO_MODE=OFF \
+            -DSHOT_NODE_API_INCLUDE_DIR="$GITHUB_WORKSPACE/apps/node/node_modules/node-api-headers/include" \
+            -DLTO_MODE=full \
             "${launcher_args[@]}"
 
       - name: Build ShotKit
-        run: ninja -C WebKitBuild/shot-macos -j3 shotcli
+        run: ninja -C WebKitBuild/shot-macos -j3 shotcli shotnode shot_capi_thread_test
 
       - name: Compiler cache statistics
         if: always() && steps.sccache.outcome == 'success'
@@ -142,6 +154,13 @@ jobs:
           test "$(stat -f %z "$RUNNER_TEMP/shot-smoke.png")" -gt 100
           test "$(stat -f %z "$RUNNER_TEMP/shot-smoke.webp")" -gt 100
 
+      - name: Verify C ABI thread ownership and native Node SDK
+        run: |
+          WebKitBuild/shot-macos/bin/shot_capi_thread_test
+          SHOTKIT_NATIVE_PATH="$GITHUB_WORKSPACE/WebKitBuild/shot-macos/bin/shot.node" npm test --prefix apps/node
+          SHOTKIT_NATIVE_PATH="$GITHUB_WORKSPACE/WebKitBuild/shot-macos/bin/shot.node" node apps/node/test/native-parity.mjs WebKitBuild/shot-macos/bin/shotcli
+          SHOTKIT_NATIVE_PATH="$GITHUB_WORKSPACE/WebKitBuild/shot-macos/bin/shot.node" node --expose-gc apps/node/test/native-soak.mjs
+
       - name: Verify CFNetwork, scripts, and XML/XSLT
         run: |
           python3 tests/fixture_server.py 8988 > "$RUNNER_TEMP/fixture.log" 2>&1 &
@@ -157,13 +176,27 @@ jobs:
           python3 -c 'import json,sys; counts=json.loads(sys.argv[1]); assert counts == {"/script-network": 1}, counts' "$counts"
           WebKitBuild/shot-macos/bin/shotcli --url http://127.0.0.1:8988/document.xml --out "$RUNNER_TEMP/xslt.png" --timeout 5000
           test "$(stat -f %z "$RUNNER_TEMP/xslt.png")" -gt 100
+          SHOTKIT_NATIVE_PATH="$GITHUB_WORKSPACE/WebKitBuild/shot-macos/bin/shot.node" node --input-type=module -e \
+            "import {launch} from './apps/node/dist/index.mjs'; const s=await launch(); const r=await s.screenshotURL('http://127.0.0.1:8988/document.xml',{mimeType:'application/xml',timeoutMs:5000}); if(r.bytes<100) throw new Error('native CFNetwork/XML output too small'); await s.close();"
 
       - name: Verify ABI and relocatable CLI
         run: |
           exports=$(nm -gU WebKitBuild/shot-macos/lib/libshot.dylib | awk '{print $NF}' | grep '^_shot_' | sort)
           test "$(printf '%s\n' "$exports" | grep -c '^_shot_')" -eq 10
           otool -l WebKitBuild/shot-macos/bin/shotcli | grep -F '@loader_path/../lib'
-          ls -lh WebKitBuild/shot-macos/lib/libshot.dylib WebKitBuild/shot-macos/bin/shotcli
+          addon_exports=$(nm -gU WebKitBuild/shot-macos/bin/shot.node | awk '{print $NF}')
+          grep -q '^_napi_register_module_v1$' <<<"$addon_exports"
+          if grep -q '^_shot_' <<<"$addon_exports"; then echo 'shot.node leaked C ABI exports' >&2; exit 1; fi
+          ls -lh WebKitBuild/shot-macos/lib/libshot.dylib WebKitBuild/shot-macos/bin/shotcli WebKitBuild/shot-macos/bin/shot.node
+
+      - name: Stage native npm runtime
+        run: |
+          stage=WebKitBuild/node-runtime
+          rm -rf "$stage"
+          mkdir -p "$stage"
+          cp WebKitBuild/shot-macos/bin/shot.node "$stage/"
+          strip -x "$stage/shot.node"
+          otool -L "$stage/shot.node" > "$stage/DEPENDENCIES.txt"
 
       - name: Package release archive
         run: |
@@ -185,6 +218,13 @@ jobs:
           ( cd WebKitBuild/releases && shasum -a 256 "${name}.tar.xz" > "${name}.tar.xz.sha256" )
           ls -lh "$stage/bin/shotcli" "$stage/lib/libshot.dylib" "WebKitBuild/releases/${name}.tar.xz"
 
+      - name: Enforce native runtime closure budget
+        run: |
+          node_bytes=$(stat -f %z WebKitBuild/node-runtime/shot.node)
+          cli_bytes=$(( $(stat -f %z WebKitBuild/releases/shotkit-macos-${{ matrix.arch }}/lib/libshot.dylib) + $(stat -f %z WebKitBuild/releases/shotkit-macos-${{ matrix.arch }}/bin/shotcli) ))
+          echo "shot.node closure: $node_bytes bytes; CLI closure: $cli_bytes bytes" | tee -a "$GITHUB_STEP_SUMMARY"
+          test "$node_bytes" -le $(( cli_bytes * 105 / 100 ))
+
       - name: Upload compressed release
         uses: actions/upload-artifact@v7
         with:
@@ -194,4 +234,12 @@ jobs:
             WebKitBuild/releases/*.tar.xz.sha256
           if-no-files-found: error
           compression-level: 0
+          retention-days: 7
+
+      - name: Upload native npm runtime
+        uses: actions/upload-artifact@v7
+        with:
+          name: shotkit-node-macos-${{ matrix.arch }}
+          path: WebKitBuild/node-runtime/
+          if-no-files-found: error
           retention-days: 7

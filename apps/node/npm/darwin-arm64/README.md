@@ -1,3 +1,3 @@
 # @shotkit/darwin-arm64
 
-ShotKit runtime binaries for macOS arm64 (`shotcli` + `libshot`). This package is installed automatically as an optional dependency of [`@shotkit/node`](https://www.npmjs.com/package/@shotkit/node); do not depend on it directly.
+ShotKit native Node addon for macOS arm64 (`shot.node` plus required libraries). This package is installed automatically by [`@shotkit/node`](https://www.npmjs.com/package/@shotkit/node); do not depend on it directly.

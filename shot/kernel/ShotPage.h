@@ -28,6 +28,7 @@ struct RenderOptions {
     int timeoutMs { 30000 };        // 加载硬超时
     bool bestEffortOnTimeout { true }; // 超时仍尽力截图
     bool allowFileURLs { false };   // 是否允许 file:// 子资源/导航
+    WTF::String selector;           // 非空=裁到该 CSS 选择器命中的首个元素；优先于 fullPage
     WTF::String baseURL;            // HTML 模式的 base URL（解析外链子资源）
     WTF::String userAgent;          // 空=默认 UA
     WTF::String inputMIMEType;       // 空=text/html；也可显式传 XML/XHTML
@@ -36,10 +37,11 @@ struct RenderOptions {
 };
 
 // 渲染一段 UTF-8 标记（base URL/MIME 见 options），成功写编码图像到 outImage 返回 true。
+// 失败时若传了 outError，写入可直接呈给调用方的原因（目前只有选择器路径会填）。
 // 必须在 ShotKit::initialize() 绑定的主线程上调用。
-bool renderMarkupToImage(std::span<const uint8_t> markup, const RenderOptions&, WTF::Vector<uint8_t>& outImage);
+bool renderMarkupToImage(std::span<const uint8_t> markup, const RenderOptions&, WTF::Vector<uint8_t>& outImage, WTF::String* outError = nullptr);
 
 // 渲染一个远程/本地 URL（curl 抓主资源 + 子资源自动加载）。
-bool renderURLToImage(const WTF::String& url, const RenderOptions&, WTF::Vector<uint8_t>& outImage);
+bool renderURLToImage(const WTF::String& url, const RenderOptions&, WTF::Vector<uint8_t>& outImage, WTF::String* outError = nullptr);
 
 } // namespace ShotKit

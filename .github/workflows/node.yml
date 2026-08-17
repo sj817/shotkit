@@ -42,6 +42,8 @@ jobs:
 
       - uses: actions/setup-node@v4
         with:
+          # The bundler requires current Node; runtime ABI compatibility is
+          # exercised against the same prebuilt addon in the platform jobs.
           node-version: 24
           cache: npm
           cache-dependency-path: apps/node/package-lock.json
@@ -50,9 +52,8 @@ jobs:
 
       - run: npm run typecheck
 
-      # tsdown runs publint as part of the build, so a broken exports map or a
-      # bin pointing at a file the bundler no longer emits fails here instead of
-      # after a publish.
+      # tsdown runs publint as part of the build, so a broken exports map or
+      # package manifest fails here instead of after a publish.
       - run: npm run build
 
       - name: Package entry points resolve
@@ -66,19 +67,8 @@ jobs:
             console.log('ESM entry ok');
           });"
 
-      # No platform runtime is installed here, so this exercises the CLI's
-      # not-found path: a clear message and the shell's 127 for "not executable".
-      # The screenshot tests need a runtime and run in the platform workflows.
-      - name: CLI fails cleanly without a runtime
-        shell: bash
+      # Platform workflows provide the native runtime. This job deliberately
+      # has none and verifies that launch() reports the missing platform addon.
+      - name: Native runtime fails cleanly when absent
         run: |
-          set +e
-          output=$(node dist/cli.mjs --shotkit-bin 2>&1)
-          code=$?
-          set -e
-          printf '%s\n' "$output"
-          if [[ "$code" -ne 127 ]]; then
-            echo "expected exit 127 from the CLI, got $code" >&2
-            exit 1
-          fi
-          grep -q 'no runtime found' <<<"$output"
+          node -e "require('@shotkit/node').launch().then(() => { throw new Error('unexpected native runtime') }, (e) => { if (!/shot\.node not found/.test(e.message)) throw e })"
