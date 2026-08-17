@@ -11,6 +11,7 @@
 #include <span>
 #include <string>
 #include <thread>
+#include <utility>
 #include <wtf/AutodrainedPool.h>
 #include <wtf/FastMalloc.h>
 #include <wtf/Vector.h>
@@ -160,7 +161,7 @@ shot_status shot_render_html(shot_renderer* r, const char* html, size_t len, con
     WTF::String renderError;
     if (!ShotKit::renderMarkupToImage(std::span<const uint8_t>(reinterpret_cast<const uint8_t*>(html), len), opts, image, &renderError))
         return reportFailure(r, renderError);
-    return emitImage(WTFMove(image), out);
+    return emitImage(std::move(image), out);
 }
 
 shot_status shot_render_url(shot_renderer* r, const char* url, const shot_render_options* o, shot_image* out)
@@ -177,7 +178,7 @@ shot_status shot_render_url(shot_renderer* r, const char* url, const shot_render
     WTF::String renderError;
     if (!ShotKit::renderURLToImage(WTF::String::fromUTF8(url), opts, image, &renderError))
         return reportFailure(r, renderError);
-    return emitImage(WTFMove(image), out);
+    return emitImage(std::move(image), out);
 }
 
 void shot_image_free(shot_image* p)
