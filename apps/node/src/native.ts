@@ -12,6 +12,7 @@ export interface NativeRenderRequest {
   height: number;
   scale: number;
   fullPage: boolean;
+  omitBackground: boolean;
   timeoutMs: number;
   allowFileURLs: boolean;
   format: number;

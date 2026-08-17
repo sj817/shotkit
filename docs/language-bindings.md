@@ -55,6 +55,7 @@ stdout 首行：
 | `height` | number | 800 | 视口 CSS px；`full_page` 或 `selector` 生效时不参与最终画幅 |
 | `scale` | number | 1 | 设备像素比 |
 | `full_page` | boolean | false | 按 `contentsSize` 截整页。**只拉高度，不收宽度** |
+| `omit_background` | boolean | false | PNG/WebP 保留页面透明像素，不再与默认白色画布合成 |
 | `selector` | string | 空 | 裁到该 CSS 选择器命中的**首个**元素，优先于 `full_page` |
 | `format` | string | `png` | `png` / `webp` / `webp-lossless` |
 | `quality` | number | 80 | 仅 `webp` 有损，0..100 |
@@ -69,6 +70,9 @@ stdout 首行：
 `full_page` 沿用浏览器语义：把画幅拉到内容高度，宽度仍是 `width`。页面内容窄于视口时（典型如固定宽度的卡片模板），右侧会留下等于差值的空白 —— 这不是缺陷，Puppeteer 与 Playwright 的 `fullPage` 同样如此。
 
 `selector` 对应的是 Puppeteer 的 `elementHandle.screenshot()`：`width` 照常参与布局，但最终画幅取命中元素的边框盒。几何走 WebCore 的 `absoluteBoundingBoxRect(useTransform=true)`，元素身上的 `transform` 与 `zoom` 已折算在内，但后代的阴影或绝对定位 overflow 不会把画幅撑大。
+
+透明背景使用 `omit_background: true`；命令行对应 `--omit-background`，C API 对应
+`shot_render_options.background_rgba = 0`。默认仍是 `0xFFFFFFFF` 白色，页面自身声明的背景始终优先。
 
 选择器非法、没命中、或命中元素不可渲染（如 `display:none`）时，请求以 `SHOT_ERR_SELECTOR_NOT_FOUND`（状态码 8）失败，`error` 字段给出具体原因。
 

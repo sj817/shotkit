@@ -8,6 +8,7 @@
 
 #pragma once
 
+#include <cstdint>
 #include <span>
 #include <wtf/Vector.h>
 #include <wtf/text/WTFString.h>
@@ -28,6 +29,7 @@ struct RenderOptions {
     int timeoutMs { 30000 };        // 加载硬超时
     bool bestEffortOnTimeout { true }; // 超时仍尽力截图
     bool allowFileURLs { false };   // 是否允许 file:// 子资源/导航
+    uint32_t backgroundRGBA { 0xFFFFFFFFu }; // 画布底色，0xRRGGBBAA；0=透明黑
     WTF::String selector;           // 非空=裁到该 CSS 选择器命中的首个元素；优先于 fullPage
     WTF::String baseURL;            // HTML 模式的 base URL（解析外链子资源）
     WTF::String userAgent;          // 空=默认 UA

@@ -4,6 +4,7 @@ import { tmpdir } from 'node:os';
 import path from 'node:path';
 import test from 'node:test';
 import { pathToFileURL } from 'node:url';
+import { inflateSync } from 'node:zlib';
 
 // Self-reference by package name so the test exercises the published "exports"
 // map rather than a build-output path that changes with the bundler.
@@ -109,6 +110,37 @@ function pngSize(buffer) {
   assert.deepEqual([...buffer.subarray(0, 4)], [0x89, 0x50, 0x4e, 0x47]);
   return { width: buffer.readUInt32BE(16), height: buffer.readUInt32BE(20) };
 }
+
+function firstPNGPixel(buffer) {
+  assert.equal(buffer[24], 8, 'expected 8-bit PNG');
+  assert.equal(buffer[25], 6, 'expected RGBA PNG');
+  const chunks = [];
+  for (let offset = 8; offset < buffer.length;) {
+    const length = buffer.readUInt32BE(offset);
+    const type = buffer.toString('ascii', offset + 4, offset + 8);
+    if (type === 'IDAT')
+      chunks.push(buffer.subarray(offset + 8, offset + 8 + length));
+    offset += 12 + length;
+  }
+  const scanline = inflateSync(Buffer.concat(chunks));
+  assert.ok(scanline[0] <= 4, 'unsupported PNG row filter');
+  // The first pixel has no left/up neighbours, so every PNG filter leaves its
+  // four bytes unchanged.
+  return [...scanline.subarray(1, 5)];
+}
+
+test('omitBackground preserves transparent page pixels', async () => {
+  const shot = await launch();
+  try {
+    const html = '<!doctype html><style>html,body{margin:0;background:transparent}</style>';
+    const opaque = await shot.screenshotHTML(html, { width: 1, height: 1 });
+    const transparent = await shot.screenshotHTML(html, { width: 1, height: 1, omitBackground: true });
+    assert.equal(firstPNGPixel(opaque)[3], 255);
+    assert.equal(firstPNGPixel(transparent)[3], 0);
+  } finally {
+    await shot.close();
+  }
+});
 
 test('selector crops to the matched element instead of the viewport', async () => {
   const shot = await launch();

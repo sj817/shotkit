@@ -64,7 +64,7 @@ typedef struct {
     const char* base_url;         /* 仅 HTML 模式：解析外链子资源 */
     const char* input_mime_type;  /* 默认 text/html；XML/XHTML 可显式指定 */
     int allow_file_urls;          /* 是否允许 file:// */
-    uint32_t background_rgba;     /* 0=透明（暂未接线，页面自带背景优先） */
+    uint32_t background_rgba;     /* 画布底色 0xRRGGBBAA；0=透明，页面自带背景优先 */
     shot_output_format output_format; /* PNG / WebP 有损 / WebP 无损 */
     double output_quality;        /* WebP 有损质量 0..1，默认 0.8 */
     /* 新字段一律追加在末尾：libshot 与调用方须同版本编译，结构体尺寸变化即 ABI 变化。 */

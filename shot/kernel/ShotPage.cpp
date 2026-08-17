@@ -21,8 +21,9 @@
 #include <WebCore/CurlRequestClient.h>
 #include <WebCore/CurlResponse.h>
 #endif
-#include <WebCore/DestinationColorSpace.h>
+#include <WebCore/Color.h>
 #include <WebCore/ContainerNodeInlines.h>
+#include <WebCore/DestinationColorSpace.h>
 #include <WebCore/Document.h>
 #include <WebCore/DocumentInlines.h>
 #include <WebCore/DocumentLoader.h>
@@ -104,8 +105,16 @@ static Ref<Page> createShotPage(const RenderOptions& options, RefPtr<LocalFrame>
     localMainFrame->setView(LocalFrameView::create(*localMainFrame));
     localMainFrame->init();
 
-    if (RefPtr view = localMainFrame->view())
+    if (RefPtr view = localMainFrame->view()) {
+        auto rgba = options.backgroundRGBA;
+        view->setBaseBackgroundColor(SRGBA<uint8_t> {
+            static_cast<uint8_t>(rgba >> 24),
+            static_cast<uint8_t>(rgba >> 16),
+            static_cast<uint8_t>(rgba >> 8),
+            static_cast<uint8_t>(rgba)
+        });
         view->resize(options.width, options.height);
+    }
 
     outMainFrame = WTF::move(localMainFrame);
     return page;

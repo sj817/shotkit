@@ -32,6 +32,7 @@ struct NativeRequest {
     int height { 800 };
     double scale { 1 };
     bool fullPage { false };
+    bool omitBackground { false };
     int timeoutMs { 30000 };
     bool allowFileURLs { false };
     shot_output_format format { SHOT_FORMAT_PNG };
@@ -278,6 +279,7 @@ private:
         options.height = task.request.height;
         options.device_scale = task.request.scale;
         options.full_page = task.request.fullPage;
+        options.background_rgba = task.request.omitBackground ? 0 : 0xFFFFFFFFu;
         options.timeout_ms = task.request.timeoutMs;
         options.allow_file_urls = task.request.allowFileURLs;
         options.output_format = task.request.format;
@@ -388,6 +390,7 @@ static napi_value render(napi_env env, napi_callback_info info)
         || !getInt(env, argv[0], "height", request.height)
         || !getDouble(env, argv[0], "scale", request.scale)
         || !getBool(env, argv[0], "fullPage", request.fullPage)
+        || !getBool(env, argv[0], "omitBackground", request.omitBackground)
         || !getInt(env, argv[0], "timeoutMs", request.timeoutMs)
         || !getBool(env, argv[0], "allowFileURLs", request.allowFileURLs)
         || !getInt(env, argv[0], "format", format)

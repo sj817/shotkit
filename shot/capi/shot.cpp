@@ -46,6 +46,7 @@ static ShotKit::RenderOptions convertOptions(const shot_render_options* o)
         r.timeoutMs = o->timeout_ms;
     r.bestEffortOnTimeout = o->best_effort_on_timeout != 0;
     r.allowFileURLs = o->allow_file_urls != 0;
+    r.backgroundRGBA = o->background_rgba;
     if (o->base_url)
         r.baseURL = WTF::String::fromUTF8(o->base_url);
     if (o->input_mime_type)

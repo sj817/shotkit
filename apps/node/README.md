@@ -41,6 +41,7 @@ const { launch } = require('@shotkit/node');
 await shot.screenshotURL('https://example.com/', { fullPage: true });
 await shot.screenshotHTML('<h1>Hello</h1>', { format: 'webp', quality: 82 });
 await shot.screenshot({ htmlFile: './page.xhtml', mimeType: 'application/xhtml+xml' });
+await shot.screenshotHTML('<div class="card">透明圆角卡片</div>', { omitBackground: true });
 ```
 
 设置 `outputPath` 时仍返回同一个 Buffer，并额外通过 Node 文件 API 写入目标路径：

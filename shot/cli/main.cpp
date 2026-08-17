@@ -380,15 +380,18 @@ static int runServer(const shot_render_options& defaults)
         }
 
         shot_render_options options = defaults;
+        int omitBackground = options.background_rgba == 0;
         if (!applyInteger(request, "width", options.width, error)
             || !applyInteger(request, "height", options.height, error)
             || !applyInteger(request, "timeout_ms", options.timeout_ms, error)
             || !applyNumber(request, "scale", options.device_scale, error)
             || !applyBoolean(request, "full_page", options.full_page, error)
+            || !applyBoolean(request, "omit_background", omitBackground, error)
             || !applyBoolean(request, "allow_file_urls", options.allow_file_urls, error)) {
             writeErrorResponse(id, SHOT_ERR_INVALID_ARG, error);
             continue;
         }
+        options.background_rgba = omitBackground ? 0 : 0xFFFFFFFFu;
         if (options.width <= 0 || options.height <= 0 || options.timeout_ms <= 0 || options.device_scale <= 0) {
             writeErrorResponse(id, SHOT_ERR_INVALID_ARG, "width, height, timeout_ms, and scale must be positive");
             continue;
@@ -459,6 +462,7 @@ static void usage()
         "usage: shotcli (--html <file> | --stdin | --url <url>) --out <image>\n"
         "       shotcli --serve\n"
         "               [--width W] [--height H] [--scale S] [--full-page]\n"
+        "               [--omit-background]\n"
         "               [--selector CSS] [--format png|webp|webp-lossless]\n"
         "               [--quality 0..100]\n"
         "               [--mime-type TYPE] [--timeout MS] [--base-url URL]\n"
@@ -514,6 +518,8 @@ int main(int argc, char** argv)
             options.device_scale = std::stod(next("--scale"));
         else if (arg == "--full-page")
             options.full_page = 1;
+        else if (arg == "--omit-background")
+            options.background_rgba = 0;
         else if (arg == "--selector") {
             selectorStore = next("--selector");
             options.selector = selectorStore.c_str();

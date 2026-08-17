@@ -17,6 +17,8 @@ export interface ScreenshotSettings {
   height?: number;
   scale?: number;
   fullPage?: boolean;
+  /** Preserve transparent page pixels instead of compositing them over white. */
+  omitBackground?: boolean;
   /** Crop to the first matching element; takes precedence over fullPage. */
   selector?: string;
   timeoutMs?: number;
@@ -111,6 +113,8 @@ export class ShotKit {
       throw new ShotKitError('format must be png, webp, or webp-lossless');
     if (options.quality !== undefined && (!Number.isFinite(options.quality) || options.quality < 0 || options.quality > 100))
       throw new ShotKitError('quality must be between 0 and 100');
+    if (options.omitBackground !== undefined && typeof options.omitBackground !== 'boolean')
+      throw new ShotKitError('omitBackground must be a boolean');
     const width = options.width ?? 1280;
     const height = options.height ?? 800;
     const scale = options.scale ?? 1;
@@ -138,6 +142,7 @@ export class ShotKit {
       height,
       scale,
       fullPage: options.fullPage ?? false,
+      omitBackground: options.omitBackground ?? false,
       timeoutMs,
       allowFileURLs: options.allowFileURLs ?? false,
       format: formatCode(options.format ?? 'png'),
