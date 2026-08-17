@@ -135,8 +135,8 @@ test('omitBackground preserves transparent page pixels', async () => {
     const html = '<!doctype html><style>html,body{margin:0;background:transparent}</style>';
     const opaque = await shot.screenshotHTML(html, { width: 1, height: 1 });
     const transparent = await shot.screenshotHTML(html, { width: 1, height: 1, omitBackground: true });
-    assert.equal(firstPNGPixel(opaque)[3], 255);
-    assert.equal(firstPNGPixel(transparent)[3], 0);
+    assert.equal(firstPNGPixel(opaque.data)[3], 255);
+    assert.equal(firstPNGPixel(transparent.data)[3], 0);
   } finally {
     await shot.close();
   }
