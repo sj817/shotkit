@@ -1,6 +1,6 @@
 {
   "name": "@shotkit/node",
-  "version": "0.3.0",
+  "version": "0.3.1",
   "description": "Turn HTML or a URL into PNG/WebP screenshots without a browser — WebKit rendering, no page JavaScript, prebuilt binaries for Windows, Linux and macOS",
   "license": "UNLICENSED",
   "type": "module",
