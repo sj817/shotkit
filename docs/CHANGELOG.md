@@ -3,6 +3,8 @@
 按时间倒序的实施记录：每条包含做了什么、实测数据、以及踩过的坑。
 当前里程碑状态见 [AGENTS.md](../AGENTS.md)。
 
+- **仓库快照瘦身**（2026-08-18，M5，**Windows/Linux hosted CI 通过，macOS 修复后待重跑**）：从当前 Shot 构建闭包中物理删除 13 组已关闭且未被引用的上游产品、测试与第三方源码目录，共 **31,663 个文件 / 618,216,127 bytes 原始 blob**。删除项包括 libwebrtc（保留 Cocoa 无条件创建 `WebMParser` target 所需的 1.66 MB `libwebm/webm_parser`，以及 PAL CoreMedia SPI 头直接包含的 3.9 KB `CMBaseObjectSPI.h`）、capstone、pdfjs、gtest/gmock、WebKit/WebKitLegacy/WebInspectorUI/WebGPU/WebDriver、TestWebKitAPI/WebKitTestRunner 与 Apple SDKDBs；当前源码快照的原始 blob 总量由约 **1.17 GB** 降至约 **553 MB**。Windows x64 已重新完成 CMake configure 与目标依赖干跑，Windows/Linux × x64/arm64 hosted CI 已通过。首轮 macOS configure 暴露 `PlatformCocoa.cmake` 即使在 `ENABLE_VIDEO=OFF`、`USE_LIBWEBRTC=OFF` 下仍会构建 `WebMParser`；恢复解析器后配置通过，随后的编译又证明 `CoreMediaSPI.h` 无条件包含 WebRTC 树里的 `CMBaseObjectSPI.h`，现已补齐这两个最小 Cocoa 编译输入并等待 x64/arm64 重跑。ANGLE 同样未删除：Windows Shot 当前仍实际编译它作为 EGL 显示抽象，不能与运行期不使用 GPU 混为一谈。本次只缩小当前树；旧快照仍在 Git 历史中，远端仓库实际占用要在六平台验证后另行做独立仓库迁移/历史压平，不能靠普通删除提交回收。
+
 - **原子化发布顺序**（2026-08-18，M5）：发布入口由“先公开 GitHub Release 再触发 CI”改为 `vX.Y.Z` tag / 受校验的手动修复流程。workflow 先验证或构建六平台 12 份产物，按平台子包 → 主包的顺序完成 npm OIDC 发布；随后创建/复用 draft Release、校验 SHA-256、上传六份归档与校验文件、生成完整中英文说明，最后一步才公开 Release。任一 npm、附件或说明步骤失败时 Release 保持草稿，不再出现 GitHub 已宣告新版本而 npm 尚不存在的半发布窗口。手动修复必须显式给出已有 tag 与成功 source run，且校验 run 的 commit、结论和全部产物后才允许复用。自动说明现包含相对上一版本的提交摘要；历史 `v0.1.1`～`v0.2.1` 已手工补齐各版本 Highlights，同时保留原有归档表和校验信息。
 
 - **PNG 透明画布接线**（2026-08-17，M5，**代码完成、待 hosted CI 实编译**）：启用 C ABI 已预留但此前未接线的 `shot_render_options.background_rgba`，把 `0xRRGGBBAA` 画布底色传入 `LocalFrameView::setBaseBackgroundColor()`；默认继续为不透明白色。Node SDK 新增与 Chromium/Puppeteer 同语义的 `omitBackground`，CLI/JSONL 对应 `--omit-background` / `omit_background`。没有新增导出、结构体字段或依赖；新增 1×1 PNG 回归，直接解压 IDAT 断言默认 alpha=255、透明模式 alpha=0。
