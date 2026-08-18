@@ -8,11 +8,11 @@
 
 > 实测（对基线 `9841b6f9f384`）：源码级定制偏离共 **108 个上游文件**——
 > WTF/JavaScriptCore/bmalloc/cmake 33 个、WebCore 73 个、ThirdParty 2 个；此外仓库快照
-> 物理删除 **13 组 / 32,434 个** Shot 构建不可达文件，作为单独的目录级偏离登记如下。
+> 物理删除 **13 组 / 31,664 个** Shot 构建不可达文件，作为单独的目录级偏离登记如下。
 
 | 文件 | 改动 | 原因 | 里程碑 |
 |---|---|---|---|
-| `Source/ThirdParty/{libwebrtc,capstone,pdfjs,gtest,gmock}`、`Source/{WebKit,WebKitLegacy,WebInspectorUI,WebGPU,WebDriver}`、`Tools/{TestWebKitAPI,WebKitTestRunner}`、`WebKitLibraries/SDKDBs` | 从 ShotKit 快照物理删除 13 组目录，共 32,434 文件 / 619,879,370 bytes 原始 blob | Shot 配置关闭 WebKit 产品层、Legacy、Inspector UI、WebGPU、WebDriver、WebRTC、PDF.js 与 API/Layout 测试；Windows 重新配置后的生成构建图对这些目录引用均为 0。SDKDBs 是非 macOS Apple SDK 元数据，Shot macOS hosted 构建使用 Xcode SDK。删除只缩小当前快照，不回收 Git 历史；六平台 hosted CI 通过后才可作为独立仓库压平基线 | M5/仓库瘦身 ⚠️ Windows configure 已通过，待六平台 CI |
+| `Source/ThirdParty/{libwebrtc（除 Source/third_party/libwebm/webm_parser）,capstone,pdfjs,gtest,gmock}`、`Source/{WebKit,WebKitLegacy,WebInspectorUI,WebGPU,WebDriver}`、`Tools/{TestWebKitAPI,WebKitTestRunner}`、`WebKitLibraries/SDKDBs` | 从 ShotKit 快照物理删除 13 组目录，共 31,664 文件 / 618,220,043 bytes 原始 blob | Shot 配置关闭 WebKit 产品层、Legacy、Inspector UI、WebGPU、WebDriver、WebRTC、PDF.js 与 API/Layout 测试；Windows/Linux hosted CI 已通过。Cocoa 在 `USE_LIBWEBRTC=OFF` 时仍无条件从 libwebrtc 树创建 `WebMParser`，故保留其 1.66 MB 最小源码目录。SDKDBs 是非 macOS Apple SDK 元数据，Shot macOS hosted 构建使用 Xcode SDK。删除只缩小当前快照，不回收 Git 历史；六平台 hosted CI 通过后才可作为独立仓库压平基线 | M5/仓库瘦身 ⚠️ Win/Linux CI 已通过，macOS 待重跑 |
 | `Source/WTF/wtf/{MainThread.cpp,cocoa/MainThreadCocoa.mm}` | `PLATFORM(SHOT)` 以首次初始化 ShotKit 的 pthread 作为 WebCore 主线程，而非强制 `pthread_main_np()`；允许该宿主线程的 WTF `Thread` UID 不为 1 | Node 等宿主可能先在进程主线程触达 WTF，再由 addon 专用线程初始化 WebCore；该线程仍是唯一 ShotKit main thread，并使用自己的 CFRunLoop，其他端口行为不变 | M5/Node addon ✅ 已改，待 hosted macOS 验证 |
 | `Source/WebCore/bindings/scripts/CodeGeneratorJS.pm` | 新增退化绑定钩子：`SHOT_DEGENERATE_BINDINGS` 环境变量指向接口清单，`GenerateInterface` 入口把清单内接口的 attributes/operations/constants/constructors（带 `[LegacyFactoryFunction]` 者除外，JSDOMWindow 引用其 getLegacyFactoryFunction）/iterable/mapLike/setLike 清空后再生成；回调接口跳过 | 体积 Level 3（生成器路线）：JS 永不执行时绑定胶水运行期不可达，保留类/toJS/GC 底座维持兄弟绑定链接，不生成属性表与胶水即解除对 JS-only 子系统的引用锚。1612 接口退化实测 shot.dll **39,545,856 → 35,257,856（−4.29 MB）**，像素级回归一致 | 体积/L3 ✅ 已改 |
 | `Source/WebCore/bindings/scripts/CodeGeneratorJS.pm` | `GenerateForEachEventHandlerContentAttribute` 空表时改发空函数体 | 接口无事件处理器属性时（退化绑定触发）原生成空 `std::array {}` 无法推导元素类型，编译失败；通用健壮性修复 | 体积/L3 ✅ 已改 |
