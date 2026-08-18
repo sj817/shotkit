@@ -1,8 +1,8 @@
 name: Publish
 
-# Publish the npm packages tokenlessly via OIDC Trusted Publishing. Trigger by
-# publishing a GitHub Release (tag vX.Y.Z), or run manually with dry-run to
-# rehearse without touching the registry.
+# Publish the npm packages tokenlessly via OIDC Trusted Publishing. A vX.Y.Z
+# tag triggers the real release; a manual dispatch rehearses by default and can
+# also repair a release from an explicitly verified artifact run.
 #
 # The six platform runtimes are NOT rebuilt when the tagged commit already has
 # successful Windows/Linux/macOS runs whose artifacts are still live — a release
@@ -14,14 +14,23 @@ name: Publish
 # npm trusted-publisher binding to this repository and this workflow file.
 
 on:
-  release:
-    types: [published]
+  push:
+    tags:
+      - 'v*'
   workflow_dispatch:
     inputs:
       dry-run:
         description: npm publish --dry-run (no registry writes)
         type: boolean
         default: true
+      tag:
+        description: Existing vX.Y.Z tag to publish (required when dry-run is false)
+        type: string
+        default: ''
+      source-run-id:
+        description: Successful run containing all 12 release artifacts
+        type: string
+        default: ''
       force-rebuild:
         description: Rebuild the runtimes even if reusable artifacts exist
         type: boolean
@@ -44,13 +53,44 @@ jobs:
     outputs:
       reuse: ${{ steps.find.outputs.reuse }}
       run-ids: ${{ steps.find.outputs.run-ids }}
+      release-sha: ${{ steps.context.outputs.sha }}
+      tag: ${{ steps.context.outputs.tag }}
     steps:
+      - name: Resolve the release context
+        id: context
+        env:
+          GH_TOKEN: ${{ github.token }}
+          INPUT_TAG: ${{ inputs.tag }}
+          DRY_RUN: ${{ inputs.dry-run }}
+        run: |
+          set -euo pipefail
+
+          if [[ "$GITHUB_EVENT_NAME" == "push" ]]; then
+            tag="$GITHUB_REF_NAME"
+            sha="$GITHUB_SHA"
+          elif [[ "${DRY_RUN:-true}" == "true" ]]; then
+            tag=""
+            sha="$GITHUB_SHA"
+          else
+            tag="$INPUT_TAG"
+            if [[ ! "$tag" =~ ^v[0-9]+\.[0-9]+\.[0-9]+([-.].+)?$ ]]; then
+              echo "a valid existing vX.Y.Z tag is required for a real dispatch" >&2
+              exit 1
+            fi
+            sha=$(gh api "repos/$GITHUB_REPOSITORY/commits/$tag" --jq .sha)
+          fi
+
+          echo "tag=$tag" >> "$GITHUB_OUTPUT"
+          echo "sha=$sha" >> "$GITHUB_OUTPUT"
+          echo "release context: tag=${tag:-dry-run}, sha=$sha"
+
       - name: Look for reusable runtime artifacts
         id: find
         env:
           GH_TOKEN: ${{ github.token }}
-          SHA: ${{ github.sha }}
+          SHA: ${{ steps.context.outputs.sha }}
           FORCE_REBUILD: ${{ inputs.force-rebuild }}
+          SOURCE_RUN_ID: ${{ inputs.source-run-id }}
         run: |
           set -euo pipefail
 
@@ -82,18 +122,30 @@ jobs:
             | sort_by(.run_started_at) | reverse | .[0].id // empty"
 
           run_ids=()
-          for workflow in windows.yml linux.yml macos.yml; do
-            id=$(gh api \
-              "repos/$GITHUB_REPOSITORY/actions/workflows/$workflow/runs?head_sha=$SHA&status=success&branch=$branch&per_page=50" \
-              --jq "$newest_run")
-            if [[ -z "$id" ]]; then
-              echo "no successful $workflow run for $SHA on $branch — building from source"
-              echo "reuse=false" >> "$GITHUB_OUTPUT"
-              exit 0
+          if [[ -n "${SOURCE_RUN_ID:-}" ]]; then
+            source=$(gh api "repos/$GITHUB_REPOSITORY/actions/runs/$SOURCE_RUN_ID")
+            source_sha=$(jq -r .head_sha <<<"$source")
+            source_conclusion=$(jq -r .conclusion <<<"$source")
+            if [[ "$source_sha" != "$SHA" || "$source_conclusion" != "success" ]]; then
+              echo "source run $SOURCE_RUN_ID must be successful and target $SHA" >&2
+              exit 1
             fi
-            echo "$workflow -> run $id"
-            run_ids+=("$id")
-          done
+            echo "using explicitly verified source run $SOURCE_RUN_ID"
+            run_ids+=("$SOURCE_RUN_ID")
+          else
+            for workflow in windows.yml linux.yml macos.yml; do
+              id=$(gh api \
+                "repos/$GITHUB_REPOSITORY/actions/workflows/$workflow/runs?head_sha=$SHA&status=success&branch=$branch&per_page=50" \
+                --jq "$newest_run")
+              if [[ -z "$id" ]]; then
+                echo "no successful $workflow run for $SHA on $branch — building from source"
+                echo "reuse=false" >> "$GITHUB_OUTPUT"
+                exit 0
+              fi
+              echo "$workflow -> run $id"
+              run_ids+=("$id")
+            done
+          fi
 
           available=""
           for id in "${run_ids[@]}"; do
@@ -148,6 +200,7 @@ jobs:
       - name: Checkout the node binding
         uses: actions/checkout@v7
         with:
+          ref: ${{ needs.resolve.outputs.release-sha }}
           fetch-depth: 1
           sparse-checkout-cone-mode: false
           sparse-checkout: |
@@ -219,9 +272,9 @@ jobs:
         shell: bash
         env:
           GH_TOKEN: ${{ github.token }}
-          TAG: ${{ github.event.release.tag_name }}
+          TAG: ${{ needs.resolve.outputs.tag }}
         run: |
-          if [[ "$GITHUB_EVENT_NAME" == "release" ]]; then
+          if [[ -n "$TAG" ]]; then
             version="${TAG#v}"
             label="release tag '$TAG'"
           else
@@ -258,17 +311,9 @@ jobs:
         shell: bash
         run: |
           flags=(--access public)
-          if [[ "$GITHUB_EVENT_NAME" == "workflow_dispatch" ]]; then
-            # Now that a rehearsal stamps a version above the newest release,
-            # unticking dry-run would push a real version that no tag, release
-            # notes or archives back — the assets job is release-only. What used
-            # to block that was npm refusing the stale checked-in version, which is luck, not
-            # a guard. Republishing after a partial failure is a re-run of the
-            # release-triggered run, so nothing legitimate needs this path.
-            if [[ "${{ inputs.dry-run }}" != "true" ]]; then
-              echo "manual publishing is not supported — publish a Release instead" >&2
-              exit 1
-            fi
+          if [[ "$GITHUB_EVENT_NAME" == "workflow_dispatch" && "${{ inputs.dry-run }}" == "true" ]]; then
+            # Rehearsals use a synthetic version above the newest release and
+            # never write to npm or create a GitHub Release.
             flags+=(--dry-run)
             echo "dry run — nothing will be published"
           fi
@@ -283,11 +328,12 @@ jobs:
   # bindings usable without npm. This is a separate job on purpose: the publish
   # job holds id-token: write for OIDC and should not also hold contents: write.
   assets:
-    needs: [resolve, windows, linux, macos]
+    needs: [resolve, windows, linux, macos, publish]
     if: >-
       always()
-      && github.event_name == 'release'
+      && needs.resolve.outputs.tag != ''
       && needs.resolve.result == 'success'
+      && needs.publish.result == 'success'
       && !contains(needs.*.result, 'failure')
       && !contains(needs.*.result, 'cancelled')
     runs-on: ubuntu-latest
@@ -299,6 +345,7 @@ jobs:
       - name: Checkout the release tooling
         uses: actions/checkout@v7
         with:
+          ref: ${{ needs.resolve.outputs.release-sha }}
           fetch-depth: 1
           sparse-checkout-cone-mode: false
           sparse-checkout: |
@@ -355,7 +402,7 @@ jobs:
       - name: Relabel the archives to the release version
         shell: bash
         env:
-          TAG: ${{ github.event.release.tag_name }}
+          TAG: ${{ needs.resolve.outputs.tag }}
         run: |
           version="${TAG#v}"
           while IFS= read -r archive; do
@@ -391,11 +438,31 @@ jobs:
             echo "$base.tar.xz -> $target"
           done < <(find "$RUNNER_TEMP/runtimes" -type f -name '*.tar.xz' | sort)
 
-      - name: Attach the runtimes to the release
+      - name: Create or reuse the draft release
         shell: bash
         env:
           GH_TOKEN: ${{ github.token }}
-          TAG: ${{ github.event.release.tag_name }}
+          TAG: ${{ needs.resolve.outputs.tag }}
+          RELEASE_SHA: ${{ needs.resolve.outputs.release-sha }}
+        run: |
+          if gh release view "$TAG" --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1; then
+            draft=$(gh release view "$TAG" --repo "$GITHUB_REPOSITORY" --json isDraft --jq .isDraft)
+            if [[ "$draft" != "true" ]]; then
+              echo "release $TAG is already public; refusing to overwrite it" >&2
+              exit 1
+            fi
+            echo "reusing existing draft release $TAG"
+          else
+            gh release create "$TAG" --repo "$GITHUB_REPOSITORY" --draft \
+              --target "$RELEASE_SHA" --title "$TAG" \
+              --notes "Release preparation is in progress."
+          fi
+
+      - name: Attach the runtimes to the draft release
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TAG: ${{ needs.resolve.outputs.tag }}
         run: |
           mapfile -t files < <(find "$RUNNER_TEMP/runtimes" -type f \
             \( -name '*.tar.xz' -o -name '*.tar.xz.sha256' \) | sort)
@@ -412,7 +479,7 @@ jobs:
         shell: bash
         env:
           GH_TOKEN: ${{ github.token }}
-          TAG: ${{ github.event.release.tag_name }}
+          TAG: ${{ needs.resolve.outputs.tag }}
         run: |
           previous=$(gh release list --repo "$GITHUB_REPOSITORY" --limit 30 --json tagName \
             --jq "[.[].tagName] | map(select(. != \"$TAG\")) | .[0] // empty")
@@ -422,3 +489,10 @@ jobs:
             --tag "$TAG" --dir "$RUNNER_TEMP/runtimes" --repo "$GITHUB_REPOSITORY" \
             "${range[@]}" > "$RUNNER_TEMP/notes.md"
           gh release edit "$TAG" --repo "$GITHUB_REPOSITORY" --notes-file "$RUNNER_TEMP/notes.md"
+
+      - name: Publish the complete GitHub Release
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TAG: ${{ needs.resolve.outputs.tag }}
+        run: gh release edit "$TAG" --repo "$GITHUB_REPOSITORY" --draft=false --latest
