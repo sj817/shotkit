@@ -1,7 +1,8 @@
 // Compose the GitHub Release body from the runtime archives that are actually
 // being attached, so sizes and checksums can never drift from the assets.
 //
-//   node release-notes.mjs --tag v1.2.3 --dir <archives> [--previous v1.2.2] > notes.md
+//   node release-notes.mjs --tag v1.2.3 --dir <archives> [--previous v1.2.2]
+//     [--changes changes.md] > notes.md
 import { readdir, readFile, stat } from 'node:fs/promises';
 import path from 'node:path';
 
@@ -13,12 +14,14 @@ function argument(name, fallback) {
 const tag = argument('tag');
 const directory = argument('dir');
 const previous = argument('previous');
+const changesFile = argument('changes');
 const repository = argument('repo', 'sj817/shotkit');
 if (!tag || !directory) {
   process.stderr.write('usage: release-notes.mjs --tag <tag> --dir <archives> [--previous <tag>]\n');
   process.exit(2);
 }
 const version = tag.replace(/^v/, '');
+const changes = changesFile ? (await readFile(changesFile, 'utf8')).trim() : '';
 
 // Archive names end in -<os>-<arch>; everything else about them is free-form.
 const LABELS = {
@@ -91,6 +94,7 @@ const assetTable = [
 const compare = previous
   ? `https://github.com/${repository}/compare/${previous}...${tag}`
   : `https://github.com/${repository}/commits/${tag}`;
+const changesSection = changes ? `## Changes\n\n${changes}\n\n` : '';
 
 process.stdout.write(`<div align="center">
 
@@ -104,7 +108,7 @@ process.stdout.write(`<div align="center">
 
 </div>
 
-## Install
+${changesSection}## Install
 
 \`\`\`bash
 npm install @shotkit/node

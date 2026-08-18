@@ -3,7 +3,7 @@
 按时间倒序的实施记录：每条包含做了什么、实测数据、以及踩过的坑。
 当前里程碑状态见 [AGENTS.md](../AGENTS.md)。
 
-- **原子化发布顺序**（2026-08-18，M5）：发布入口由“先公开 GitHub Release 再触发 CI”改为 `vX.Y.Z` tag / 受校验的手动修复流程。workflow 先验证或构建六平台 12 份产物，按平台子包 → 主包的顺序完成 npm OIDC 发布；随后创建/复用 draft Release、校验 SHA-256、上传六份归档与校验文件、生成完整中英文说明，最后一步才公开 Release。任一 npm、附件或说明步骤失败时 Release 保持草稿，不再出现 GitHub 已宣告新版本而 npm 尚不存在的半发布窗口。手动修复必须显式给出已有 tag 与成功 source run，且校验 run 的 commit、结论和全部产物后才允许复用。
+- **原子化发布顺序**（2026-08-18，M5）：发布入口由“先公开 GitHub Release 再触发 CI”改为 `vX.Y.Z` tag / 受校验的手动修复流程。workflow 先验证或构建六平台 12 份产物，按平台子包 → 主包的顺序完成 npm OIDC 发布；随后创建/复用 draft Release、校验 SHA-256、上传六份归档与校验文件、生成完整中英文说明，最后一步才公开 Release。任一 npm、附件或说明步骤失败时 Release 保持草稿，不再出现 GitHub 已宣告新版本而 npm 尚不存在的半发布窗口。手动修复必须显式给出已有 tag 与成功 source run，且校验 run 的 commit、结论和全部产物后才允许复用。自动说明现包含相对上一版本的提交摘要；历史 `v0.1.1`～`v0.2.1` 已手工补齐各版本 Highlights，同时保留原有归档表和校验信息。
 
 - **PNG 透明画布接线**（2026-08-17，M5，**代码完成、待 hosted CI 实编译**）：启用 C ABI 已预留但此前未接线的 `shot_render_options.background_rgba`，把 `0xRRGGBBAA` 画布底色传入 `LocalFrameView::setBaseBackgroundColor()`；默认继续为不透明白色。Node SDK 新增与 Chromium/Puppeteer 同语义的 `omitBackground`，CLI/JSONL 对应 `--omit-background` / `omit_background`。没有新增导出、结构体字段或依赖；新增 1×1 PNG 回归，直接解压 IDAT 断言默认 alpha=255、透明模式 alpha=0。
   - **Linux arm64 full-LTO 峰值硬化**：`shot.node` 使最终构建同时包含第二份完整 WebCore LTO 链接；即便每个 lld 已设置 `--threads=1`，Ninja 默认 link pool 仍会并发启动最多 3 个重型链接，hosted arm64 runner 连续两次在 `7858/7862` 后被宿主 shutdown（exit 143）。Linux CI 现将 `WEBKIT_NINJA_LINK_MAX=1`，只串行链接、不降低 full LTO，也不影响编译并行度。

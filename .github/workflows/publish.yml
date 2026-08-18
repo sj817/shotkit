@@ -345,7 +345,6 @@ jobs:
       - name: Checkout the release tooling
         uses: actions/checkout@v7
         with:
-          ref: ${{ needs.resolve.outputs.release-sha }}
           fetch-depth: 1
           sparse-checkout-cone-mode: false
           sparse-checkout: |
@@ -484,10 +483,17 @@ jobs:
           previous=$(gh release list --repo "$GITHUB_REPOSITORY" --limit 30 --json tagName \
             --jq "[.[].tagName] | map(select(. != \"$TAG\")) | .[0] // empty")
           range=()
-          if [[ -n "$previous" ]]; then range=(--previous "$previous"); fi
+          changes="$RUNNER_TEMP/changes.md"
+          if [[ -n "$previous" ]]; then
+            range=(--previous "$previous")
+            gh api "repos/$GITHUB_REPOSITORY/compare/$previous...$TAG" --paginate \
+              --jq '.commits[].commit.message | split("\n")[0] | "- " + .' > "$changes"
+          else
+            printf '%s\n' '- Initial release.' > "$changes"
+          fi
           node scripts/release-notes.mjs \
             --tag "$TAG" --dir "$RUNNER_TEMP/runtimes" --repo "$GITHUB_REPOSITORY" \
-            "${range[@]}" > "$RUNNER_TEMP/notes.md"
+            --changes "$changes" "${range[@]}" > "$RUNNER_TEMP/notes.md"
           gh release edit "$TAG" --repo "$GITHUB_REPOSITORY" --notes-file "$RUNNER_TEMP/notes.md"
 
       - name: Publish the complete GitHub Release
