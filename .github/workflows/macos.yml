@@ -45,7 +45,13 @@ jobs:
       CCACHE_DEPEND: '1'
       CCACHE_NOHASHDIR: '1'
       CCACHE_BASEDIR: ${{ github.workspace }}
-      CCACHE_SLOPPINESS: pch_defines,time_macros,include_file_mtime,include_file_ctime
+      # ivfsoverlay: OptionsCocoa compiles every TU with -ivfsoverlay so the
+      # SDK's Availability.h resolves to WebKitLibraries/AvailabilityOverlay;
+      # ccache refuses the option outright unless told to ignore it. It then
+      # hashes the SDK header the overlay hides, not the one actually read,
+      # so the two overlay headers go into every hash by hand.
+      CCACHE_SLOPPINESS: pch_defines,time_macros,include_file_mtime,include_file_ctime,ivfsoverlay
+      CCACHE_EXTRAFILES: ${{ github.workspace }}/WebKitLibraries/AvailabilityOverlay/usr/include/os/availability.h:${{ github.workspace }}/WebKitLibraries/AvailabilityOverlay/usr/include/Availability.h
 
     steps:
       - name: Checkout the ShotKit build closure
