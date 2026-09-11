@@ -9,10 +9,12 @@ on:
     branches: [main]
     paths:
       - 'apps/node/**'
+      - 'scripts/ci/**'
       - '.github/workflows/node.yml'
   pull_request:
     paths:
       - 'apps/node/**'
+      - 'scripts/ci/**'
       - '.github/workflows/node.yml'
   workflow_dispatch:
 
@@ -39,6 +41,7 @@ jobs:
           sparse-checkout-cone-mode: false
           sparse-checkout: |
             /apps/node/
+            /scripts/ci/
 
       - uses: actions/setup-node@v4
         with:
@@ -72,3 +75,12 @@ jobs:
       - name: Native runtime fails cleanly when absent
         run: |
           node -e "require('@pixel.js/shotkit').launch().then(() => { throw new Error('unexpected native runtime') }, (e) => { if (!/shot\.node not found/.test(e.message)) throw e })"
+
+      # The CI helpers that decide which engines get built and reused: pure
+      # logic with stubbed API responses, plus the fingerprint of this very
+      # tree (git ls-tree reads trees, which the blobless checkout has).
+      - name: CI helper scripts
+        working-directory: .
+        run: |
+          node --test scripts/ci/*.test.mjs
+          node scripts/ci/fingerprint.mjs
