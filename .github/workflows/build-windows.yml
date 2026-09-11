@@ -59,11 +59,9 @@ jobs:
     env:
       TRIPLET: ${{ matrix.arch }}-windows-webkit
       VCPKG_FEATURE_FLAGS: manifests,binarycaching
-      # Full LTO stays the shipped profile. Measured against ThinLTO on the
-      # same commit it is 3.6-4.5% smaller across all four targets, and it
-      # costs nothing in wall clock: the build is dominated by compiling ~2400
-      # translation units, not by the link, and full LTO's compile phase emits
-      # bitcode instead of machine code, which offsets its slower link.
+      # Full LTO stays the shipped profile (historically 3.6-4.5% smaller on
+      # four targets). Warm ccache builds are now dominated by its link;
+      # thin plus a persistent linker cache is an opt-in timing experiment.
       SHOT_LTO: ${{ inputs.lto || 'full' }}
       SHOT_COMPILER_LAUNCHER: ccache
       # ccache, persisted as the ccache-<os>-<arch> artifact between runs.
@@ -183,6 +181,11 @@ jobs:
           if [ -n "$tarball" ]; then tar -xf "$tarball" -C "$tmp"; echo "restored $(du -sh "$tmp/ccache" | cut -f1)"; else echo "no compiler cache yet: cold"; fi
           ccache -z
           ccache -p | grep -E '^\(environment\)' || true
+
+      - name: Prepare and measure the ThinLTO cache
+        if: env.SHOT_LTO == 'thin'
+        shell: bash
+        run: node scripts/ci/thinlto-cache.mjs restored
 
       - name: Ensure the arm64 host toolchain
         if: matrix.arch == 'arm64'
@@ -400,7 +403,7 @@ jobs:
             # serializing lld keeps the memory peak inside a hosted runner.
             $buildArguments += @('-LinkThreads', '1')
           } else {
-            $buildArguments += @('-LtoJobs', '2')
+            $buildArguments += @('-LtoJobs', '2', '-ThinLTOCacheDir', $env:SHOT_THINLTO_CACHE_DIR)
           }
           if ($env:SHOT_COMPILER_LAUNCHER) {
             $buildArguments += @('-CompilerLauncher', $env:SHOT_COMPILER_LAUNCHER, '-DisablePrecompiledHeaders')
@@ -417,12 +420,13 @@ jobs:
           ccache -s -v | tee -a "$GITHUB_STEP_SUMMARY"
           misses=$(ccache --print-stats | awk -F'\t' '$1=="cache_miss"{print $2}')
           echo "misses=${misses:-0}" >> "$GITHUB_OUTPUT"
+          if [ "$SHOT_LTO" = "thin" ]; then node scripts/ci/thinlto-cache.mjs built; fi
 
-      # Only when the cache gained something, and never from a fork's pull
-      # request (its upload would not be trusted anyway).
+      # ThinLTO can populate its cache even with zero compiler misses.
+      # Keep full's save condition and never save from a fork's pull request.
       - name: Pack the compiler cache
         id: ccache-pack
-        if: always() && steps.ccache-stats.outputs.misses != '0' && steps.ccache-stats.outputs.misses != '' && (github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository)
+        if: always() && (steps.ccache-stats.outputs.misses != '0' || env.SHOT_LTO == 'thin') && steps.ccache-stats.outputs.misses != '' && (github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository)
         shell: bash
         run: |
           tmp="$RUNNER_TEMP"; command -v cygpath >/dev/null 2>&1 && tmp="$(cygpath "$RUNNER_TEMP")"

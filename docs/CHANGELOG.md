@@ -3,6 +3,94 @@
 按时间倒序的实施记录：每条包含做了什么、实测数据、以及踩过的坑。
 当前里程碑状态见 [AGENTS.md](../AGENTS.md)。
 
+- **ThinLTO + 持久化链接缓存实验（不改默认）**（2026-09-12，M5，**两轮六平台 build / verify 全通过**）：源码不变的强制暖构建，相对 full 暖基线的构建步骤缩短 **40.7%～96.5%**；代价是原始动态库变大，Windows/Linux 超过 5% 的部分已用 Bloaty 分段归因。**建议后续选择 b（PR thin，main/tag full），是否切换由维护者决定；本次继续保持 full 默认。**
+
+  **接线范围**：仅在 `lto=thin` 时设置 `$RUNNER_TEMP/ccache/thinlto`，随现有 `ccache-<os>-<arch>` artifact 跨 run 保存；ELF lld 使用 `--thinlto-cache-dir` / `--thinlto-jobs=2`，Apple ld 使用 `-cache_path_lto`，Windows 沿用 lld-link 参数与 LTO backend 并发上限 2。参数依据见 [LLVM ThinLTO 文档](https://clang.llvm.org/docs/ThinLTO.html)。macOS 改为尊重 `inputs.lto`；thin 即使 ccache 零 miss 也重新保存缓存，并记录恢复后与构建后的目录文件数、字节数。full 参数、缓存保存条件、链接并发限制及 `build.yml` 默认值保持不变；没有增加运行时依赖或特性。
+
+  **样本与复现**：两次 thin 都在提交 `63a8cf1a17075781483a79b5b3d527c7d57b3ea0`、指纹 `d77e9b842d218c88` 上顺序执行：冷跑 [34620817105](https://github.com/sj817/shotkit/actions/runs/34620817105) → 暖跑 [34634021417](https://github.com/sj817/shotkit/actions/runs/34634021417)。命令均为 `gh workflow run build.yml -R sj817/shotkit --ref codex/thinlto-cache-experiment -f lto=thin -f force=true`；`force=true` 保证第二轮真正重建，避免直接复用引擎归档。六平台暖跑均从冷跑 34620817105 恢复 ccache，链接缓存恢复后的文件数、字节数与冷跑构建后完全一致。
+
+  full 暖基线为 [34596236966](https://github.com/sj817/shotkit/actions/runs/34596236966)（`e68bcc5b039d1f47413eb0c0ddb3408e588538ab`）；其原生构建输入与本分支起点 `f5b60c80d5b8` 一致，原指纹均为 `35f4cbedbe54f3fc`。本次接线后的 full 指纹为 `eeae0aac1d8f3a6d`，与 thin 隔离。三组日志中的编译器版本一致：Windows x64 clang 20.1.8、Windows arm64 clang 22.1.8、Linux clang 18.1.3、macOS Apple clang 17.0.0；ccache 为 Windows/macOS 4.14、Linux 4.9.1。基线归档与 [v0.4.0 Release](https://github.com/sj817/shotkit/releases/tag/v0.4.0) 六份附件的字节数及 SHA-256 完全一致；[v0.3.1](https://github.com/sj817/shotkit/releases/tag/v0.3.1) 只作发布体积参照。
+
+  **构建步骤耗时（分:秒）与编译缓存**：Windows 使用 `Configure and build ShotKit`，Linux/macOS 使用 `Build ShotKit`（不含独立 configure），与给定 full 基线的步骤口径一致。冷跑六平台 ccache 均为 0% 命中；原 full 基线并非六平台全命中，两个 macOS 各有 22 / 21 次 miss，见下表。
+
+  | 平台 | full 暖 | thin 冷 | thin 暖 | 暖跑缩短 | full ccache 命中 | thin 暖 ccache 命中 |
+  | --- | --- | --- | --- | --- | --- | --- |
+  | windows-x64 | 15:57 | 72:55 | 4:40 | 70.7% | 2381/2381 (100.00%) | 2381/2381 (100.00%) |
+  | windows-arm64 | 13:07 | 94:15 | 7:47 | 40.7% | 2381/2381 (100.00%) | 2381/2381 (100.00%) |
+  | linux-x64 | 15:06 | 57:23 | 0:38 | 95.8% | 2017/2017 (100.00%) | 2017/2017 (100.00%) |
+  | linux-arm64 | 13:15 | 44:53 | 0:28 | 96.5% | 2017/2017 (100.00%) | 2017/2017 (100.00%) |
+  | macos-x64 | 15:20 | 29:54 | 7:11 | 53.2% | 610/632 (96.52%) | 610/632 (96.52%) |
+  | macos-arm64 | 8:51 | 17:17 | 1:41 | 81.0% | 611/632 (96.68%) | 611/632 (96.68%) |
+
+  **链接缓存目录实测**：冷跑开始均为 0 bytes / 0 文件；下表是 helper 遍历目录得到的逻辑字节数，不是磁盘分配量，也不是链接器命中率。暖跑复用了持久化缓存，但本实验没有独立采集 backend hit/miss。
+
+  | 平台 | thin 冷构建后 bytes / 文件数 | thin 暖恢复后 bytes / 文件数 | thin 暖构建后 bytes / 文件数 |
+  | --- | --- | --- | --- |
+  | windows-x64 | 148,303,020 / 2,279 | 148,303,020 / 2,279 | 148,338,976 / 2,299 |
+  | windows-arm64 | 130,464,079 / 2,250 | 130,464,079 / 2,250 | 130,464,079 / 2,250 |
+  | linux-x64 | 112,907,144 / 1,932 | 112,907,144 / 1,932 | 112,935,064 / 1,957 |
+  | linux-arm64 | 123,710,896 / 1,911 | 123,710,896 / 1,911 | 123,729,032 / 1,926 |
+  | macos-x64 | 85,374,608 / 598 | 85,374,608 / 598 | 85,374,608 / 598 |
+  | macos-arm64 | 78,486,064 / 598 | 78,486,064 / 598 | 78,486,064 / 598 |
+
+  **缓存传输开销（分:秒）**：缓存步骤合计为 Restore + Unpack + Pack + Save，包含 ccache 与其中的 ThinLTO 文件，不能把它算成链接时间；整个 build 作业还包含安装、配置、归档等步骤，均排除 runner 排队及后续独立 verify。冷跑的 macOS arm64 verify 单独排队了 36:11；构建步骤的加速比例不等于 workflow 端到端的加速比例。
+
+  | 平台 | full 暖缓存步骤合计 | thin 冷缓存步骤合计 | thin 暖缓存步骤合计 | thin 暖整个 build 作业 |
+  | --- | --- | --- | --- | --- |
+  | windows-x64 | 0:06 | 0:15 | 0:42 | 9:12 |
+  | windows-arm64 | 0:12 | 0:27 | 1:00 | 13:15 |
+  | linux-x64 | 0:10 | 0:19 | 0:52 | 3:43 |
+  | linux-arm64 | 0:15 | 0:18 | 1:04 | 4:02 |
+  | macos-x64 | 0:40 | 0:49 | 2:59 | 13:49 |
+  | macos-arm64 | 0:33 | 0:43 | 1:09 | 4:24 |
+
+  **发布归档大小**：full 基线与两轮 thin 的 `.tar.xz` 均实际下载并校验 SHA-256；v0.3.1 大小取 Release API 的 `asset.size`，v0.4.0 的大小及 digest 与已下载的 full 基线匹配。六个平台两轮均通过现有绝对预算（Windows ≤22,000,000，Linux/macOS ≤18,000,000 bytes）。冷暖归档 SHA-256 相同的平台：无。
+
+  | 平台 | v0.3.1 bytes | v0.4.0 / full bytes | thin 冷 bytes | thin 暖 bytes | 暖 vs v0.3.1 | 暖 vs v0.4.0 |
+  | --- | --- | --- | --- | --- | --- | --- |
+  | windows-x64 | 11,515,996 | 11,522,676 | 12,053,656 | 12,045,540 | 4.60% | 4.54% |
+  | windows-arm64 | 10,736,304 | 10,734,060 | 11,163,440 | 11,164,772 | 3.99% | 4.01% |
+  | linux-x64 | 9,195,080 | 9,192,020 | 9,523,964 | 9,524,200 | 3.58% | 3.61% |
+  | linux-arm64 | 8,292,932 | 8,282,564 | 8,578,756 | 8,588,328 | 3.56% | 3.69% |
+  | macos-x64 | 9,703,040 | 9,695,160 | 9,745,500 | 9,747,512 | 0.46% | 0.54% |
+  | macos-arm64 | 8,249,012 | 8,242,980 | 8,261,848 | 8,261,104 | 0.15% | 0.22% |
+
+  **原始动态库与 >5% 归因**：从同批归档解出发布态 `shot.dll` / `libshot.so` / `libshot.dylib` 测量；冷暖动态库 SHA-256 相同的平台：linux-x64、linux-arm64、macos-x64、macos-arm64。压缩归档的涨幅不能代替原始库的涨幅，Windows/Linux 仍触发体积纪律的归因要求。
+
+  | 平台 | full 动态库 bytes | thin 暖动态库 bytes | 差值 bytes | 涨幅 |
+  | --- | --- | --- | --- | --- |
+  | windows-x64 | 27,636,736 | 30,190,592 | 2,553,856 | 9.24% |
+  | windows-arm64 | 26,966,528 | 29,580,288 | 2,613,760 | 9.69% |
+  | linux-x64 | 35,124,512 | 37,799,240 | 2,674,728 | 7.61% |
+  | linux-arm64 | 34,710,728 | 37,938,416 | 3,227,688 | 9.30% |
+  | macos-x64 | 33,738,384 | 34,825,544 | 1,087,160 | 3.22% |
+  | macos-arm64 | 31,235,664 | 32,443,328 | 1,207,664 | 3.87% |
+
+  对上述 full 与 thin 暖动态库使用 [Bloaty](https://github.com/google/bloaty) `37bf8e708398727b58d9a61e66e9ccb5db6df619`（含实验性 PE/COFF 支持）执行 `bloaty -d sections -n 0 --csv thin-lib -- full-lib`。以下单位为 bytes，各行四个最大增量加“其他”严格等于动态库总差值，六平台全部对账通过。库已 strip，归因到段级；未把这些数字进一步声称为具体函数的内联或去重收益。
+
+  | 平台 | 最大增量段 | 第二项 | 第三项 | 第四项 | 其他段与元数据净增量 |
+  | --- | --- | --- | --- | --- | --- |
+  | windows-x64 | `.text` +2,253,312 | `.pdata` +179,712 | `.rdata` +100,864 | `.data` +12,288 | 7,680 |
+  | windows-arm64 | `.text` +2,310,656 | `.rdata` +171,520 | `.pdata` +112,128 | `.data` +12,288 | 7,168 |
+  | linux-x64 | `.text` +1,392,944 | `.eh_frame` +701,516 | `.rela.dyn` +229,536 | `.eh_frame_hdr` +140,100 | 210,632 |
+  | linux-arm64 | `.text` +1,833,068 | `.eh_frame` +775,856 | `.rela.dyn` +239,352 | `.eh_frame_hdr` +163,544 | 215,868 |
+  | macos-x64 | `__TEXT,__text` +871,352 | `__TEXT,__cstring` +123,964 | `__TEXT,__unwind_info` +31,448 | `Function Start Addresses` +16,240 | 44,156 |
+  | macos-arm64 | `__TEXT,__text` +1,033,252 | `__TEXT,__cstring` +104,108 | `Function Start Addresses` +16,800 | `[__DATA_DIRTY]` +16,376 | 37,128 |
+
+  实测增量主要落在机器码、展开表及重定位等链接输出。结合本次未改产品源码/特性的差异范围，可推断来自 LTO 优化结果的变化；具体优化决策仍需保留符号的对照构建才能细分。历史注释“full 比 thin 小 3.6–4.5%”不能作为本轮原始动态库的预测。
+
+  **验证边界**：两轮各六个平台的 build、归档预算与独立 verify 都成功；verify 覆盖发布形态的 CLI/SDK、parity、soak、无脚本网络、macOS XML/XSLT，以及 Linux x64 的 Node 18.18/20/22/24 兼容。本地 actionlint、fingerprint/artifact 10 项测试、40 组 CMake 参数对照、目录计数 smoke 和 `git diff --check` 通过。仅一冷一暖，hosted runner 存在噪声；这是“源码不变 + 编译缓存 + 链接缓存”的组合收益，尚不能拆分 ThinLTO 本身与 backend 缓存各自的贡献，也不代表修改源码后的增量耗时。没有测运行期渲染性能或 full/thin 间逐像素一致性。
+
+  **三个后续选项（本次均未实施）**：
+
+  | 选项 | 收益 | 代价与适用范围 |
+  | --- | --- | --- |
+  | a）全部 thin | PR、main、tag 可共用 thin 指纹与产物，暖构建整体受益 | 发布也承担本表中的原始库涨幅和归档涨幅；增加缓存传输与存储，且当前只有一次暖样本 |
+  | b）PR thin，main/tag full（建议） | 预计可缩短多轮 PR 的反馈时间，正式发布继续保持 full 的较小体积；实际修改源码后的缓存收益仍需验证 | thin 与 full 指纹不同，PR 产物不能作为 full 发布产物；对应 full 指纹首次在 main/tag 构建时仍要做一次 full 链接。main 已有该 full 指纹时 tag 可复用。一次 PR 即合入可能比只跑 full 多做一轮，收益主要在多轮 PR 反馈 |
+  | c）维持 full | 单一构建模式、最小发布体积；PR 的 full 产物可直接供后续相同指纹复用 | 需要重建原生引擎时，ccache 暖命中后仍保留本轮基线中 8.9～16.0 分钟的构建步骤；SDK/文档等未改指纹的提交已经可跳过构建 |
+
+  推荐 b 的理由是将已测得的反馈速度收益用于 PR，同时保留 ShotKit 对正式产物体积的优先级；先前“编译主导，所以 full LTO 不花墙钟时间”的前提已被 full 暖跑否定。是否接受双模式维护和额外 full 构建，由维护者结合 PR 迭代次数决定。
+
 - **Node SDK API 对齐 `@pixel.js/shotium`（0.4.0，破坏性）**（2026-09-11，M5）：`launch()` / `ShotKit` handle / `screenshotURL` / `screenshotHTML` / `outputPath` / `width`+`height` / `format` / `timeoutMs` / `allowFileURLs` / 结果字段 `data`+`bytes`+`durationMs`+`elapsedMs` 全部移除，改为与 shotium 同形的 `screenshot(options)`、同步 `start()`、`status()`、`stop()`、共享 `runtime` 与默认导出；选项名 `file`（URL / `file:` / 本地路径）、`viewport`、`type`、`quality`（1–100，默认 90，png 拒绝）、`scale`（0.01–8）、`fullPage`、`selector`（与 `fullPage` 互斥）、`omitBackground`、`path`（写文件后 `image` 为 `null`）、`pageGotoParams.timeout`、`allowFileAccess`；结果 `{ image, stats: { bytes, timing: { render, total } } }`。保留 ShotKit 独有的 `html`、`baseURL`、`mimeType`、`webp-lossless` 与每次截图的 `userAgent`；`jpeg`、`clip`、`headers`、`cache`、分块、常驻进程与 `start` 的缓存选项一律抛 `TypeError`（`src/request.ts` 的 allow-list，无原生即可单测）。本地文件由 Node 读取并以文件 URL 为 base，`mimeType` 按扩展名推断。**已知差异**：内核只在 `renderURLToImage` 里限制 `file:` 主文档，不限制任何文档的 `file:` 子资源，所以 `allowFileAccess` 目前只是透传（本地页面旁的子资源总会加载）；要与 shotium 一致需在 loader strategy 补一条子资源门禁，未做。`@shotkit/node` 别名包同步为新 API（`export { default }` 补上）。C++ 无改动。 **已于 2026-09-12（UTC+8）发布 [v0.4.0](https://github.com/sj817/shotkit/releases/tag/v0.4.0)**；[正式发布与六平台验收 run 34621460503](https://github.com/sj817/shotkit/actions/runs/34621460503) 全绿。
 
 - **CI 按引擎指纹复用制品、构建与验证拆分**（2026-09-11，M5，**待 hosted CI 回填耗时数据**）：此前每个非 `.md` 的 push/PR 都从零重编六平台 WebKit（PR 预览 95 分钟，Linux x64 84 分钟 = 56 编译 + 两次 14 分钟全程序 LTO 链接），制品按 commit 找、只留 7 天，缓存又因 7 天闲置驱逐与 PR 作用域不可见而基本失效。现在：`scripts/ci/fingerprint.mjs` 对构建闭包做 `git ls-tree` 内容哈希（含 `node-api-headers` 锁定版本与 LTO 模式）；`build.yml` 的 `resolve` 用 `scripts/ci/artifacts.mjs` 查 `engine-<os>-<arch>-<fp>` 与 `engine-node-<os>-<arch>-<fp>`（只信任本仓库构建 run 且两者同 run），只把缺的架构交给 `build-<os>.yml`（原 `windows/linux/macos.yml`，改为 `workflow_call`，去掉 push 与并发组）；`verify` 在六个 runner 上用 `scripts/ci/verify-runtime.mjs` 对发布形态的归档与 addon 跑 SDK 套件、parity、soak、无脚本网络与 XML/XSLT，Linux x64 再跨 Node 18–24。`preview.yml` 只是 `build.yml` + pkg.pr.new；`publish.yml` 直接调用 `build.yml`，按 tag 树的指纹取件，`assets` 作业改在发布提交上检出（此前取的是运行时的 main），并修掉复用路径对每个 run 请求三种 OS 模式导致 `gh run download` 退出的问题（0.3.1 的 Release 因此手工补发）。编译缓存改用 ccache（direct + depend），与 vcpkg 二进制一起以 artifact 持久化 90 天，`refresh.yml` 每月重传一遍；Windows 在 launcher 下关闭 PCH，让此前 sccache 覆盖不到的 52% 单元也可缓存。Linux/macOS 归档里的 README 改为生成的 `README.txt`，不再随文档变化。
