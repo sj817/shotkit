@@ -98,27 +98,26 @@ if (WIN32)
 endif ()
 
 
-# ---- shot.node（Node-API，静态汇入同一 C ABI + WebCore OBJECT 闭包）----
+# ---- shot.node（Node-API 薄插件，动态链接 libshot）----
 # 头文件来自 apps/node 的 build-only node-api-headers 依赖。没有 npm checkout
 # 时仍允许只构建 CLI；发布/平台 CI 会先 npm ci 并显式构建 shotnode。
+#
+# 曾经把内核 + capi + 整个 WebCore OBJECT 闭包再编译再链接一遍进 shot.node
+# （SHOT_STATIC）：每个平台多一次全程序 LTO 链接（Linux 14 分钟，与 libshot
+# 的那次串行）和约一半的内核编译，而插件只调用 10 个 C ABI 导出。现在它和
+# shotcli 一样薄链 libshot；npm 平台包把 libshot 放在 shot.node 旁边——
+# Windows 本来就随包分发 DLL 闭包，Linux/macOS 放 lib/，RPATH 同时覆盖
+# 构建树（bin/ 与 lib/ 平级）和包内布局（lib/ 在 shot.node 之下）。
 set(SHOT_NODE_API_INCLUDE_DIR "${CMAKE_SOURCE_DIR}/apps/node/node_modules/node-api-headers/include"
     CACHE PATH "Directory containing node_api.h for the optional shot.node target")
 if (EXISTS "${SHOT_NODE_API_INCLUDE_DIR}/node_api.h")
     set(shotnode_LIBRARY_TYPE SHARED)
-    set(shotnode_SOURCES
-        ${_shotkit_kernel_sources}
-        ${CMAKE_CURRENT_SOURCE_DIR}/capi/shot.cpp
-        ${CMAKE_CURRENT_SOURCE_DIR}/node/addon.cpp
-    )
-    set(shotnode_FRAMEWORKS ${libshot_FRAMEWORKS})
+    set(shotnode_SOURCES ${CMAKE_CURRENT_SOURCE_DIR}/node/addon.cpp)
     set(shotnode_PRIVATE_INCLUDE_DIRECTORIES
-        ${_shotkit_includes}
+        ${CMAKE_CURRENT_SOURCE_DIR}/capi
         ${SHOT_NODE_API_INCLUDE_DIR}
     )
-    if (APPLE)
-        list(APPEND shotnode_PRIVATE_INCLUDE_DIRECTORIES ${SHOT_WEBP_INCLUDE_DIR})
-    endif ()
-    set(shotnode_LIBRARIES ${libshot_LIBRARIES})
+    set(shotnode_LIBRARIES libshot)
 
     if (WIN32)
         get_filename_component(_shot_node_api_root "${SHOT_NODE_API_INCLUDE_DIR}" DIRECTORY)
@@ -142,7 +141,7 @@ if (EXISTS "${SHOT_NODE_API_INCLUDE_DIR}/node_api.h")
     endif ()
 
     WEBKIT_LIBRARY_DECLARE(shotnode)
-    target_compile_definitions(shotnode PRIVATE SHOT_STATIC=1 NAPI_VERSION=8)
+    target_compile_definitions(shotnode PRIVATE NAPI_VERSION=8)
     WEBKIT_LIBRARY(shotnode)
     set_target_properties(shotnode PROPERTIES
         OUTPUT_NAME shot
@@ -153,28 +152,21 @@ if (EXISTS "${SHOT_NODE_API_INCLUDE_DIR}/node_api.h")
         ARCHIVE_OUTPUT_DIRECTORY "${CMAKE_CURRENT_BINARY_DIR}/import"
     )
     if (APPLE)
-        target_link_options(shotnode PRIVATE "-undefined" "dynamic_lookup")
-        set_target_properties(shotnode PROPERTIES BUILD_RPATH "@loader_path/lib" INSTALL_RPATH "@loader_path/lib")
-    elseif (UNIX)
         # Node resolves N-API symbols from the host executable at dlopen time.
-        # WebKit globally links shared libraries with --no-undefined, so restore
-        # the normal addon policy for this target only (the later CI export/
-        # dependency checks still reject accidental ShotKit ABI leakage).
-        target_link_options(shotnode PRIVATE "-Wl,-z,undefs")
-        set_target_properties(shotnode PROPERTIES BUILD_RPATH "$ORIGIN/lib" INSTALL_RPATH "$ORIGIN/lib")
-    endif ()
-
-    if (WIN32)
-        string(REGEX MATCH "^[0-9]+" _shot_node_icu_major "${ICU_VERSION}")
-        if (NOT _shot_node_icu_major)
-            message(FATAL_ERROR "Cannot derive the ICU DLL name for shot.node from ICU_VERSION='${ICU_VERSION}'")
-        endif ()
-        target_link_options(shotnode PRIVATE
-            "/DELAYLOAD:libEGL.dll"
-            "/DELAYLOAD:libGLESv2.dll"
-            "/DELAYLOAD:icuin${_shot_node_icu_major}.dll"
+        target_link_options(shotnode PRIVATE "-undefined" "dynamic_lookup")
+        set_target_properties(shotnode PROPERTIES
+            BUILD_RPATH "@loader_path/lib;@loader_path/../lib"
+            INSTALL_RPATH "@loader_path/lib;@loader_path/../lib"
         )
-        unset(_shot_node_icu_major)
+    elseif (UNIX)
+        # Same, and WebKit globally links shared libraries with --no-undefined,
+        # so restore the normal addon policy for this target only (the CI
+        # export checks still reject accidental ShotKit ABI leakage).
+        target_link_options(shotnode PRIVATE "-Wl,-z,undefs")
+        set_target_properties(shotnode PROPERTIES
+            BUILD_RPATH "$ORIGIN/lib;$ORIGIN/../lib"
+            INSTALL_RPATH "$ORIGIN/lib;$ORIGIN/../lib"
+        )
     endif ()
 else ()
     message(STATUS "shot.node disabled: node_api.h not found under ${SHOT_NODE_API_INCLUDE_DIR}")

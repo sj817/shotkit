@@ -190,12 +190,16 @@ jobs:
 
       - name: Stage native npm runtime
         run: |
+          # shot.node is a thin addon over libshot.dylib, which travels with
+          # it under lib/ (LC_RPATH @loader_path/lib).
           stage=WebKitBuild/node-runtime
           rm -rf "$stage"
-          mkdir -p "$stage"
+          mkdir -p "$stage/lib"
           cp WebKitBuild/shot-macos/bin/shot.node "$stage/"
-          strip -x "$stage/shot.node"
+          cp WebKitBuild/shot-macos/lib/libshot.dylib "$stage/lib/"
+          strip -x "$stage/shot.node" "$stage/lib/libshot.dylib"
           otool -L "$stage/shot.node" > "$stage/DEPENDENCIES.txt"
+          grep -F '@rpath/libshot.dylib' "$stage/DEPENDENCIES.txt" || { echo 'shot.node does not import libshot.dylib through @rpath' >&2; cat "$stage/DEPENDENCIES.txt"; exit 1; }
 
       - name: Package release archive
         run: |
@@ -219,7 +223,7 @@ jobs:
 
       - name: Enforce native runtime closure budget
         run: |
-          node_bytes=$(stat -f %z WebKitBuild/node-runtime/shot.node)
+          node_bytes=$(( $(stat -f %z WebKitBuild/node-runtime/shot.node) + $(stat -f %z WebKitBuild/node-runtime/lib/libshot.dylib) ))
           cli_bytes=$(( $(stat -f %z WebKitBuild/releases/shotkit-macos-${{ matrix.arch }}/lib/libshot.dylib) + $(stat -f %z WebKitBuild/releases/shotkit-macos-${{ matrix.arch }}/bin/shotcli) ))
           echo "shot.node closure: $node_bytes bytes; CLI closure: $cli_bytes bytes" | tee -a "$GITHUB_STEP_SUMMARY"
           test "$node_bytes" -le $(( cli_bytes * 105 / 100 ))

@@ -93,4 +93,4 @@ $env:SHOTKIT_NATIVE_PATH = '../../WebKitBuild/shot/bin/shot.node'
 npm test
 ```
 
-发布流程从六个平台 CI 的 `shotkit-node-<os>-<arch>` artifact staging `shot.node` 和必要动态依赖，再发布平台子包与主包，最后以旧包名 `@shotkit/node` 发布一个同版本的兼容别名包（`tools/legacy-shim.ts` 生成，只依赖并重新导出主包）。`SHOTKIT_NATIVE_PATH` 仅用于仓库测试和自定义构建定位。
+`shot.node` 是只调用 C ABI 的薄插件，`libshot` 随平台包一起分发：Windows 与其它 DLL 一样平铺在 `shot.node` 旁，Linux/macOS 在 `lib/`（RPATH `$ORIGIN/lib` / `@loader_path/lib`）。打包成 asar 或类似归档时要把 `lib/` 与 `shot.node` 一起解出（平台包已声明 `preferUnplugged`）。发布流程从六个平台 CI 的 `shotkit-node-<os>-<arch>` artifact staging `shot.node`、`libshot` 和必要动态依赖，再发布平台子包与主包，最后以旧包名 `@shotkit/node` 发布一个同版本的兼容别名包（`tools/legacy-shim.ts` 生成，只依赖并重新导出主包）。`SHOTKIT_NATIVE_PATH` 仅用于仓库测试和自定义构建定位。

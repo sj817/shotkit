@@ -1,7 +1,9 @@
 # collect-dist.ps1 - collect the exact direct ShotKit runtime import closure.
 #
-# shot.dll contains WebCore/JSC directly. ICU data is loaded by ICU at runtime
-# and is therefore added explicitly.
+# shot.dll contains WebCore/JSC directly; shot.node is a thin Node-API addon
+# that imports it, so the addon closure is shot.node + shot.dll + what
+# shot.dll imports. ICU data is loaded by ICU at runtime and is therefore
+# added explicitly.
 
 param(
     [string]$Root = [IO.Path]::GetFullPath((Join-Path $PSScriptRoot '..')),
@@ -36,7 +38,10 @@ if (-not $dumpbin) { throw "dumpbin.exe for host architecture $hostArch was not 
 
 $pool = @{}
 Get-ChildItem "$binDeps\*.dll" | Where-Object { $_.Name -notmatch '\.orig\.dll$' } | ForEach-Object { $pool[$_.Name.ToLowerInvariant()] = $_.FullName }
-Get-ChildItem "$binShot\*.dll" | Where-Object { $_.Name -ne 'shot.dll' } | ForEach-Object { $pool[$_.Name.ToLowerInvariant()] = $_.FullName }
+# shot.dll is an entry file of the CLI closure and a dependency of the addon
+# closure; it joins the pool only for the latter so the former never lists
+# it twice.
+Get-ChildItem "$binShot\*.dll" | Where-Object { $NodeAddon -or $_.Name -ne 'shot.dll' } | ForEach-Object { $pool[$_.Name.ToLowerInvariant()] = $_.FullName }
 
 $need = [System.Collections.Generic.HashSet[string]]::new()
 $queue = [System.Collections.Generic.Queue[string]]::new()

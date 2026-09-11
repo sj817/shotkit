@@ -13,7 +13,10 @@ import { fileURLToPath } from 'node:url';
 const PLATFORMS = ['win32-x64', 'win32-arm64', 'linux-x64', 'linux-arm64', 'darwin-x64', 'darwin-arm64'];
 const SKIPPED_DIRECTORIES = new Set(['include']);
 const SKIPPED_EXTENSIONS = new Set(['.txt', '.md', '.png', '.sha256', '.h']);
-const SKIPPED_NAMES = new Set(['shotcli', 'shotcli.exe', 'shot.dll', 'libshot.so', 'libshot.dylib']);
+// shot.node is a thin addon over libshot, so the library ships beside it:
+// shot.dll flat on Windows, lib/libshot.{so,dylib} elsewhere (RPATH
+// $ORIGIN/lib). Only the CLI stays out.
+const SKIPPED_NAMES = new Set(['shotcli', 'shotcli.exe']);
 
 const packageDirectory = path.dirname(path.dirname(fileURLToPath(import.meta.url)));
 const repositoryRoot = path.resolve(packageDirectory, '..', '..');

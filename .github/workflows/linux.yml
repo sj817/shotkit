@@ -234,12 +234,16 @@ jobs:
 
       - name: Stage native npm runtime
         run: |
+          # shot.node is a thin addon over libshot.so, which travels with it
+          # under lib/ (RPATH $ORIGIN/lib).
           stage=WebKitBuild/node-runtime
           rm -rf "$stage"
-          mkdir -p "$stage"
+          mkdir -p "$stage/lib"
           cp WebKitBuild/shot-linux/bin/shot.node "$stage/"
-          llvm-strip-18 --strip-unneeded "$stage/shot.node"
+          cp WebKitBuild/shot-linux/lib/libshot.so "$stage/lib/"
+          llvm-strip-18 --strip-unneeded "$stage/shot.node" "$stage/lib/libshot.so"
           ldd "$stage/shot.node" > "$stage/DEPENDENCIES.txt"
+          grep -F "$stage/lib/libshot.so" "$stage/DEPENDENCIES.txt" || { echo 'shot.node does not resolve libshot.so from lib/ next to it' >&2; cat "$stage/DEPENDENCIES.txt"; exit 1; }
 
       - name: Package release archive
         run: |
@@ -269,7 +273,7 @@ jobs:
 
       - name: Enforce native runtime closure budget
         run: |
-          node_bytes=$(stat -c %s WebKitBuild/node-runtime/shot.node)
+          node_bytes=$(( $(stat -c %s WebKitBuild/node-runtime/shot.node) + $(stat -c %s WebKitBuild/node-runtime/lib/libshot.so) ))
           cli_bytes=$(( $(stat -c %s WebKitBuild/releases/shotkit-linux-${{ matrix.arch }}/lib/libshot.so) + $(stat -c %s WebKitBuild/releases/shotkit-linux-${{ matrix.arch }}/bin/shotcli) ))
           echo "shot.node closure: $node_bytes bytes; CLI closure: $cli_bytes bytes" | tee -a "$GITHUB_STEP_SUMMARY"
           test "$node_bytes" -le $(( cli_bytes * 105 / 100 ))

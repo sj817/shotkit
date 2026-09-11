@@ -435,7 +435,7 @@ jobs:
         shell: pwsh
         run: |
           pwsh scripts/collect-dist.ps1 -Root $env:GITHUB_WORKSPACE -VcpkgTriplet ${{ matrix.triplet }} -NodeAddon
-          if (Test-Path 'WebKitBuild\shot-node-dist\shot.dll') { throw 'native npm runtime must not contain shot.dll' }
+          if (-not (Test-Path 'WebKitBuild\shot-node-dist\shot.dll')) { throw 'native npm runtime must contain shot.dll: shot.node is a thin addon over it' }
           if (Test-Path 'WebKitBuild\shot-node-dist\shotcli.exe') { throw 'native npm runtime must not contain shotcli.exe' }
 
       - name: Package release archive
