@@ -52,23 +52,21 @@ npm install @pixel.js/shotkit
 ```
 
 ```diff
-- import { launch } from '@shotkit/node';
-+ import { launch } from '@pixel.js/shotkit';
+- import { screenshot } from '@shotkit/node';
++ import { screenshot } from '@pixel.js/shotkit';
 ```
 
 </details>
 
 ```js
-import { launch } from '@pixel.js/shotkit';
+import { screenshot } from '@pixel.js/shotkit';
 
-const shot = await launch();
-await shot.screenshotURL('https://example.com/', {
-  outputPath: 'example.png',
-  width: 1280,
-  height: 800,
+await screenshot({
+  file: 'https://example.com/',
+  path: 'example.png',
+  viewport: { width: 1280, height: 800 },
   fullPage: true,
 });
-await shot.close();
 ```
 
 npm resolves exactly one prebuilt runtime for your platform through `os`/`cpu`-constrained optional
@@ -151,34 +149,31 @@ Two things worth knowing before you plan capacity:
 not launch the CLI or create temporary image files. ESM and CommonJS, Node.js 18.18+.
 
 ```js
-import { launch } from '@pixel.js/shotkit';
+import { screenshot, stop } from '@pixel.js/shotkit';
 
-const shot = await launch();
-try {
-  // From a URL
-  await shot.screenshotURL('https://example.com/', { outputPath: 'url.png' });
+// From a URL
+await screenshot({ file: 'https://example.com/', path: 'url.png' });
 
-  // From an HTML string, straight to a Buffer
-  const { data, bytes, durationMs } = await shot.screenshotHTML(
-    '<h1>Hello</h1>',
-    { width: 800, height: 400, format: 'webp', quality: 82 },
-  );
+// From an HTML string, straight to a Buffer
+const { image, stats } = await screenshot({
+  html: '<h1>Hello</h1>',
+  viewport: { width: 800, height: 400 },
+  type: 'webp',
+  quality: 82,
+});
 
-  // From a local file, full page at 2× device scale
-  await shot.screenshot({
-    htmlFile: './report.html',
-    outputPath: 'report.png',
-    scale: 2,
-    fullPage: true,
-  });
-} finally {
-  await shot.close();
-}
+// From a local file, full page at 2× device scale
+await screenshot({ file: './report.html', path: 'report.png', scale: 2, fullPage: true });
+
+await stop(); // optional: waits for captures in flight; the next screenshot() starts again
 ```
 
-Options: `outputPath`, `format` (`png` | `webp` | `webp-lossless`), `quality`, `width`, `height`,
-`scale`, `fullPage`, `selector`, `timeoutMs`, `baseURL`, `userAgent`, `mimeType`, `allowFileURLs`.
-Result: `{ data: Buffer, bytes, durationMs, elapsedMs, outputPath? }`.
+The API is the same shape as [`@pixel.js/shotium`](https://www.npmjs.com/package/@pixel.js/shotium):
+`screenshot`, `start`/`status`/`stop`, a shared `runtime`, `{ image, stats }` results, and the same
+option names -- `file`, `viewport`, `type`, `quality`, `scale`, `fullPage`, `selector`,
+`omitBackground`, `path`, `pageGotoParams.timeout`, `allowFileAccess`. ShotKit adds `html`,
+`baseURL`, `mimeType`, `webp-lossless` and a per-capture `userAgent`; it has no `jpeg`, `clip`,
+`headers`, `cache`, tiles or daemon, and refuses those with a `TypeError` rather than ignoring them.
 
 Full SDK docs: [`bindings/node/README.md`](apps/node/README.md).
 

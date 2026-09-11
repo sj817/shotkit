@@ -50,23 +50,21 @@ npm install @pixel.js/shotkit
 ```
 
 ```diff
-- import { launch } from '@shotkit/node';
-+ import { launch } from '@pixel.js/shotkit';
+- import { screenshot } from '@shotkit/node';
++ import { screenshot } from '@pixel.js/shotkit';
 ```
 
 </details>
 
 ```js
-import { launch } from '@pixel.js/shotkit';
+import { screenshot } from '@pixel.js/shotkit';
 
-const shot = await launch();
-await shot.screenshotURL('https://example.com/', {
-  outputPath: 'example.png',
-  width: 1280,
-  height: 800,
+await screenshot({
+  file: 'https://example.com/',
+  path: 'example.png',
+  viewport: { width: 1280, height: 800 },
   fullPage: true,
 });
-await shot.close();
 ```
 
 npm 通过带 `os`/`cpu` 限制的可选依赖，只会为当前平台装下唯一匹配的那个预编译运行时——
@@ -146,34 +144,30 @@ iframe 目前尚未支持。
 ESM 与 CommonJS 都支持，要求 Node.js 18.18 及以上。
 
 ```js
-import { launch } from '@pixel.js/shotkit';
+import { screenshot, stop } from '@pixel.js/shotkit';
 
-const shot = await launch();
-try {
-  // 抓 URL
-  await shot.screenshotURL('https://example.com/', { outputPath: 'url.png' });
+// 从 URL
+await screenshot({ file: 'https://example.com/', path: 'url.png' });
 
-  // HTML 字符串，直接拿 Buffer 不落盘
-  const { data, bytes, durationMs } = await shot.screenshotHTML(
-    '<h1>Hello</h1>',
-    { width: 800, height: 400, format: 'webp', quality: 82 },
-  );
+// 从 HTML 字符串，直接得到 Buffer
+const { image, stats } = await screenshot({
+  html: '<h1>Hello</h1>',
+  viewport: { width: 800, height: 400 },
+  type: 'webp',
+  quality: 82,
+});
 
-  // 本地文件，2 倍像素整页截图
-  await shot.screenshot({
-    htmlFile: './report.html',
-    outputPath: 'report.png',
-    scale: 2,
-    fullPage: true,
-  });
-} finally {
-  await shot.close();
-}
+// 从本地文件，整页、2 倍设备像素比
+await screenshot({ file: './report.html', path: 'report.png', scale: 2, fullPage: true });
+
+await stop(); // 可选：等在途截图完成；下一次 screenshot() 会重新启动
 ```
 
-选项：`outputPath`、`format`（`png` | `webp` | `webp-lossless`）、`quality`、`width`、`height`、
-`scale`、`fullPage`、`selector`、`timeoutMs`、`baseURL`、`userAgent`、`mimeType`、`allowFileURLs`。
-返回：`{ data: Buffer, bytes, durationMs, elapsedMs, outputPath? }`。
+API 与 [`@pixel.js/shotium`](https://www.npmjs.com/package/@pixel.js/shotium) 同形：`screenshot`、
+`start`/`status`/`stop`、共享的 `runtime`、`{ image, stats }` 结果，以及同一套选项名——`file`、`viewport`、
+`type`、`quality`、`scale`、`fullPage`、`selector`、`omitBackground`、`path`、`pageGotoParams.timeout`、
+`allowFileAccess`。ShotKit 另有 `html`、`baseURL`、`mimeType`、`webp-lossless` 与每次截图的 `userAgent`；
+没有 `jpeg`、`clip`、`headers`、`cache`、分块与常驻进程，传入这些会抛 `TypeError` 而不是被忽略。
 
 完整 SDK 文档见 [`bindings/node/README.md`](apps/node/README.md)。
 

@@ -13,4 +13,8 @@ export default defineConfig({
   // The package ships dual module formats; let the build fail on manifest
   // mistakes rather than discovering them after a publish.
   publint: true,
+  // Named and default exports together, as shotium ships them: CommonJS
+  // consumers get the named functions on module.exports and the shotium-
+  // shaped object as module.exports.default.
+  outputOptions: { exports: 'named' },
 });

@@ -63,18 +63,26 @@ jobs:
         shell: bash
         run: |
           node -e "const m = require('@pixel.js/shotkit');
-            if (typeof m.launch !== 'function') throw new Error('CJS entry is missing launch');
+            for (const f of ['screenshot', 'start', 'status', 'stop']) if (typeof m[f] !== 'function') throw new Error('CJS entry is missing ' + f);
+            if (typeof m.default.screenshot !== 'function') throw new Error('CJS entry is missing the default export');
             console.log('CJS entry ok');"
           node -e "import('@pixel.js/shotkit').then((m) => {
-            if (typeof m.launch !== 'function') throw new Error('ESM entry is missing launch');
+            for (const f of ['screenshot', 'start', 'status', 'stop']) if (typeof m[f] !== 'function') throw new Error('ESM entry is missing ' + f);
+            if (typeof m.default.screenshot !== 'function') throw new Error('ESM entry is missing the default export');
             console.log('ESM entry ok');
           });"
 
+      # The option layer needs no engine; the platform artifacts are exercised
+      # by build.yml's verify job.
+      - name: Option validation
+        run: node --import tsx --test test/request.test.mjs
+
       # Platform workflows provide the native runtime. This job deliberately
-      # has none and verifies that launch() reports the missing platform addon.
+      # has none and verifies that start() reports the missing platform addon.
       - name: Native runtime fails cleanly when absent
         run: |
-          node -e "require('@pixel.js/shotkit').launch().then(() => { throw new Error('unexpected native runtime') }, (e) => { if (!/shot\.node not found/.test(e.message)) throw e })"
+          node -e "try { require('@pixel.js/shotkit').start(); throw new Error('unexpected native runtime') } catch (e) { if (!/shot\.node not found/.test(e.message)) throw e }"
+          node -e "require('@pixel.js/shotkit').screenshot({html: '<p>'}).then(() => { throw new Error('unexpected native runtime') }, (e) => { if (!/shot\.node not found/.test(e.message)) throw e })"
 
       # The CI helpers that decide which engines get built and reused: pure
       # logic with stubbed API responses, plus the fingerprint of this very

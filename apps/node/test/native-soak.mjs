@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import { readdir } from 'node:fs/promises';
 
-import { launch } from '../dist/index.mjs';
+import { screenshot, start, stop } from '../dist/index.mjs';
 
 if (typeof globalThis.gc !== 'function')
   throw new Error('native-soak.mjs requires node --expose-gc');
@@ -15,7 +15,7 @@ async function threadCount() {
 }
 
 const activeHandles = () => process._getActiveHandles().length;
-const shot = await launch();
+start();
 const handlesBefore = activeHandles();
 const threadsBefore = await threadCount();
 let baselineRSS = 0;
@@ -23,11 +23,11 @@ let peakRSS = 0;
 
 try {
   for (let iteration = 0; iteration < 1000; ++iteration) {
-    const result = await shot.screenshotHTML(
-      '<!doctype html><style>html,body{margin:0;background:#2468ac}</style>',
-      { width: 160, height: 90 },
-    );
-    assert.ok(result.bytes > 8);
+    const result = await screenshot({
+      html: '<!doctype html><style>html,body{margin:0;background:#2468ac}</style>',
+      viewport: { width: 160, height: 90 },
+    });
+    assert.ok(result.stats.bytes > 8);
     if (iteration % 20 === 19)
       globalThis.gc();
     const rss = process.memoryUsage().rss;
@@ -45,5 +45,5 @@ try {
     assert.ok(threadsAfter <= threadsBefore + 1, 'thread count grew across the soak run');
   console.log(`1000 native renders: peak growth ${(growth / 1048576).toFixed(1)} MiB`);
 } finally {
-  await shot.close();
+  await stop();
 }

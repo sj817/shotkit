@@ -126,7 +126,7 @@ npm install @pixel.js/shotkit
 
 \`\`\`bash
 # Node.js API
-node -e "const {launch}=require('@pixel.js/shotkit');launch().then(async s=>{await s.screenshotURL('https://example.com',{outputPath:'a.png'});await s.close()})"
+node -e "require('@pixel.js/shotkit').screenshot({file:'https://example.com',path:'a.png'}).then(()=>console.log('a.png'))"
 
 # Standalone CLI: download the matching GitHub Release archive below.
 ./shotkit-linux-x64/bin/shotcli --url https://example.com --out shot.png
@@ -188,7 +188,7 @@ npm 只会为当前平台装下唯一匹配的预编译运行时——不需要 
 
 \`\`\`bash
 # Node.js API
-node -e "const {launch}=require('@pixel.js/shotkit');launch().then(async s=>{await s.screenshotURL('https://example.com',{outputPath:'a.png'});await s.close()})"
+node -e "require('@pixel.js/shotkit').screenshot({file:'https://example.com',path:'a.png'}).then(()=>console.log('a.png'))"
 
 # 独立 CLI 请下载下方对应平台的 GitHub Release 归档
 ./shotkit-linux-x64/bin/shotcli --url https://example.com --out shot.png
