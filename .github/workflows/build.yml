@@ -196,6 +196,20 @@ jobs:
       - run: npm ci
         working-directory: apps/node
 
+      # The Linux archive links against system libraries (its DEPENDENCIES.txt
+      # lists them); this is the Ubuntu 24.04 package set a user installs.
+      # The build jobs had them through the -dev packages, so nothing ran
+      # the shipped binaries on a machine without them until now.
+      - name: Runtime libraries the archive links against
+        if: matrix.os == 'linux'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends \
+            libatomic1 libbrotli1 libcurl4t64 libegl1 libfontconfig1 libfreetype6 \
+            libgles2 libharfbuzz-icu0 libharfbuzz0b libicu74 libjpeg-turbo8 \
+            libpng16-16t64 libpsl5t64 libsqlite3-0 libssl3t64 libwebp7 libwebpdemux2 \
+            libwebpmux3 libwoff1 libxml2 libxslt1.1 zlib1g
+
       - name: The engine at this fingerprint
         id: find
         shell: bash

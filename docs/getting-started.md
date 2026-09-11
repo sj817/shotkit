@@ -80,7 +80,17 @@ shotkit-<version>-<platform>-<arch>/
 └── README.md
 ```
 
-Windows 归档包含运行时依赖 DLL。Linux 归档依赖 `DEPENDENCIES.txt` 中记录的系统共享库。macOS 归档使用系统框架，WebP 编码器已静态链接。
+Windows 归档包含运行时依赖 DLL。Linux 归档依赖 `DEPENDENCIES.txt` 中记录的系统共享库，Ubuntu 24.04 上对应下面这组包（CI 的 verify 作业就是在只装了它们的干净 runner 上跑归档里的二进制）：
+
+```bash
+sudo apt-get install -y --no-install-recommends \
+  libatomic1 libbrotli1 libcurl4t64 libegl1 libfontconfig1 libfreetype6 \
+  libgles2 libharfbuzz-icu0 libharfbuzz0b libicu74 libjpeg-turbo8 \
+  libpng16-16t64 libpsl5t64 libsqlite3-0 libssl3t64 libwebp7 libwebpdemux2 \
+  libwebpmux3 libwoff1 libxml2 libxslt1.1 zlib1g
+```
+
+macOS 归档使用系统框架，WebP 编码器已静态链接。
 
 ## 运行 CLI
 
