@@ -2,8 +2,8 @@
 
 > 不用浏览器，把 HTML 变成图片。一个精简的、不执行脚本的 WebKit 截图内核。
 
-[![npm](https://img.shields.io/npm/v/@shotkit/node?logo=npm)](https://www.npmjs.com/package/@shotkit/node)
-[![node](https://img.shields.io/node/v/@shotkit/node)](https://www.npmjs.com/package/@shotkit/node)
+[![npm](https://img.shields.io/npm/v/@pixel.js/shotkit?logo=npm)](https://www.npmjs.com/package/@pixel.js/shotkit)
+[![node](https://img.shields.io/node/v/@pixel.js/shotkit)](https://www.npmjs.com/package/@pixel.js/shotkit)
 [![Windows](https://github.com/sj817/shotkit/actions/workflows/windows.yml/badge.svg)](https://github.com/sj817/shotkit/actions/workflows/windows.yml)
 [![Linux](https://github.com/sj817/shotkit/actions/workflows/linux.yml/badge.svg)](https://github.com/sj817/shotkit/actions/workflows/linux.yml)
 [![macOS](https://github.com/sj817/shotkit/actions/workflows/macos.yml/badge.svg)](https://github.com/sj817/shotkit/actions/workflows/macos.yml)
@@ -36,11 +36,30 @@ Playwright 驱动无头 Chrome 轻得多。
 **三行拿到第一张图：**
 
 ```bash
-npm install @shotkit/node
+npm install @pixel.js/shotkit
 ```
 
+<details>
+<summary><b>旧包名 <code>@shotkit/node</code>（过渡期继续发布）</b></summary>
+
+从 0.3.1 起，`@shotkit/node` 是 `@pixel.js/shotkit` 的兼容别名：两者同版本号同步发布，安装旧名会自动带上 `@pixel.js/shotkit` 及对应平台包。已有项目无需改动即可继续收到每一个新版本。旧的六个 `@shotkit/<os>-<arch>` 平台包停留在 0.3.0，不再更新。
+
+切换到正式包名：
+
+```bash
+npm uninstall @shotkit/node
+npm install @pixel.js/shotkit
+```
+
+```diff
+- import { launch } from '@shotkit/node';
++ import { launch } from '@pixel.js/shotkit';
+```
+
+</details>
+
 ```js
-import { launch } from '@shotkit/node';
+import { launch } from '@pixel.js/shotkit';
 
 const shot = await launch();
 await shot.screenshotURL('https://example.com/', {
@@ -93,9 +112,9 @@ iframe 目前尚未支持。
 
 | 平台 | 架构 | npm 子包 | 发布归档 |
 |---|---|---|---:|
-| Windows | x64、arm64 | `@shotkit/win32-x64`、`@shotkit/win32-arm64` | 11.5 / 10.6 MB |
-| Linux | x64、arm64 | `@shotkit/linux-x64`、`@shotkit/linux-arm64` | 9.1 / 8.2 MB |
-| macOS | x64、arm64 | `@shotkit/darwin-x64`、`@shotkit/darwin-arm64` | 9.6 / 8.1 MB |
+| Windows | x64、arm64 | `@pixel.js/shotkit-win32-x64`、`@pixel.js/shotkit-win32-arm64` | 11.5 / 10.6 MB |
+| Linux | x64、arm64 | `@pixel.js/shotkit-linux-x64`、`@pixel.js/shotkit-linux-arm64` | 9.1 / 8.2 MB |
+| macOS | x64、arm64 | `@pixel.js/shotkit-darwin-x64`、`@pixel.js/shotkit-darwin-arm64` | 9.6 / 8.1 MB |
 
 体积为压缩后的 `tar.xz` 归档，MinSizeRel + full LTO 构建。
 
@@ -124,12 +143,12 @@ iframe 目前尚未支持。
 
 ## Node.js SDK
 
-[`@shotkit/node`](https://www.npmjs.com/package/@shotkit/node) 在进程内加载预编译
+[`@pixel.js/shotkit`](https://www.npmjs.com/package/@pixel.js/shotkit) 在进程内加载预编译
 `shot.node`：单一原生线程渲染，编码内存直接成为 Buffer，不启动 CLI，也不创建临时图片文件。
 ESM 与 CommonJS 都支持，要求 Node.js 18.18 及以上。
 
 ```js
-import { launch } from '@shotkit/node';
+import { launch } from '@pixel.js/shotkit';
 
 const shot = await launch();
 try {
@@ -299,7 +318,7 @@ ninja -C WebKitBuild/shot-macos shotcli
 | 路径 | 内容 |
 |---|---|
 | [`shot/`](shot/) | 渲染内核、C ABI 与 CLI —— 产品的 C++ 源码 |
-| [`apps/node/`](apps/node/) | `@shotkit/node` SDK |
+| [`apps/node/`](apps/node/) | `@pixel.js/shotkit` SDK |
 | [`apps/benchmark/`](apps/benchmark/) | 跨引擎基准工具与结果 |
 | [`scripts/`](scripts/) | 构建、ICU 裁剪、分发与发布工具 |
 | [`tests/`](tests/) | fixture 服务器、no-script-network 校验、泄漏 harness |

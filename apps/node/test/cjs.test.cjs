@@ -3,7 +3,7 @@ const test = require('node:test');
 
 // Self-reference by package name so the test exercises the published "exports"
 // map rather than a build-output path that changes with the bundler.
-const { launch } = require('@shotkit/node');
+const { launch } = require('@pixel.js/shotkit');
 
 test('CommonJS require entry works', async () => {
   const shot = await launch();

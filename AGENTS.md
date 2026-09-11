@@ -10,7 +10,7 @@
 - **输入**：HTML 字符串 / 本地 HTML、XHTML、XML 文件 / 远程 URL
 - **输出**：PNG / WebP（有损或无损）字节
 - **形态**：无头、单进程、跨平台（Windows / Linux / macOS）
-- **交付**：C ABI 动态库 `libshot` + 命令行 `shotcli` + `@shotkit/node`
+- **交付**：C ABI 动态库 `libshot` + 命令行 `shotcli` + `@pixel.js/shotkit`
 
 **这不是一个浏览器。** 明确不做：JS 执行（页面脚本永不运行）、视频/音频、
 WebGL/WebGPU、Web Inspector、双进程架构、窗口系统、用户交互。
@@ -66,7 +66,7 @@ M5（交付硬化）进行中。基于 C API 的进程内 `shot.node`、Node 专
 
 ```
 shot/       内核 kernel/、C ABI capi/、CLI cli/、degenerate-bindings.txt
-apps/       node/ = @shotkit/node SDK；benchmark/ = 跨引擎基准
+apps/       node/ = @pixel.js/shotkit SDK；benchmark/ = 跨引擎基准
 scripts/    build-shot / collect-dist / package-release / slim-icu / release-notes
 tests/      fixture 服务器、无脚本网络校验、泄漏 harness
 docs/       本索引指向的文档

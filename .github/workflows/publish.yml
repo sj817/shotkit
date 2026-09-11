@@ -10,8 +10,12 @@ name: Publish
 # Rebuilding is the automatic fallback when any artifact is missing or expired,
 # and can be forced with the force-rebuild input.
 #
-# Every published package (@shotkit/node + 6 platform packages) must carry an
-# npm trusted-publisher binding to this repository and this workflow file.
+# Every published package must carry an npm trusted-publisher binding to this
+# repository and this workflow file: @pixel.js/shotkit, its 6 platform
+# packages, and @shotkit/node -- the previous name, published beside every
+# release as a shim that depends on @pixel.js/shotkit at the same version
+# (apps/node/tools/legacy-shim.ts). The old @shotkit/<os>-<arch> platform
+# packages are not published any more; nothing depends on them.
 
 on:
   push:
@@ -311,10 +315,12 @@ jobs:
         shell: bash
         run: |
           flags=(--access public)
+          dry=false
           if [[ "$GITHUB_EVENT_NAME" == "workflow_dispatch" && "${{ inputs.dry-run }}" == "true" ]]; then
             # Rehearsals use a synthetic version above the newest release and
             # never write to npm or create a GitHub Release.
             flags+=(--dry-run)
+            dry=true
             echo "dry run — nothing will be published"
           fi
           # Platform packages first so the main package never points at
@@ -323,6 +329,27 @@ jobs:
             (cd "$platform" && npm publish "${flags[@]}")
           done
           npm publish "${flags[@]}"
+
+          # The previous name, @shotkit/node, goes out last as a shim that
+          # depends on @pixel.js/shotkit at this exact version. It is sent only
+          # once the registry serves the package it depends on: a shim that
+          # resolves before its target is the same broken install from the
+          # other side. Publication can precede visibility by minutes, so this
+          # waits rather than assumes. A rehearsal has nothing to wait for.
+          version="$(node -p 'require("./package.json").version')"
+          if [[ "$dry" == false ]]; then
+            code=""
+            for attempt in $(seq 1 45); do
+              code=$(curl -s -o /dev/null -w '%{http_code}' "https://registry.npmjs.org/@pixel.js%2Fshotkit/$version")
+              [[ "$code" == 200 ]] && break
+              sleep 20
+            done
+            echo "$code  @pixel.js/shotkit@$version"
+            [[ "$code" == 200 ]] || { echo "@pixel.js/shotkit@$version is not visible after 15 minutes; inspect before retrying" >&2; exit 1; }
+          fi
+          shim="$RUNNER_TEMP/legacy-shim"
+          npx tsx tools/legacy-shim.ts "$shim"
+          (cd "$shim" && npm publish "${flags[@]}")
 
   # Attaching the runtimes is what makes the CLI, the C ABI, and the non-Node
   # bindings usable without npm. This is a separate job on purpose: the publish

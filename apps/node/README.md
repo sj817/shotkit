@@ -1,21 +1,40 @@
-# @shotkit/node
+# @pixel.js/shotkit
 
 ShotKit 的原生 Node.js SDK：把 HTML、文件或 URL 直接渲染成 PNG/WebP `Buffer`。页面 JavaScript 永不执行。
 
-`@shotkit/node` 通过 Node-API 加载预编译的 `shot.node`，图片编码结果直接成为 Node Buffer；没有浏览器子进程、JSONL、临时图片文件、node-gyp 或安装后下载。CLI 与稳定 C ABI 继续通过 GitHub Release 独立分发。
+`@pixel.js/shotkit` 通过 Node-API 加载预编译的 `shot.node`，图片编码结果直接成为 Node Buffer；没有浏览器子进程、JSONL、临时图片文件、node-gyp 或安装后下载。CLI 与稳定 C ABI 继续通过 GitHub Release 独立分发。
 
 ## 安装
 
 ```bash
-npm install @shotkit/node
+npm install @pixel.js/shotkit
 ```
+
+<details>
+<summary><b>旧包名 <code>@shotkit/node</code>（过渡期继续发布）</b></summary>
+
+从 0.3.1 起，`@shotkit/node` 是 `@pixel.js/shotkit` 的兼容别名：两者同版本号同步发布，安装旧名会自动带上 `@pixel.js/shotkit` 及对应平台包。已有项目无需改动即可继续收到每一个新版本。旧的六个 `@shotkit/<os>-<arch>` 平台包停留在 0.3.0，不再更新。
+
+切换到正式包名：
+
+```bash
+npm uninstall @shotkit/node
+npm install @pixel.js/shotkit
+```
+
+```diff
+- import { launch } from '@shotkit/node';
++ import { launch } from '@pixel.js/shotkit';
+```
+
+</details>
 
 npm 会根据 `os`/`cpu` 只安装六个平台包中的一个：Windows、Linux、macOS 的 x64 或 arm64。支持 Node.js 18.18 及以上版本。
 
 ## 使用
 
 ```ts
-import { launch } from '@shotkit/node';
+import { launch } from '@pixel.js/shotkit';
 
 const shot = await launch();
 try {
@@ -32,7 +51,7 @@ try {
 CommonJS 使用相同接口：
 
 ```js
-const { launch } = require('@shotkit/node');
+const { launch } = require('@pixel.js/shotkit');
 ```
 
 输入三选一：
@@ -74,4 +93,4 @@ $env:SHOTKIT_NATIVE_PATH = '../../WebKitBuild/shot/bin/shot.node'
 npm test
 ```
 
-发布流程从六个平台 CI 的 `shotkit-node-<os>-<arch>` artifact staging `shot.node` 和必要动态依赖，再发布平台子包与主包。`SHOTKIT_NATIVE_PATH` 仅用于仓库测试和自定义构建定位。
+发布流程从六个平台 CI 的 `shotkit-node-<os>-<arch>` artifact staging `shot.node` 和必要动态依赖，再发布平台子包与主包，最后以旧包名 `@shotkit/node` 发布一个同版本的兼容别名包（`tools/legacy-shim.ts` 生成，只依赖并重新导出主包）。`SHOTKIT_NATIVE_PATH` 仅用于仓库测试和自定义构建定位。

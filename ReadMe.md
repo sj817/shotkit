@@ -2,8 +2,8 @@
 
 > Turn HTML into images without a browser. A compact, script-free WebKit screenshot kernel.
 
-[![npm](https://img.shields.io/npm/v/@shotkit/node?logo=npm)](https://www.npmjs.com/package/@shotkit/node)
-[![node](https://img.shields.io/node/v/@shotkit/node)](https://www.npmjs.com/package/@shotkit/node)
+[![npm](https://img.shields.io/npm/v/@pixel.js/shotkit?logo=npm)](https://www.npmjs.com/package/@pixel.js/shotkit)
+[![node](https://img.shields.io/node/v/@pixel.js/shotkit)](https://www.npmjs.com/package/@pixel.js/shotkit)
 [![Windows](https://github.com/sj817/shotkit/actions/workflows/windows.yml/badge.svg)](https://github.com/sj817/shotkit/actions/workflows/windows.yml)
 [![Linux](https://github.com/sj817/shotkit/actions/workflows/linux.yml/badge.svg)](https://github.com/sj817/shotkit/actions/workflows/linux.yml)
 [![macOS](https://github.com/sj817/shotkit/actions/workflows/macos.yml/badge.svg)](https://github.com/sj817/shotkit/actions/workflows/macos.yml)
@@ -38,11 +38,30 @@ Puppeteer or Playwright when the pages you render do not need a JavaScript runti
 **Three lines to your first image:**
 
 ```bash
-npm install @shotkit/node
+npm install @pixel.js/shotkit
 ```
 
+<details>
+<summary><b>Legacy package name <code>@shotkit/node</code> (still published during the transition)</b></summary>
+
+Since 0.3.1, `@shotkit/node` is a compatibility alias of `@pixel.js/shotkit`: both are published at the same version, and installing the old name brings in `@pixel.js/shotkit` and its platform package. Existing projects need no change and keep receiving every release. The six old platform packages `@shotkit/<os>-<arch>` stay at 0.3.0 and are not updated.
+
+To move to the canonical name:
+
+```bash
+npm uninstall @shotkit/node
+npm install @pixel.js/shotkit
+```
+
+```diff
+- import { launch } from '@shotkit/node';
++ import { launch } from '@pixel.js/shotkit';
+```
+
+</details>
+
 ```js
-import { launch } from '@shotkit/node';
+import { launch } from '@pixel.js/shotkit';
 
 const shot = await launch();
 await shot.screenshotURL('https://example.com/', {
@@ -97,9 +116,9 @@ export check.
 
 | Platform | Architectures | npm package | Release archive |
 |---|---|---|---:|
-| Windows | x64, arm64 | `@shotkit/win32-x64`, `@shotkit/win32-arm64` | 11.5 / 10.6 MB |
-| Linux | x64, arm64 | `@shotkit/linux-x64`, `@shotkit/linux-arm64` | 9.1 / 8.2 MB |
-| macOS | x64, arm64 | `@shotkit/darwin-x64`, `@shotkit/darwin-arm64` | 9.6 / 8.1 MB |
+| Windows | x64, arm64 | `@pixel.js/shotkit-win32-x64`, `@pixel.js/shotkit-win32-arm64` | 11.5 / 10.6 MB |
+| Linux | x64, arm64 | `@pixel.js/shotkit-linux-x64`, `@pixel.js/shotkit-linux-arm64` | 9.1 / 8.2 MB |
+| macOS | x64, arm64 | `@pixel.js/shotkit-darwin-x64`, `@pixel.js/shotkit-darwin-arm64` | 9.6 / 8.1 MB |
 
 Sizes are the compressed `tar.xz` release archives, built MinSizeRel with full LTO.
 
@@ -129,12 +148,12 @@ Two things worth knowing before you plan capacity:
 
 ## Node.js SDK
 
-[`@shotkit/node`](https://www.npmjs.com/package/@shotkit/node) loads a prebuilt in-process
+[`@pixel.js/shotkit`](https://www.npmjs.com/package/@pixel.js/shotkit) loads a prebuilt in-process
 `shot.node`. It uses one native render thread, returns the encoded allocation as a Buffer, and does
 not launch the CLI or create temporary image files. ESM and CommonJS, Node.js 18.18+.
 
 ```js
-import { launch } from '@shotkit/node';
+import { launch } from '@pixel.js/shotkit';
 
 const shot = await launch();
 try {
@@ -314,7 +333,7 @@ More detail, including archive layout and platform dependencies:
 | Path | Contents |
 |---|---|
 | [`shot/`](shot/) | Rendering kernel, C ABI, and CLI — the product's C++ source |
-| [`apps/node/`](apps/node/) | `@shotkit/node` SDK |
+| [`apps/node/`](apps/node/) | `@pixel.js/shotkit` SDK |
 | [`apps/benchmark/`](apps/benchmark/) | Cross-engine benchmark tooling and results |
 | [`scripts/`](scripts/) | Build, ICU slimming, distribution, and release tooling |
 | [`tests/`](tests/) | Fixture server, no-script-network check, leak harness |

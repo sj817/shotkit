@@ -8,7 +8,7 @@ import { inflateSync } from 'node:zlib';
 
 // Self-reference by package name so the test exercises the published "exports"
 // map rather than a build-output path that changes with the bundler.
-import { launch, ShotKitError } from '@shotkit/node';
+import { launch, ShotKitError } from '@pixel.js/shotkit';
 
 const outputDirectory = path.join(tmpdir(), 'shotkit-node-sdk-test');
 
