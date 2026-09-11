@@ -22,6 +22,9 @@ param(
     [int]$LinkThreads = 0,
     [string]$ThinLTOCacheDir = '',
     [string]$CompilerLauncher = '',
+    # Off under a compiler cache: clang-cl writes PCH through /Fp, which
+    # ccache and sccache cannot cache, and over half of the units use it.
+    [switch]$DisablePrecompiledHeaders,
     [string]$LlvmBin = ''
 )
 
@@ -143,6 +146,7 @@ if ($Configure) {
         $cmakeArguments += "-DCMAKE_C_COMPILER_LAUNCHER=$CompilerLauncher"
         $cmakeArguments += "-DCMAKE_CXX_COMPILER_LAUNCHER=$CompilerLauncher"
     }
+    if ($DisablePrecompiledHeaders) { $cmakeArguments += '-DCMAKE_DISABLE_PRECOMPILE_HEADERS=ON' }
     if ($NodeAddon) {
         $nodeApiInclude = Join-Path $Root 'apps\node\node_modules\node-api-headers\include'
         if (-not (Test-Path -LiteralPath (Join-Path $nodeApiInclude 'node_api.h'))) {
