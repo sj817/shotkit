@@ -76,15 +76,7 @@ jobs:
           GH_TOKEN: ${{ github.token }}
         # A family with nothing to refresh is fine: a platform whose engine
         # expired already is rebuilt by the next run that needs it.
-        run: |
-          if node scripts/ci/artifacts.mjs find --name "${{ matrix.family }}"; then :; fi
-      - uses: actions/download-artifact@v7
-        if: steps.find.outputs.found == 'true'
-        with:
-          artifact-ids: ${{ steps.find.outputs.ids }}
-          path: ${{ runner.temp }}/refresh/${{ matrix.family }}
-          merge-multiple: true
-          github-token: ${{ github.token }}
+        run: node scripts/ci/artifacts.mjs download --merge --name "${{ matrix.family }}" --dir "$RUNNER_TEMP/refresh/${{ matrix.family }}"
       - uses: actions/upload-artifact@v7
         if: steps.find.outputs.found == 'true'
         with:

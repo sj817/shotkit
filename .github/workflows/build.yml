@@ -211,17 +211,11 @@ jobs:
             libwebpmux3 libwoff1 libxml2 libxslt1.1 zlib1g
 
       - name: The engine at this fingerprint
-        id: find
         shell: bash
         env:
           GH_TOKEN: ${{ github.token }}
           FP: ${{ needs.resolve.outputs.fingerprint }}
-        run: node scripts/ci/artifacts.mjs find --require-all --name "engine-node-${{ matrix.os }}-${{ matrix.arch }}-$FP" --name "engine-${{ matrix.os }}-${{ matrix.arch }}-$FP"
-      - uses: actions/download-artifact@v7
-        with:
-          artifact-ids: ${{ steps.find.outputs.ids }}
-          path: ${{ runner.temp }}/engine
-          github-token: ${{ github.token }}
+        run: node scripts/ci/artifacts.mjs download --require-all --name "engine-node-${{ matrix.os }}-${{ matrix.arch }}-$FP" --name "engine-${{ matrix.os }}-${{ matrix.arch }}-$FP" --dir "$RUNNER_TEMP/engine"
 
       - name: CLI and SDK against the shipped bits
         shell: bash

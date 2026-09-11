@@ -67,7 +67,7 @@ function sizeAbove(file, minimum) {
   return size;
 }
 
-// The artifact layout download-artifact leaves: <engine-dir>/<artifact name>/...
+// The layout artifacts.mjs download leaves: <engine-dir>/<artifact name>/...
 function artifactDirectory(prefix) {
   const candidates = readdirSync(engineDir, { withFileTypes: true })
     .filter((entry) => entry.isDirectory() && entry.name.startsWith(prefix))

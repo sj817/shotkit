@@ -126,8 +126,7 @@ jobs:
 
       - run: npm ci
 
-      - name: Find the native runtimes at this fingerprint
-        id: find
+      - name: Fetch the native runtimes at this fingerprint
         shell: bash
         working-directory: .
         env:
@@ -136,12 +135,7 @@ jobs:
         run: |
           names=()
           for os in windows linux macos; do for arch in x64 arm64; do names+=(--name "engine-node-$os-$arch-$FP"); done; done
-          node scripts/ci/artifacts.mjs find --require-all "${names[@]}"
-      - uses: actions/download-artifact@v7
-        with:
-          artifact-ids: ${{ steps.find.outputs.ids }}
-          path: ${{ runner.temp }}/runtimes
-          github-token: ${{ github.token }}
+          node scripts/ci/artifacts.mjs download --require-all "${names[@]}" --dir "$RUNNER_TEMP/runtimes"
 
       - name: Stage runtimes into platform packages
         shell: bash
@@ -289,8 +283,7 @@ jobs:
         with:
           node-version: 24
 
-      - name: Find the release archives at this fingerprint
-        id: find
+      - name: Fetch the release archives at this fingerprint
         shell: bash
         env:
           GH_TOKEN: ${{ github.token }}
@@ -298,13 +291,7 @@ jobs:
         run: |
           names=()
           for os in windows linux macos; do for arch in x64 arm64; do names+=(--name "engine-$os-$arch-$FP"); done; done
-          node scripts/ci/artifacts.mjs find --require-all "${names[@]}"
-      - uses: actions/download-artifact@v7
-        with:
-          artifact-ids: ${{ steps.find.outputs.ids }}
-          path: ${{ runner.temp }}/runtimes
-          merge-multiple: true
-          github-token: ${{ github.token }}
+          node scripts/ci/artifacts.mjs download --require-all --merge "${names[@]}" --dir "$RUNNER_TEMP/runtimes"
 
       # The build workflows name archives shotkit-<os>-<arch> with no version, so
       # every archive unpacks into a stable directory. Stamp the tag onto the file
