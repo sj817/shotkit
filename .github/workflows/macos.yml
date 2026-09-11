@@ -130,7 +130,8 @@ jobs:
           mkdir -p "$tmp/ccache"
           echo "CCACHE_DIR=$RUNNER_TEMP/ccache" >> "$GITHUB_ENV"
           export CCACHE_DIR="$RUNNER_TEMP/ccache"
-          tarball="$(find "$tmp/ccache-dl" -name ccache.tar 2>/dev/null | head -1)"
+          mkdir -p "$tmp/ccache-dl"
+          tarball="$(find "$tmp/ccache-dl" -name ccache.tar | head -1)"
           if [ -n "$tarball" ]; then tar -xf "$tarball" -C "$tmp"; echo "restored $(du -sh "$tmp/ccache" | cut -f1)"; else echo "no compiler cache yet: cold"; fi
           ccache -z
           ccache -p | grep -E '^\(environment\)' || true
