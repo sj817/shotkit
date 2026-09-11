@@ -30,8 +30,10 @@ WebGL/WebGPU、Web Inspector、双进程架构、窗口系统、用户交互。
 在 hosted CI 全绿：PNG/WebP、无脚本网络闭包、C ABI 导出面、可重定位 CLI 与发布归档
 全部通过；macOS 另通过内部链接完整性、CFNetwork 与 XML/XSLT 回归。
 
-M5（交付硬化）进行中。基于 C API 的进程内 `shot.node`、Node 专用线程 FIFO 与六平台
-构建/发布接线已进入实现阶段，完整编译和 macOS 非系统主线程验证以 hosted CI 为准。
+M5（交付硬化）进行中。基于 C API 的进程内 `shot.node`（薄插件，动态链接 `libshot`）、
+Node 专用线程 FIFO 与六平台构建/发布接线已进入实现阶段；CI 按引擎指纹复用制品
+（`build.yml` → `build-<os>.yml` → `verify`，见 docs/getting-started.md），
+完整编译和 macOS 非系统主线程验证以 hosted CI 为准。
 **已知限制**：不支持 iframe、Node `worker_threads` 多 isolate。
 
 明细、实测数据与踩坑记录见 [docs/CHANGELOG.md](docs/CHANGELOG.md)。
@@ -85,4 +87,7 @@ pwsh tests/verify_no_script_network.ps1         # 脚本资源零请求回归
 pwsh scripts/collect-dist.ps1                   # 收集运行时分发闭包
 pwsh scripts/package-release.ps1                # 打发布归档（带体积门槛）
 cd apps/node; npm ci; npm run build; npm test   # Node SDK
+node scripts/ci/verify-runtime.mjs --os windows --arch x64 --build-dir WebKitBuild/shot `
+  --vcpkg-bin WebKitBuild/vcpkg_installed/x64-windows-webkit/bin   # CI 的 verify 作业在本地一次跑完
+node scripts/ci/fingerprint.mjs                 # 当前树的引擎指纹（CI 制品按它命名）
 ```

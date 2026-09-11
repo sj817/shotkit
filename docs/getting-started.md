@@ -30,11 +30,15 @@ npm 包按平台安装预编译的 `shot.node`，不启动 CLI、不写临时截
 
 三个端口使用相同的 C ABI、CLI 参数和加载规则。Windows/Linux 与 macOS 使用不同的图形后端，字体回退、抗锯齿和颜色管理可能产生细微像素差异。
 
-CI 架构对应的 hosted runner：Windows `windows-2022` / `windows-11-arm`，Linux `ubuntu-24.04` / `ubuntu-24.04-arm`，macOS `macos-15`（arm64）/ `macos-15-intel`（x64）。六个作业均为必过作业。macOS Intel 作业按镜像可用性自动选择 Xcode（26.3 → 26.x → 16.4）。
+CI 架构对应的 hosted runner：Windows `windows-2022` / `windows-11-arm`，Linux `ubuntu-24.04` / `ubuntu-24.04-arm`，macOS `macos-15`（arm64）/ `macos-15-intel`（x64）。macOS Intel 作业按镜像可用性自动选择 Xcode（26.3 → 26.x → 16.4）。
+
+CI 的入口是 `build.yml`（push 到 `main`、`workflow_dispatch`，以及被 `preview.yml` / `publish.yml` 调用）：`resolve` 先算**引擎指纹**——`scripts/ci/fingerprint.mjs` 对构建闭包（`Source/ shot/ Tools/ WebKitLibraries/`、CMake/vcpkg 清单、`tests/capi_thread_test.cpp`、打包脚本、三份 `build-*.yml`）做 `git ls-tree` 的内容哈希，加上 `node-api-headers` 的锁定版本与 LTO 模式——再查 `engine-<os>-<arch>-<fp>` / `engine-node-<os>-<arch>-<fp>` 两个制品是否已由本仓库的构建 run 上传，只把缺的架构交给 `build-<os>.yml`；改 SDK、文档、benchmark、发布脚本不会触发任何编译。随后 `verify` 在六个 runner 上用 `scripts/ci/verify-runtime.mjs` 对**发布形态**的归档与 addon 跑冒烟、SDK 套件、parity、soak、无脚本网络断言（macOS 再加 XML/XSLT），Linux x64 另在 Node 18.18/20/22/24 上加载同一 addon。六个 verify 作业均为必过作业；`build-<os>.yml` 自身只做二进制级检查（C ABI 线程归属、导出面、闭包与体积预算）。
+
+编译缓存是 ccache（direct + depend 模式），缓存目录与 Windows 的 vcpkg 二进制一起打成 artifact（`ccache-<os>-<arch>`、`vcpkg-<triplet>`）跨 run 复用，不走 Actions cache——后者 7 天不用就整体驱逐、PR 写的条目 main 读不到。`refresh.yml` 每月把各家族最新制品重传一遍防过期（90 天）。强制重建：`gh workflow run build.yml -f force=true`。
 
 ## 获取构建归档
 
-Windows、Linux 和 macOS 工作流会在回归通过后上传 `tar.xz` 与 SHA-256 文件。CI artifact 保留 7 天，只用于验证对应提交，不属于稳定版本发布，也不承诺跨提交的 ABI 或行为兼容性。
+`build-<os>.yml` 上传 `engine-<os>-<arch>-<fp>`（`tar.xz` 与 SHA-256）和 `engine-node-<os>-<arch>-<fp>`（addon 闭包）。CI artifact 保留 90 天，按指纹跨提交复用，但不属于稳定版本发布，也不承诺跨发布的 ABI 或行为兼容性。
 
 下载与当前平台匹配的归档并校验摘要：
 
@@ -160,7 +164,7 @@ cmake -S . -B WebKitBuild/shot-macos -G Ninja \
 ninja -C WebKitBuild/shot-macos -j3 shotcli
 ```
 
-当前 macOS CI 关闭 LTO，优先验证端口功能和链接完整性。正式体积基线需要在发布配置确定后重新记录。
+macOS CI 与其它平台一样以 full LTO 构建（`-DLTO_MODE=full`），发布归档同受 18,000,000 字节上限约束。
 
 ## 本地验证
 
@@ -171,15 +175,21 @@ ninja -C WebKitBuild/shot-macos -j3 shotcli
 ./WebKitBuild/shot-linux/bin/shotcli --html page.html --out smoke.webp --format webp --quality 82
 ```
 
-将路径替换为当前平台的构建目录和可执行文件。CI 还执行以下检查：
+将路径替换为当前平台的构建目录和可执行文件。同一套检查可以在本地对构建树一次跑完：
 
-- PNG 与 WebP 文件生成且大小有效；
-- 页面 JavaScript 不执行，脚本和 preload 请求计数为 0；
-- 动态库只导出 10 个 `shot_*` C ABI 符号；
+```bash
+node scripts/ci/verify-runtime.mjs --os linux --arch x64 --build-dir WebKitBuild/shot-linux
+# Windows 需要把 vcpkg 的 bin 目录放进 PATH：
+node scripts/ci/verify-runtime.mjs --os windows --arch x64 --build-dir WebKitBuild/shot --vcpkg-bin WebKitBuild/vcpkg_installed/x64-windows-webkit/bin
+```
+
+CI 的 `verify` 作业对发布归档与 addon 制品执行同一脚本，构建作业另做：
+
+- 动态库只导出 10 个 `shot_*` C ABI 符号，`shot.node` 只导出 Node-API 注册符号；
 - CLI 使用相对 RPATH 或同目录 DLL，可随归档移动；
-- Linux 使用 full LTO 并检查压缩包体积上限；
-- macOS 检查 WebCore 内部链接完整性、CFNetwork、XML/XSLT 与 arm64 发布归档；
-- Windows 检查精简 ICU、full LTO、发布依赖收集与压缩包体积上限。
+- 三个平台都以 full LTO 构建并检查压缩包体积上限；
+- macOS 检查 WebCore 内部链接完整性；
+- Windows 检查精简 ICU 与发布依赖收集。
 
 ## 运行边界
 

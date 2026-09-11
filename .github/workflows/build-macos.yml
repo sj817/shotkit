@@ -1,35 +1,61 @@
-name: macOS
+# Builds the macos engines and uploads them under the engine
+# fingerprint: engine-macos-<arch>-<fingerprint> (the release archive)
+# and engine-node-macos-<arch>-<fingerprint> (the addon closure). Called
+# by build.yml for the architectures whose artifacts are missing; the
+# dispatch form builds by hand. Tests that need the SDK run in build.yml's
+# verify job against these artifacts, on every run, whether or not anything
+# was built here.
+#
+# No push trigger and no concurrency group: build.yml is the entry point
+# and owns both. A called workflow that shared a group with its caller
+# would cancel or deadlock itself.
+name: build-macos
 
 on:
-  push:
-    branches: [main, codex/linux-macos-port]
-    paths-ignore:
-      - '**.md'
-      - '.githooks/**'
-  workflow_dispatch:
   workflow_call:
-
-concurrency:
-  group: macos-${{ github.workflow }}-${{ github.ref }}
-  cancel-in-progress: true
+    inputs:
+      archs:
+        description: 'JSON list of the architectures to build, e.g. ["x64","arm64"]'
+        type: string
+        default: '["x64","arm64"]'
+      fingerprint:
+        description: the engine fingerprint the artifacts are named after; computed here when empty
+        type: string
+        default: ''
+      lto:
+        description: Link-time optimization mode
+        type: string
+        default: full
+      ref:
+        description: the commit to build; empty builds the triggering ref
+        type: string
+        default: ''
+  workflow_dispatch:
+    inputs:
+      archs:
+        description: architectures to build
+        type: choice
+        options: ['["x64","arm64"]', '["x64"]', '["arm64"]']
+        default: '["x64","arm64"]'
+      lto:
+        description: Link-time optimization mode
+        type: choice
+        options: [full, thin]
+        default: full
 
 permissions:
   contents: read
+  actions: read
 
 jobs:
   build:
+    name: "build: macos-${{ matrix.arch }}"
     strategy:
       fail-fast: false
       matrix:
-        include:
-          - arch: arm64
-            runner: macos-15
-          - arch: x64
-            runner: macos-15-intel
-
-    runs-on: ${{ matrix.runner }}
+        arch: ${{ fromJSON(inputs.archs) }}
+    runs-on: ${{ matrix.arch == 'arm64' && 'macos-15' || 'macos-15-intel' }}
     timeout-minutes: 360
-
     env:
       SHOT_COMPILER_LAUNCHER: ccache
       # ccache, persisted as the ccache-<os>-<arch> artifact between runs.
@@ -57,6 +83,7 @@ jobs:
       - name: Checkout the ShotKit build closure
         uses: actions/checkout@v7
         with:
+          ref: ${{ inputs.ref }}
           fetch-depth: 1
           sparse-checkout-cone-mode: false
           sparse-checkout: |
@@ -70,14 +97,23 @@ jobs:
             /WebKitLibraries/
             /CMakeLists.txt
             /CMakePresets.json
-            /AGENTS.md
-            /ReadMe.md
 
       - uses: actions/setup-node@v4
         with:
           node-version: 24
           cache: npm
           cache-dependency-path: apps/node/package-lock.json
+
+      - name: Engine fingerprint
+        id: fingerprint
+        shell: bash
+        env:
+          FROM_CALLER: ${{ inputs.fingerprint }}
+          LTO: ${{ inputs.lto || 'full' }}
+        # The caller computed it for the tree it is building; a dispatch
+        # computes it here. Either way it names this run's artifacts.
+        run: |
+          if [ -n "$FROM_CALLER" ]; then echo "fingerprint=$FROM_CALLER" >> "$GITHUB_OUTPUT"; echo "$FROM_CALLER (from the caller)"; else node scripts/ci/fingerprint.mjs --lto "$LTO" --output; fi
 
       - name: Install Node binding build dependencies
         working-directory: apps/node
@@ -201,41 +237,12 @@ jobs:
             exit 1
           fi
 
-      - name: Smoke test PNG and WebP
-        run: |
-          printf '%s\n' '<!doctype html><meta charset=utf-8><style>body{background:#eef2f7;font:32px sans-serif}h1{color:#246}</style><h1>ShotKit macOS CI</h1>' > "$RUNNER_TEMP/shot-smoke.html"
-          WebKitBuild/shot-macos/bin/shotcli --html "$RUNNER_TEMP/shot-smoke.html" --out "$RUNNER_TEMP/shot-smoke.png" --width 640 --height 360
-          WebKitBuild/shot-macos/bin/shotcli --html "$RUNNER_TEMP/shot-smoke.html" --out "$RUNNER_TEMP/shot-smoke.webp" --format webp --quality 82 --width 640 --height 360
-          test "$(stat -f %z "$RUNNER_TEMP/shot-smoke.png")" -gt 100
-          test "$(stat -f %z "$RUNNER_TEMP/shot-smoke.webp")" -gt 100
-
-      - name: Verify C ABI thread ownership and native Node SDK
-        run: |
-          # The addon soak below owns the 1000-render macOS stability gate.
-          # Keep this executable focused on cross-thread C ABI ownership/free;
-          # Windows/Linux run its default 1000 iterations.
-          WebKitBuild/shot-macos/bin/shot_capi_thread_test 1
-          SHOTKIT_NATIVE_PATH="$GITHUB_WORKSPACE/WebKitBuild/shot-macos/bin/shot.node" npm test --prefix apps/node
-          SHOTKIT_NATIVE_PATH="$GITHUB_WORKSPACE/WebKitBuild/shot-macos/bin/shot.node" node apps/node/test/native-parity.mjs WebKitBuild/shot-macos/bin/shotcli
-          SHOTKIT_NATIVE_PATH="$GITHUB_WORKSPACE/WebKitBuild/shot-macos/bin/shot.node" node --expose-gc apps/node/test/native-soak.mjs
-
-      - name: Verify CFNetwork, scripts, and XML/XSLT
-        run: |
-          python3 tests/fixture_server.py 8988 > "$RUNNER_TEMP/fixture.log" 2>&1 &
-          server_pid=$!
-          trap 'kill "$server_pid" 2>/dev/null || true' EXIT
-          for attempt in $(seq 1 50); do
-            if curl -fsS http://127.0.0.1:8988/reset-counts >/dev/null; then break; fi
-            sleep 0.1
-          done
-          curl -fsS http://127.0.0.1:8988/reset-counts >/dev/null
-          WebKitBuild/shot-macos/bin/shotcli --url http://127.0.0.1:8988/script-network --out "$RUNNER_TEMP/no-script-network.png" --timeout 5000
-          counts=$(curl -fsS http://127.0.0.1:8988/request-counts)
-          python3 -c 'import json,sys; counts=json.loads(sys.argv[1]); assert counts == {"/script-network": 1}, counts' "$counts"
-          WebKitBuild/shot-macos/bin/shotcli --url http://127.0.0.1:8988/document.xml --out "$RUNNER_TEMP/xslt.png" --timeout 5000
-          test "$(stat -f %z "$RUNNER_TEMP/xslt.png")" -gt 100
-          SHOTKIT_NATIVE_PATH="$GITHUB_WORKSPACE/WebKitBuild/shot-macos/bin/shot.node" node --input-type=module -e \
-            "import {launch} from './apps/node/dist/index.mjs'; const s=await launch(); const r=await s.screenshotURL('http://127.0.0.1:8988/document.xml',{mimeType:'application/xml',timeoutMs:5000}); if(r.bytes<100) throw new Error('native CFNetwork/XML output too small'); await s.close();"
+      # The SDK suite, parity, the soak (which owns the 1000-render macOS
+      # stability gate), the network fixture and the XML/XSLT checks run in
+      # build.yml's verify job against the uploaded artifacts; only the C
+      # ABI ownership test stays here, since it is not shipped.
+      - name: Verify C ABI thread ownership
+        run: WebKitBuild/shot-macos/bin/shot_capi_thread_test 1
 
       - name: Verify ABI and relocatable CLI
         run: |
@@ -274,7 +281,24 @@ jobs:
           cp shot/capi/shot.h "$stage/include/"
           strip -x "$stage/bin/shotcli" "$stage/lib/libshot.dylib"
           otool -L "$stage/lib/libshot.dylib" > "$stage/DEPENDENCIES.txt"
-          cp ReadMe.md "$stage/README.md"
+          # A generated README, not the repository's: the archive is reused
+          # across releases by fingerprint, and a README copied from the
+          # tree would go stale without changing the fingerprint.
+          {
+            echo "ShotKit - macOS ${{ matrix.arch }}"
+            echo
+            echo "Static HTML/CSS screenshot kernel. Page JavaScript and WebAssembly are disabled."
+            echo "Extract the complete archive before use; the downloaded file name carries the"
+            echo "release version, the directory it unpacks into does not."
+            echo
+            echo "CLI:"
+            echo "  bin/shotcli --url https://example.com --out example.png"
+            echo "  bin/shotcli --html page.html --out page.webp --format webp"
+            echo
+            echo "C ABI:"
+            echo "  Header: include/shot.h"
+            echo "  Library: lib/libshot.dylib"
+          } > "$stage/README.txt"
           tar -C WebKitBuild/releases -cJf "WebKitBuild/releases/${name}.tar.xz" "$name"
           # Bare file name, not the build path — see the note in linux.yml.
           ( cd WebKitBuild/releases && shasum -a 256 "${name}.tar.xz" > "${name}.tar.xz.sha256" )
@@ -286,22 +310,28 @@ jobs:
           cli_bytes=$(( $(stat -f %z WebKitBuild/releases/shotkit-macos-${{ matrix.arch }}/lib/libshot.dylib) + $(stat -f %z WebKitBuild/releases/shotkit-macos-${{ matrix.arch }}/bin/shotcli) ))
           echo "shot.node closure: $node_bytes bytes; CLI closure: $cli_bytes bytes" | tee -a "$GITHUB_STEP_SUMMARY"
           test "$node_bytes" -le $(( cli_bytes * 105 / 100 ))
+          # The same archive budget Linux has; the macOS archives are 8-10 MB.
+          archive_bytes=$(stat -f %z "WebKitBuild/releases/shotkit-macos-${{ matrix.arch }}.tar.xz")
+          echo "release tar.xz: ${archive_bytes} bytes (budget 18000000)" | tee -a "$GITHUB_STEP_SUMMARY"
+          test "$archive_bytes" -le 18000000
 
-      - name: Upload compressed release
+      - name: Upload the release archive
         uses: actions/upload-artifact@v7
         with:
-          name: shotkit-macos-${{ matrix.arch }}
+          name: engine-macos-${{ matrix.arch }}-${{ steps.fingerprint.outputs.fingerprint }}
           path: |
             WebKitBuild/releases/*.tar.xz
             WebKitBuild/releases/*.tar.xz.sha256
           if-no-files-found: error
           compression-level: 0
-          retention-days: 7
+          retention-days: 90
+          overwrite: true
 
-      - name: Upload native npm runtime
+      - name: Upload the addon closure
         uses: actions/upload-artifact@v7
         with:
-          name: shotkit-node-macos-${{ matrix.arch }}
+          name: engine-node-macos-${{ matrix.arch }}-${{ steps.fingerprint.outputs.fingerprint }}
           path: WebKitBuild/node-runtime/
           if-no-files-found: error
-          retention-days: 7
+          retention-days: 90
+          overwrite: true

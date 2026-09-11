@@ -1,52 +1,63 @@
-name: Windows
+# Builds the windows engines and uploads them under the engine
+# fingerprint: engine-windows-<arch>-<fingerprint> (the release archive)
+# and engine-node-windows-<arch>-<fingerprint> (the addon closure). Called
+# by build.yml for the architectures whose artifacts are missing; the
+# dispatch form builds by hand. Tests that need the SDK run in build.yml's
+# verify job against these artifacts, on every run, whether or not anything
+# was built here.
+#
+# No push trigger and no concurrency group: build.yml is the entry point
+# and owns both. A called workflow that shared a group with its caller
+# would cancel or deadlock itself.
+name: build-windows
 
 on:
-  push:
-    branches: [main]
-    paths-ignore:
-      - '**.md'
-      - '.githooks/**'
+  workflow_call:
+    inputs:
+      archs:
+        description: 'JSON list of the architectures to build, e.g. ["x64","arm64"]'
+        type: string
+        default: '["x64","arm64"]'
+      fingerprint:
+        description: the engine fingerprint the artifacts are named after; computed here when empty
+        type: string
+        default: ''
+      lto:
+        description: Link-time optimization mode
+        type: string
+        default: full
+      ref:
+        description: the commit to build; empty builds the triggering ref
+        type: string
+        default: ''
   workflow_dispatch:
     inputs:
+      archs:
+        description: architectures to build
+        type: choice
+        options: ['["x64","arm64"]', '["x64"]', '["arm64"]']
+        default: '["x64","arm64"]'
       lto:
         description: Link-time optimization mode
         type: choice
         options: [full, thin]
         default: full
-  workflow_call:
-    inputs:
-      lto:
-        description: Link-time optimization mode
-        type: string
-        default: full
-
-concurrency:
-  group: windows-${{ github.workflow }}-${{ github.ref }}
-  cancel-in-progress: true
 
 permissions:
   contents: read
+  actions: read
 
 jobs:
   build:
+    name: "build: windows-${{ matrix.arch }}"
     strategy:
       fail-fast: false
       matrix:
-        include:
-          - arch: x64
-            runner: windows-2022
-            triplet: x64-windows-webkit
-            experimental: false
-          - arch: arm64
-            runner: windows-11-arm
-            triplet: arm64-windows-webkit
-            experimental: false
-
-    runs-on: ${{ matrix.runner }}
-    continue-on-error: ${{ matrix.experimental }}
+        arch: ${{ fromJSON(inputs.archs) }}
+    runs-on: ${{ matrix.arch == 'arm64' && 'windows-11-arm' || 'windows-2022' }}
     timeout-minutes: 360
-
     env:
+      TRIPLET: ${{ matrix.arch }}-windows-webkit
       VCPKG_FEATURE_FLAGS: manifests,binarycaching
       # Full LTO stays the shipped profile. Measured against ThinLTO on the
       # same commit it is 3.6-4.5% smaller across all four targets, and it
@@ -74,6 +85,7 @@ jobs:
       - name: Checkout the ShotKit build closure
         uses: actions/checkout@v7
         with:
+          ref: ${{ inputs.ref }}
           fetch-depth: 1
           sparse-checkout-cone-mode: false
           sparse-checkout: |
@@ -89,14 +101,23 @@ jobs:
             /CMakePresets.json
             /vcpkg.json
             /vcpkg-configuration.json
-            /AGENTS.md
-            /ReadMe.md
 
       - uses: actions/setup-node@v4
         with:
           node-version: 24
           cache: npm
           cache-dependency-path: apps/node/package-lock.json
+
+      - name: Engine fingerprint
+        id: fingerprint
+        shell: bash
+        env:
+          FROM_CALLER: ${{ inputs.fingerprint }}
+          LTO: ${{ inputs.lto || 'full' }}
+        # The caller computed it for the tree it is building; a dispatch
+        # computes it here. Either way it names this run's artifacts.
+        run: |
+          if [ -n "$FROM_CALLER" ]; then echo "fingerprint=$FROM_CALLER" >> "$GITHUB_OUTPUT"; echo "$FROM_CALLER (from the caller)"; else node scripts/ci/fingerprint.mjs --lto "$LTO" --output; fi
 
       - name: Install Node binding build dependencies
         working-directory: apps/node
@@ -109,7 +130,7 @@ jobs:
         shell: bash
         env:
           GH_TOKEN: ${{ github.token }}
-        run: node scripts/ci/artifacts.mjs download --name vcpkg-${{ matrix.triplet }} --dir "$RUNNER_TEMP/vcpkg-dl"
+        run: node scripts/ci/artifacts.mjs download --name vcpkg-${{ env.TRIPLET }} --dir "$RUNNER_TEMP/vcpkg-dl"
 
       - name: Unpack the vcpkg binary cache
         shell: pwsh
@@ -281,7 +302,7 @@ jobs:
           & $vcpkgExe install `
             --x-manifest-root=$env:GITHUB_WORKSPACE `
             --x-install-root=$installed `
-            --triplet=${{ matrix.triplet }} `
+            --triplet=${{ env.TRIPLET }} `
             --overlay-triplets="$env:GITHUB_WORKSPACE\WebKitLibraries\triplets" `
             --x-feature=web `
             --x-feature=skia `
@@ -314,12 +335,12 @@ jobs:
             -Root $env:GITHUB_WORKSPACE `
             -VcpkgRoot $vcpkgRoot `
             -VcpkgInstalledDir $installed `
-            -VcpkgTriplet ${{ matrix.triplet }} `
+            -VcpkgTriplet ${{ env.TRIPLET }} `
             -DatPath $icuDat `
             -PruneUnusedConverters
           if ($LASTEXITCODE) { throw "ICU slimming failed with exit code $LASTEXITCODE" }
 
-          $icuData = Get-ChildItem "$installed\${{ matrix.triplet }}\bin\icudt*.dll" | Where-Object Name -NotLike '*.orig.dll' | Select-Object -First 1
+          $icuData = Get-ChildItem "$installed\${{ env.TRIPLET }}\bin\icudt*.dll" | Where-Object Name -NotLike '*.orig.dll' | Select-Object -First 1
           if (-not $icuData) { throw 'vcpkg did not install an ICU data DLL' }
           if ($icuData.Length -gt 5000000) { throw "slim ICU data exceeds 5,000,000 bytes: $($icuData.Length) bytes" }
           Write-Host "slim ICU data: $($icuData.Length) bytes"
@@ -345,7 +366,7 @@ jobs:
         if: steps.vcpkg-pack.outputs.save == 'true'
         uses: actions/upload-artifact@v7
         with:
-          name: vcpkg-${{ matrix.triplet }}
+          name: vcpkg-${{ env.TRIPLET }}
           path: ${{ runner.temp }}/vcpkg.tar
           compression-level: 0
           retention-days: 90
@@ -370,7 +391,7 @@ jobs:
             '-VcpkgRoot', $env:SHOT_VCPKG_ROOT,
             '-VcpkgInstalledDir', $env:SHOT_VCPKG_INSTALLED,
             '-Arch', '${{ matrix.arch }}',
-            '-VcpkgTriplet', '${{ matrix.triplet }}',
+            '-VcpkgTriplet', '${{ env.TRIPLET }}',
             '-LtoMode', $env:SHOT_LTO,
             '-Jobs', '3'
           )
@@ -482,37 +503,15 @@ jobs:
             }
           }
 
-      - name: Smoke test PNG and WebP
-        shell: pwsh
-        run: |
-          $bin = Join-Path $env:GITHUB_WORKSPACE 'WebKitBuild\shot\bin'
-          $html = Join-Path $env:RUNNER_TEMP 'shot-smoke.html'
-          $png = Join-Path $env:RUNNER_TEMP 'shot-smoke.png'
-          $webp = Join-Path $env:RUNNER_TEMP 'shot-smoke.webp'
-          '<!doctype html><meta charset=utf-8><style>body{background:#eef2f7;font:32px sans-serif}h1{color:#246}</style><h1>ShotKit CI ✓</h1>' | Set-Content -LiteralPath $html -Encoding utf8NoBOM
-          & (Join-Path $bin 'shotcli.exe') --html $html --out $png --width 640 --height 360
-          if ($LASTEXITCODE) { throw "PNG smoke failed with exit code $LASTEXITCODE" }
-          & (Join-Path $bin 'shotcli.exe') --html $html --out $webp --format webp --quality 82 --width 640 --height 360
-          if ($LASTEXITCODE) { throw "WebP smoke failed with exit code $LASTEXITCODE" }
-          if ((Get-Item $png).Length -lt 100 -or (Get-Item $webp).Length -lt 100) { throw 'encoded image is unexpectedly small' }
-
-      - name: Verify C ABI thread ownership and native Node SDK
+      # The SDK suite, parity, soak and the network fixture run in build.yml's
+      # verify job against the uploaded artifacts; only the C ABI ownership
+      # test stays here, since it is not shipped.
+      - name: Verify C ABI thread ownership
         shell: pwsh
         run: |
           $bin = Join-Path $env:GITHUB_WORKSPACE 'WebKitBuild\shot\bin'
           & (Join-Path $bin 'shot_capi_thread_test.exe')
           if ($LASTEXITCODE) { throw "C ABI thread test failed with exit code $LASTEXITCODE" }
-          $env:SHOTKIT_NATIVE_PATH = Join-Path $bin 'shot.node'
-          Push-Location apps/node
-          try { npm test } finally { Pop-Location }
-          node apps/node/test/native-parity.mjs (Join-Path $bin 'shotcli.exe')
-          if ($LASTEXITCODE) { throw "native/CLI parity failed with exit code $LASTEXITCODE" }
-          node --expose-gc apps/node/test/native-soak.mjs
-          if ($LASTEXITCODE) { throw "native soak failed with exit code $LASTEXITCODE" }
-
-      - name: Verify scripts are never fetched
-        shell: pwsh
-        run: pwsh tests/verify_no_script_network.ps1 -BuildDir "$env:GITHUB_WORKSPACE\WebKitBuild\shot" -VcpkgTriplet ${{ matrix.triplet }}
 
       - name: Verify the C ABI export surface
         shell: pwsh
@@ -533,7 +532,7 @@ jobs:
       - name: Collect native npm runtime
         shell: pwsh
         run: |
-          pwsh scripts/collect-dist.ps1 -Root $env:GITHUB_WORKSPACE -VcpkgTriplet ${{ matrix.triplet }} -NodeAddon
+          pwsh scripts/collect-dist.ps1 -Root $env:GITHUB_WORKSPACE -VcpkgTriplet ${{ env.TRIPLET }} -NodeAddon
           if (-not (Test-Path 'WebKitBuild\shot-node-dist\shot.dll')) { throw 'native npm runtime must contain shot.dll: shot.node is a thin addon over it' }
           if (Test-Path 'WebKitBuild\shot-node-dist\shotcli.exe') { throw 'native npm runtime must not contain shotcli.exe' }
 
@@ -546,7 +545,7 @@ jobs:
             -Version $version `
             -LtoMode $env:SHOT_LTO `
             -Architecture ${{ matrix.arch }} `
-            -VcpkgTriplet ${{ matrix.triplet }} `
+            -VcpkgTriplet ${{ env.TRIPLET }} `
             -MaxPackageBytes 22000000
 
       - name: Enforce native runtime closure budget
@@ -559,21 +558,23 @@ jobs:
             throw "shot.node runtime closure exceeds the corresponding CLI closure by more than 5%; attribute the growth before release"
           }
 
-      - name: Upload compressed release
+      - name: Upload the release archive
         uses: actions/upload-artifact@v7
         with:
-          name: shotkit-windows-${{ matrix.arch }}
+          name: engine-windows-${{ matrix.arch }}-${{ steps.fingerprint.outputs.fingerprint }}
           path: |
             WebKitBuild/releases/*.tar.xz
             WebKitBuild/releases/*.tar.xz.sha256
           if-no-files-found: error
           compression-level: 0
-          retention-days: 7
+          retention-days: 90
+          overwrite: true
 
-      - name: Upload native npm runtime
+      - name: Upload the addon closure
         uses: actions/upload-artifact@v7
         with:
-          name: shotkit-node-windows-${{ matrix.arch }}
+          name: engine-node-windows-${{ matrix.arch }}-${{ steps.fingerprint.outputs.fingerprint }}
           path: WebKitBuild/shot-node-dist/
           if-no-files-found: error
-          retention-days: 7
+          retention-days: 90
+          overwrite: true

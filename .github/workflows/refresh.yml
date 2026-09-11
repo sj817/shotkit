@@ -1,0 +1,95 @@
+# Re-uploads the newest artifact of every family once a month so that a
+# quiet stretch never lets the engines and the caches expire (90 days).
+#
+# An expired engine costs one rebuild of that platform at the next push or
+# release; an expired compiler cache costs a cold build. Both are
+# self-healing, so this is a convenience, not a guard: GitHub also stops
+# schedules after 60 days without repository activity, in which case a
+# dispatch by hand does the same.
+name: refresh
+
+on:
+  schedule:
+    - cron: '17 3 1 * *'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  actions: read
+
+jobs:
+  plan:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    outputs:
+      families: ${{ steps.plan.outputs.families }}
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          fetch-depth: 1
+          sparse-checkout-cone-mode: false
+          sparse-checkout: |
+            /scripts/ci/
+            /apps/node/package-lock.json
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+      - id: plan
+        env:
+          GH_TOKEN: ${{ github.token }}
+        # The engine families are pinned to main's current fingerprint; the
+        # caches are simply the newest of their name.
+        run: |
+          fp=$(node scripts/ci/fingerprint.mjs)
+          families=()
+          for os in windows linux macos; do
+            for arch in x64 arm64; do
+              families+=("engine-$os-$arch-$fp" "engine-node-$os-$arch-$fp" "ccache-$os-$arch")
+            done
+          done
+          families+=("vcpkg-x64-windows-webkit" "vcpkg-arm64-windows-webkit")
+          json=$(printf '%s\n' "${families[@]}" | jq -R . | jq -sc .)
+          echo "families=$json" >> "$GITHUB_OUTPUT"
+          echo "$json"
+
+  refresh:
+    needs: plan
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    strategy:
+      fail-fast: false
+      max-parallel: 4
+      matrix:
+        family: ${{ fromJSON(needs.plan.outputs.families) }}
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          fetch-depth: 1
+          sparse-checkout-cone-mode: false
+          sparse-checkout: |
+            /scripts/ci/
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+      - id: find
+        env:
+          GH_TOKEN: ${{ github.token }}
+        # A family with nothing to refresh is fine: a platform whose engine
+        # expired already is rebuilt by the next run that needs it.
+        run: |
+          if node scripts/ci/artifacts.mjs find --name "${{ matrix.family }}"; then :; fi
+      - uses: actions/download-artifact@v7
+        if: steps.find.outputs.found == 'true'
+        with:
+          artifact-ids: ${{ steps.find.outputs.ids }}
+          path: ${{ runner.temp }}/refresh/${{ matrix.family }}
+          merge-multiple: true
+          github-token: ${{ github.token }}
+      - uses: actions/upload-artifact@v7
+        if: steps.find.outputs.found == 'true'
+        with:
+          name: ${{ matrix.family }}
+          path: ${{ runner.temp }}/refresh/${{ matrix.family }}
+          compression-level: 0
+          retention-days: 90
+          overwrite: true
