@@ -5,11 +5,11 @@
 ## Node.js
 
 ```bash
-npm install @shotkit/node
+npm install @pixel.js/shotkit
 ```
 
 ```js
-import { launch } from '@shotkit/node';
+import { launch } from '@pixel.js/shotkit';
 
 const shot = await launch();
 const result = await shot.screenshotHTML('<h1>Hello</h1>', { outputPath: 'shot.png' });
