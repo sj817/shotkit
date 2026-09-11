@@ -38,7 +38,8 @@ jobs:
       # build after any quiet week was cold. direct + depend mode means a hit
       # never runs the preprocessor, which is what made sccache's warm
       # compile still take nine minutes here.
-      CCACHE_DIR: ${{ runner.temp }}/ccache
+      # CCACHE_DIR is set by the unpack step: the runner context is not
+      # available in a job's env.
       CCACHE_MAXSIZE: 2G
       CCACHE_COMPILERCHECK: content
       CCACHE_DEPEND: '1'
@@ -127,6 +128,8 @@ jobs:
         run: |
           tmp="$RUNNER_TEMP"; command -v cygpath >/dev/null 2>&1 && tmp="$(cygpath "$RUNNER_TEMP")"
           mkdir -p "$tmp/ccache"
+          echo "CCACHE_DIR=$RUNNER_TEMP/ccache" >> "$GITHUB_ENV"
+          export CCACHE_DIR="$RUNNER_TEMP/ccache"
           tarball="$(find "$tmp/ccache-dl" -name ccache.tar 2>/dev/null | head -1)"
           if [ -n "$tarball" ]; then tar -xf "$tarball" -C "$tmp"; echo "restored $(du -sh "$tmp/ccache" | cut -f1)"; else echo "no compiler cache yet: cold"; fi
           ccache -z
