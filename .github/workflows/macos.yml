@@ -31,7 +31,27 @@ jobs:
     timeout-minutes: 360
 
     env:
-      SCCACHE_GHA_ENABLED: 'true'
+      SHOT_COMPILER_LAUNCHER: ccache
+      # ccache, persisted as the ccache-<os>-<arch> artifact between runs.
+      # Not the Actions cache: that evicted everything after seven idle days
+      # and kept a pull request's entries invisible to main, so the first
+      # build after any quiet week was cold. direct + depend mode means a hit
+      # never runs the preprocessor, which is what made sccache's warm
+      # compile still take nine minutes here.
+      # CCACHE_DIR is set by the unpack step: the runner context is not
+      # available in a job's env.
+      CCACHE_MAXSIZE: 2G
+      CCACHE_COMPILERCHECK: content
+      CCACHE_DEPEND: '1'
+      CCACHE_NOHASHDIR: '1'
+      CCACHE_BASEDIR: ${{ github.workspace }}
+      # ivfsoverlay: OptionsCocoa compiles every TU with -ivfsoverlay so the
+      # SDK's Availability.h resolves to WebKitLibraries/AvailabilityOverlay;
+      # ccache refuses the option outright unless told to ignore it. It then
+      # hashes the SDK header the overlay hides, not the one actually read,
+      # so the two overlay headers go into every hash by hand.
+      CCACHE_SLOPPINESS: pch_defines,time_macros,include_file_mtime,include_file_ctime,ivfsoverlay
+      CCACHE_EXTRAFILES: ${{ github.workspace }}/WebKitLibraries/AvailabilityOverlay/usr/include/os/availability.h:${{ github.workspace }}/WebKitLibraries/AvailabilityOverlay/usr/include/Availability.h
 
     steps:
       - name: Checkout the ShotKit build closure
@@ -83,25 +103,35 @@ jobs:
 
       - name: Install build dependencies
         run: |
-          brew install bison cmake gperf icu4c ninja webp
+          brew install bison ccache cmake gperf icu4c ninja webp
           echo "$(brew --prefix bison)/bin" >> "$GITHUB_PATH"
           echo "$(brew --prefix icu4c)/bin" >> "$GITHUB_PATH"
           echo "CMAKE_PREFIX_PATH=$(brew --prefix icu4c);$(brew --prefix webp)" >> "$GITHUB_ENV"
           cmake --version
           ninja --version
           clang --version
+          ccache --version | head -1
 
-      # macOS already builds with LTO off and is the fastest of the three
-      # platforms, so the compiler cache is the only lever worth pulling here.
-      # A failed setup leaves the build uncached rather than broken.
-      - name: Set up the compiler cache
-        id: sccache
-        continue-on-error: true
-        uses: mozilla-actions/sccache-action@v0.0.11
+      - name: Restore the compiler cache
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: node scripts/ci/artifacts.mjs download --name ccache-macos-${{ matrix.arch }} --dir "$RUNNER_TEMP/ccache-dl"
 
-      - name: Enable the compiler cache
-        if: steps.sccache.outcome == 'success'
-        run: echo "SHOT_COMPILER_LAUNCHER=sccache" >> "$GITHUB_ENV"
+      - name: Unpack the compiler cache
+        shell: bash
+        # GNU tar under Git Bash reads D:\ as a host name, so paths go
+        # through cygpath where it exists.
+        run: |
+          tmp="$RUNNER_TEMP"; command -v cygpath >/dev/null 2>&1 && tmp="$(cygpath "$RUNNER_TEMP")"
+          mkdir -p "$tmp/ccache"
+          echo "CCACHE_DIR=$RUNNER_TEMP/ccache" >> "$GITHUB_ENV"
+          export CCACHE_DIR="$RUNNER_TEMP/ccache"
+          mkdir -p "$tmp/ccache-dl"
+          tarball="$(find "$tmp/ccache-dl" -name ccache.tar | head -1)"
+          if [ -n "$tarball" ]; then tar -xf "$tarball" -C "$tmp"; echo "restored $(du -sh "$tmp/ccache" | cut -f1)"; else echo "no compiler cache yet: cold"; fi
+          ccache -z
+          ccache -p | grep -E '^\(environment\)' || true
 
       - name: Configure ShotKit
         run: |
@@ -127,12 +157,41 @@ jobs:
             "${launcher_args[@]}"
 
       - name: Build ShotKit
+        id: build
         run: ninja -C WebKitBuild/shot-macos -j3 shotcli shotnode shot_capi_thread_test
 
       - name: Compiler cache statistics
-        if: always() && steps.sccache.outcome == 'success'
-        continue-on-error: true
-        run: sccache --show-stats
+        id: ccache-stats
+        if: always() && steps.build.outcome != 'skipped'
+        shell: bash
+        run: |
+          ccache --cleanup
+          ccache -s -v | tee -a "$GITHUB_STEP_SUMMARY"
+          misses=$(ccache --print-stats | awk -F'\t' '$1=="cache_miss"{print $2}')
+          echo "misses=${misses:-0}" >> "$GITHUB_OUTPUT"
+
+      # Only when the cache gained something, and never from a fork's pull
+      # request (its upload would not be trusted anyway).
+      - name: Pack the compiler cache
+        id: ccache-pack
+        if: always() && steps.ccache-stats.outputs.misses != '0' && steps.ccache-stats.outputs.misses != '' && (github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository)
+        shell: bash
+        run: |
+          tmp="$RUNNER_TEMP"; command -v cygpath >/dev/null 2>&1 && tmp="$(cygpath "$RUNNER_TEMP")"
+          rm -rf "$tmp/ccache-dl"
+          tar -cf "$tmp/ccache.tar" -C "$tmp" ccache
+          ls -l "$tmp/ccache.tar"
+          echo "save=true" >> "$GITHUB_OUTPUT"
+
+      - name: Save the compiler cache
+        if: always() && steps.ccache-pack.outputs.save == 'true'
+        uses: actions/upload-artifact@v7
+        with:
+          name: ccache-macos-${{ matrix.arch }}
+          path: ${{ runner.temp }}/ccache.tar
+          compression-level: 0
+          retention-days: 90
+          overwrite: true
 
       - name: Verify internal link closure
         run: |

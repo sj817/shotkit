@@ -5,7 +5,7 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
 
-import { findEngine, findOne, listByName, names, plan, planOutputs, trusted } from './artifacts.mjs';
+import { downloadArguments, findEngine, findOne, listByName, names, plan, planOutputs, trusted } from './artifacts.mjs';
 
 const REPO = 100;
 const FORK = 200;
@@ -91,3 +91,11 @@ test('plan lists what each OS still has to build, and --force builds everything'
 function OSES_ALL() {
   return ['windows', 'linux', 'macos'].flatMap((os) => ['x64', 'arm64'].map((arch) => [os, arch]));
 }
+
+test('download fetches from the run that uploaded the artifact', () => {
+  const record = { id: 9, name: 'ccache-linux-x64', workflow_run: { id: 34578049899 } };
+  assert.deepEqual(
+    downloadArguments('sj817/shotkit', record, 'ccache-linux-x64', '/tmp/ccache-dl'),
+    ['run', 'download', '34578049899', '-R', 'sj817/shotkit', '-n', 'ccache-linux-x64', '-D', '/tmp/ccache-dl'],
+  );
+});
