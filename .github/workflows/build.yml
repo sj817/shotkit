@@ -1,0 +1,246 @@
+# Builds whichever of the six engines this tree does not have yet, then
+# verifies all six as users receive them.
+#
+# The engines are content-addressed: resolve hashes the build closure
+# (scripts/ci/fingerprint.mjs) and asks the artifacts API which platforms
+# already have engine-<os>-<arch>-<fp> and engine-node-<os>-<arch>-<fp> from
+# one trusted run. Only the missing architectures are built, each by its
+# build-<os>.yml; a push that touches the SDK, the docs, the benchmark or the
+# release tooling keeps the fingerprint and builds nothing. verify then runs
+# the SDK suite, parity, soak and the network fixture on every platform
+# against the artifacts -- the shipped, stripped bits -- whether they were
+# built now or reused.
+#
+# Who calls it:
+#   push to main        when a path outside paths-ignore changed
+#   preview.yml         every pull request, before publishing a preview
+#   publish.yml         every release, before publishing anything
+#   workflow_dispatch   force=true rebuilds everything at this fingerprint
+#
+# preview.yml is the pull-request entry point; this file does not listen to
+# pull_request itself, or one PR would build the same fingerprint twice.
+
+name: build
+run-name: "build: ${{ github.event_name == 'workflow_dispatch' && (inputs.force && 'forced rebuild' || 'what is missing') || github.event.head_commit.message || github.ref_name }}"
+
+on:
+  push:
+    branches: [main]
+    paths-ignore:
+      - 'docs/**'
+      - '**.md'
+      - '.githooks/**'
+      - 'apps/benchmark/**'
+      - 'apps/demo/**'
+      - 'upstream-sync/**'
+      - 'scripts/release-notes.mjs'
+      - '.github/workflows/publish.yml'
+      - '.github/workflows/node.yml'
+      - '.github/workflows/commit-lint.yml'
+      - '.github/workflows/refresh.yml'
+      - '.clang-format'
+      - '.editorconfig'
+      - '.gitattributes'
+      - '.gitignore'
+  workflow_dispatch:
+    inputs:
+      force:
+        description: rebuild every platform even when artifacts exist at this fingerprint
+        type: boolean
+        default: false
+      lto:
+        description: Link-time optimization mode (part of the fingerprint)
+        type: choice
+        options: [full, thin]
+        default: full
+      ref:
+        description: commit to build; empty builds this ref
+        type: string
+        default: ''
+  workflow_call:
+    inputs:
+      force:
+        type: boolean
+        default: false
+      lto:
+        type: string
+        default: full
+      ref:
+        type: string
+        default: ''
+    outputs:
+      fingerprint:
+        description: the engine fingerprint of the tree that was built or found
+        value: ${{ jobs.resolve.outputs.fingerprint }}
+      reused:
+        description: '"true" when nothing had to be built'
+        value: ${{ jobs.resolve.outputs.build == 'false' }}
+
+# github.workflow is the caller's name when called, so a preview and a
+# publish of the same ref never share a group; only a pull request's run
+# gives way to a newer push of the same branch.
+concurrency:
+  group: build-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+permissions:
+  contents: read
+  actions: read
+
+jobs:
+  resolve:
+    name: "resolve: engine"
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    outputs:
+      fingerprint: ${{ steps.fingerprint.outputs.fingerprint }}
+      windows: ${{ steps.plan.outputs.windows }}
+      linux: ${{ steps.plan.outputs.linux }}
+      macos: ${{ steps.plan.outputs.macos }}
+      build: ${{ steps.plan.outputs.build }}
+      missing: ${{ steps.plan.outputs.missing }}
+    steps:
+      # A blobless sparse checkout is enough: the fingerprint reads trees,
+      # not files, plus one lockfile.
+      - uses: actions/checkout@v7
+        with:
+          ref: ${{ inputs.ref }}
+          fetch-depth: 1
+          sparse-checkout-cone-mode: false
+          sparse-checkout: |
+            /scripts/ci/
+            /apps/node/package-lock.json
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+      - id: fingerprint
+        env:
+          LTO: ${{ inputs.lto || 'full' }}
+        run: node scripts/ci/fingerprint.mjs --lto "$LTO" --output
+      - id: plan
+        env:
+          GH_TOKEN: ${{ github.token }}
+          FORCE: ${{ inputs.force }}
+        run: |
+          flags=""
+          [ "$FORCE" = "true" ] && flags="--force"
+          node scripts/ci/artifacts.mjs plan --fingerprint "${{ steps.fingerprint.outputs.fingerprint }}" $flags
+
+  # One job per OS, over the architectures resolve found missing. The `if`
+  # guards the empty matrix: fromJSON('[]') is a hard error, not a skip.
+  windows:
+    needs: resolve
+    if: needs.resolve.outputs.windows != '[]'
+    uses: ./.github/workflows/build-windows.yml
+    with:
+      archs: ${{ needs.resolve.outputs.windows }}
+      fingerprint: ${{ needs.resolve.outputs.fingerprint }}
+      lto: ${{ inputs.lto || 'full' }}
+      ref: ${{ inputs.ref || '' }}
+
+  linux:
+    needs: resolve
+    if: needs.resolve.outputs.linux != '[]'
+    uses: ./.github/workflows/build-linux.yml
+    with:
+      archs: ${{ needs.resolve.outputs.linux }}
+      fingerprint: ${{ needs.resolve.outputs.fingerprint }}
+      lto: ${{ inputs.lto || 'full' }}
+      ref: ${{ inputs.ref || '' }}
+
+  macos:
+    needs: resolve
+    if: needs.resolve.outputs.macos != '[]'
+    uses: ./.github/workflows/build-macos.yml
+    with:
+      archs: ${{ needs.resolve.outputs.macos }}
+      fingerprint: ${{ needs.resolve.outputs.fingerprint }}
+      lto: ${{ inputs.lto || 'full' }}
+      ref: ${{ inputs.ref || '' }}
+
+  # Every platform, every run: the SDK suite, parity, soak and the network
+  # fixture against the artifacts at this fingerprint, on the runner that
+  # can execute them. A skipped build job means the engine was reused; a
+  # failed or cancelled one stops here.
+  verify:
+    name: "verify: ${{ matrix.os }}-${{ matrix.arch }}"
+    needs: [resolve, windows, linux, macos]
+    if: always() && needs.resolve.result == 'success' && !contains(needs.*.result, 'failure') && !contains(needs.*.result, 'cancelled')
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - { os: windows, arch: x64, runner: windows-2022 }
+          - { os: windows, arch: arm64, runner: windows-11-arm }
+          - { os: linux, arch: x64, runner: ubuntu-24.04 }
+          - { os: linux, arch: arm64, runner: ubuntu-24.04-arm }
+          - { os: macos, arch: x64, runner: macos-15-intel }
+          - { os: macos, arch: arm64, runner: macos-15 }
+    runs-on: ${{ matrix.runner }}
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          ref: ${{ inputs.ref }}
+          fetch-depth: 1
+          sparse-checkout-cone-mode: false
+          sparse-checkout: |
+            /apps/node/
+            /scripts/ci/
+            /tests/
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: npm
+          cache-dependency-path: apps/node/package-lock.json
+      - run: npm ci
+        working-directory: apps/node
+
+      # The Linux archive links against system libraries (its DEPENDENCIES.txt
+      # lists them); this is the Ubuntu 24.04 package set a user installs.
+      # The build jobs had them through the -dev packages, so nothing ran
+      # the shipped binaries on a machine without them until now.
+      - name: Runtime libraries the archive links against
+        if: matrix.os == 'linux'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends \
+            libatomic1 libbrotli1 libcurl4t64 libegl1 libfontconfig1 libfreetype6 \
+            libgles2 libharfbuzz-icu0 libharfbuzz0b libicu74 libjpeg-turbo8 \
+            libpng16-16t64 libpsl5t64 libsqlite3-0 libssl3t64 libwebp7 libwebpdemux2 \
+            libwebpmux3 libwoff1 libxml2 libxslt1.1 zlib1g
+
+      - name: The engine at this fingerprint
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+          FP: ${{ needs.resolve.outputs.fingerprint }}
+        run: node scripts/ci/artifacts.mjs download --require-all --name "engine-node-${{ matrix.os }}-${{ matrix.arch }}-$FP" --name "engine-${{ matrix.os }}-${{ matrix.arch }}-$FP" --dir "$RUNNER_TEMP/engine"
+
+      - name: CLI and SDK against the shipped bits
+        shell: bash
+        run: node scripts/ci/verify-runtime.mjs --os ${{ matrix.os }} --arch ${{ matrix.arch }} --engine-dir "${{ runner.temp }}/engine" ${{ matrix.os == 'macos' && '--xslt' || '' }}
+
+      # The same addon on every supported Node line, once: Node-API v8 is
+      # the contract, and this is where a runtime that breaks it shows up.
+      - uses: actions/setup-node@v4
+        if: matrix.os == 'linux' && matrix.arch == 'x64'
+        with:
+          node-version: 18.18
+      - name: The same addon on Node 18.18
+        if: matrix.os == 'linux' && matrix.arch == 'x64'
+        run: SHOTKIT_NATIVE_PATH="$(ls "$RUNNER_TEMP"/engine/engine-node-linux-x64-*/shot.node)" node apps/node/test/native-compat.mjs
+      - uses: actions/setup-node@v4
+        if: matrix.os == 'linux' && matrix.arch == 'x64'
+        with:
+          node-version: 20
+      - name: The same addon on Node 20
+        if: matrix.os == 'linux' && matrix.arch == 'x64'
+        run: SHOTKIT_NATIVE_PATH="$(ls "$RUNNER_TEMP"/engine/engine-node-linux-x64-*/shot.node)" node apps/node/test/native-compat.mjs
+      - uses: actions/setup-node@v4
+        if: matrix.os == 'linux' && matrix.arch == 'x64'
+        with:
+          node-version: 22
+      - name: The same addon on Node 22
+        if: matrix.os == 'linux' && matrix.arch == 'x64'
+        run: SHOTKIT_NATIVE_PATH="$(ls "$RUNNER_TEMP"/engine/engine-node-linux-x64-*/shot.node)" node apps/node/test/native-compat.mjs

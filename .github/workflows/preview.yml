@@ -1,13 +1,28 @@
+# Every pull request: the engines (built only if this tree's fingerprint has
+# none yet, otherwise reused), the six-platform verify job, then an
+# installable preview of the seven npm packages through pkg.pr.new.
+#
+# This is the pull-request entry point; build.yml does not listen to
+# pull_request itself. A PR that changes only the SDK, the docs or the
+# tooling reuses main's engines and is done in minutes.
 name: PR Native Preview
 
-# PRs build the six native runtimes once, then publish an installable preview
-# for @pixel.js/shotkit and every optional platform package. Keeping orchestration
-# here avoids running the standalone platform workflows a second time.
 on:
   pull_request:
     paths-ignore:
+      - 'docs/**'
       - '**.md'
       - '.githooks/**'
+      - 'apps/benchmark/**'
+      - 'apps/demo/**'
+      - 'upstream-sync/**'
+      - '.github/workflows/publish.yml'
+      - '.github/workflows/commit-lint.yml'
+      - '.github/workflows/refresh.yml'
+      - '.clang-format'
+      - '.editorconfig'
+      - '.gitattributes'
+      - '.gitignore'
 
 concurrency:
   group: preview-${{ github.ref }}
@@ -15,19 +30,14 @@ concurrency:
 
 permissions:
   contents: read
+  actions: read
 
 jobs:
-  windows:
-    uses: ./.github/workflows/windows.yml
-
-  linux:
-    uses: ./.github/workflows/linux.yml
-
-  macos:
-    uses: ./.github/workflows/macos.yml
+  build:
+    uses: ./.github/workflows/build.yml
 
   publish-preview:
-    needs: [windows, linux, macos]
+    needs: build
     runs-on: ubuntu-latest
     timeout-minutes: 30
     permissions:
@@ -44,6 +54,7 @@ jobs:
           sparse-checkout-cone-mode: false
           sparse-checkout: |
             /apps/node/
+            /scripts/ci/
 
       - uses: actions/setup-node@v4
         with:
@@ -53,11 +64,18 @@ jobs:
 
       - run: npm ci
 
-      - name: Download native runtimes
-        uses: actions/download-artifact@v7
-        with:
-          path: ${{ runner.temp }}/runtimes
-          pattern: shotkit-node-*
+      # The six addon closures at this fingerprint, from whichever trusted
+      # run built them -- this one, if the build job had to.
+      - name: Fetch the native runtimes
+        shell: bash
+        working-directory: .
+        env:
+          GH_TOKEN: ${{ github.token }}
+          FP: ${{ needs.build.outputs.fingerprint }}
+        run: |
+          names=()
+          for os in windows linux macos; do for arch in x64 arm64; do names+=(--name "engine-node-$os-$arch-$FP"); done; done
+          node scripts/ci/artifacts.mjs download --require-all "${names[@]}" --dir "$RUNNER_TEMP/runtimes"
 
       - name: Stage all platform packages
         shell: bash
@@ -67,7 +85,7 @@ jobs:
           while IFS= read -r addon; do
             runtime_dir="$(dirname "$addon")"
             name="$(basename "$runtime_dir")"
-            if [[ ! "$name" =~ ^shotkit-node-(windows|linux|macos)-(x64|arm64)$ ]]; then
+            if [[ ! "$name" =~ ^engine-node-(windows|linux|macos)-(x64|arm64)-[0-9a-f]{16}$ ]]; then
               echo "unrecognized native runtime directory: $name" >&2
               exit 1
             fi

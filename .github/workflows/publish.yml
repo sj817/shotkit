@@ -1,14 +1,14 @@
 name: Publish
 
 # Publish the npm packages tokenlessly via OIDC Trusted Publishing. A vX.Y.Z
-# tag triggers the real release; a manual dispatch rehearses by default and can
-# also repair a release from an explicitly verified artifact run.
+# tag triggers the real release; a manual dispatch rehearses by default.
 #
-# The six platform runtimes are NOT rebuilt when the tagged commit already has
-# successful Windows/Linux/macOS runs whose artifacts are still live — a release
-# then costs minutes instead of the ~2 hours a full three-platform rebuild takes.
-# Rebuilding is the automatic fallback when any artifact is missing or expired,
-# and can be forced with the force-rebuild input.
+# The six engines come from build.yml, called here: it computes the tagged
+# tree's engine fingerprint (scripts/ci/fingerprint.mjs) and builds only the
+# platforms with no engine-<os>-<arch>-<fingerprint> artifact yet, then
+# verifies all six as shipped. A release whose engine inputs did not change
+# since the last build -- a version bump, docs, the SDK -- costs the resolve
+# and verify jobs and nothing else; force-rebuild rebuilds regardless.
 #
 # Every published package must carry an npm trusted-publisher binding to this
 # repository and this workflow file: @pixel.js/shotkit, its 6 platform
@@ -31,10 +31,6 @@ on:
         description: Existing vX.Y.Z tag to publish (required when dry-run is false)
         type: string
         default: ''
-      source-run-id:
-        description: Successful run containing all 12 release artifacts
-        type: string
-        default: ''
       force-rebuild:
         description: Rebuild the runtimes even if reusable artifacts exist
         type: boolean
@@ -55,8 +51,6 @@ jobs:
       contents: read
       actions: read
     outputs:
-      reuse: ${{ steps.find.outputs.reuse }}
-      run-ids: ${{ steps.find.outputs.run-ids }}
       release-sha: ${{ steps.context.outputs.sha }}
       tag: ${{ steps.context.outputs.tag }}
     steps:
@@ -88,109 +82,21 @@ jobs:
           echo "sha=$sha" >> "$GITHUB_OUTPUT"
           echo "release context: tag=${tag:-dry-run}, sha=$sha"
 
-      - name: Look for reusable runtime artifacts
-        id: find
-        env:
-          GH_TOKEN: ${{ github.token }}
-          SHA: ${{ steps.context.outputs.sha }}
-          FORCE_REBUILD: ${{ inputs.force-rebuild }}
-          SOURCE_RUN_ID: ${{ inputs.source-run-id }}
-        run: |
-          set -euo pipefail
-
-          if [[ "${FORCE_REBUILD:-false}" == "true" ]]; then
-            echo "force-rebuild requested — building from source"
-            echo "reuse=false" >> "$GITHUB_OUTPUT"
-            exit 0
-          fi
-
-          # Every artifact the publish job needs, and the workflow that makes it.
-          expected="shotkit-windows-x64 shotkit-windows-arm64
-                    shotkit-linux-x64 shotkit-linux-arm64
-                    shotkit-macos-x64 shotkit-macos-arm64
-                    shotkit-node-windows-x64 shotkit-node-windows-arm64
-                    shotkit-node-linux-x64 shotkit-node-linux-arm64
-                    shotkit-node-macos-x64 shotkit-node-macos-arm64"
-
-          # Branch matters as much as commit: a tag and a throwaway branch can
-          # point at the same SHA, and a manual run there (a different LTO mode,
-          # an experiment) must never become the source of a published binary.
-          branch=$(gh api "repos/$GITHUB_REPOSITORY" --jq .default_branch)
-          echo "reusing only from $branch builds of $SHA"
-
-          # The branch query parameter does the filtering server-side; the
-          # select() repeats it locally so a silently ignored parameter cannot
-          # widen the search back to every branch.
-          newest_run=".workflow_runs
-            | map(select(.head_branch == \"$branch\"))
-            | sort_by(.run_started_at) | reverse | .[0].id // empty"
-
-          run_ids=()
-          if [[ -n "${SOURCE_RUN_ID:-}" ]]; then
-            source=$(gh api "repos/$GITHUB_REPOSITORY/actions/runs/$SOURCE_RUN_ID")
-            source_sha=$(jq -r .head_sha <<<"$source")
-            source_conclusion=$(jq -r .conclusion <<<"$source")
-            if [[ "$source_sha" != "$SHA" || "$source_conclusion" != "success" ]]; then
-              echo "source run $SOURCE_RUN_ID must be successful and target $SHA" >&2
-              exit 1
-            fi
-            echo "using explicitly verified source run $SOURCE_RUN_ID"
-            run_ids+=("$SOURCE_RUN_ID")
-          else
-            for workflow in windows.yml linux.yml macos.yml; do
-              id=$(gh api \
-                "repos/$GITHUB_REPOSITORY/actions/workflows/$workflow/runs?head_sha=$SHA&status=success&branch=$branch&per_page=50" \
-                --jq "$newest_run")
-              if [[ -z "$id" ]]; then
-                echo "no successful $workflow run for $SHA on $branch — building from source"
-                echo "reuse=false" >> "$GITHUB_OUTPUT"
-                exit 0
-              fi
-              echo "$workflow -> run $id"
-              run_ids+=("$id")
-            done
-          fi
-
-          available=""
-          for id in "${run_ids[@]}"; do
-            available+=$(gh api "repos/$GITHUB_REPOSITORY/actions/runs/$id/artifacts" \
-              --jq '.artifacts[] | select(.expired == false) | .name')$'\n'
-          done
-
-          for want in $expected; do
-            if ! grep -qx -- "$want" <<<"$available"; then
-              echo "artifact $want is missing or expired — building from source"
-              echo "reuse=false" >> "$GITHUB_OUTPUT"
-              exit 0
-            fi
-          done
-
-          echo "reusing runtimes from runs: ${run_ids[*]}"
-          echo "reuse=true" >> "$GITHUB_OUTPUT"
-          echo "run-ids=${run_ids[*]}" >> "$GITHUB_OUTPUT"
-
-  windows:
+  # The engines at the tagged tree's fingerprint: reused when they exist,
+  # built when they do not, and verified on all six platforms either way.
+  build:
     needs: resolve
-    if: needs.resolve.outputs.reuse != 'true'
-    uses: ./.github/workflows/windows.yml
-  linux:
-    needs: resolve
-    if: needs.resolve.outputs.reuse != 'true'
-    uses: ./.github/workflows/linux.yml
-  macos:
-    needs: resolve
-    if: needs.resolve.outputs.reuse != 'true'
-    uses: ./.github/workflows/macos.yml
+    uses: ./.github/workflows/build.yml
+    permissions:
+      contents: read
+      actions: read
+    with:
+      ref: ${{ needs.resolve.outputs.release-sha }}
+      force: ${{ inputs.force-rebuild == true }}
+      lto: full
 
   publish:
-    needs: [resolve, windows, linux, macos]
-    # The three build jobs are skipped on the reuse path; only a genuine
-    # failure or cancellation should stop the publish.
-    if: >-
-      always()
-      && needs.resolve.result == 'success'
-      && !contains(needs.*.result, 'failure')
-      && !contains(needs.*.result, 'cancelled')
+    needs: [resolve, build]
     runs-on: ubuntu-latest
     timeout-minutes: 30
     permissions:
@@ -209,6 +115,7 @@ jobs:
           sparse-checkout-cone-mode: false
           sparse-checkout: |
             /apps/node/
+            /scripts/ci/
 
       - uses: actions/setup-node@v4
         with:
@@ -217,27 +124,18 @@ jobs:
           cache: npm
           cache-dependency-path: apps/node/package-lock.json
 
-      - name: Download runtime archives from this run
-        if: needs.resolve.outputs.reuse != 'true'
-        uses: actions/download-artifact@v7
-        with:
-          path: ${{ runner.temp }}/runtimes
-          pattern: shotkit-node-*
+      - run: npm ci
 
-      - name: Download runtime archives from the tagged commit's builds
-        if: needs.resolve.outputs.reuse == 'true'
+      - name: Fetch the native runtimes at this fingerprint
         shell: bash
+        working-directory: .
         env:
           GH_TOKEN: ${{ github.token }}
-          RUN_IDS: ${{ needs.resolve.outputs.run-ids }}
+          FP: ${{ needs.build.outputs.fingerprint }}
         run: |
-          mkdir -p "$RUNNER_TEMP/runtimes"
-          for id in $RUN_IDS; do
-            gh run download "$id" --repo "$GITHUB_REPOSITORY" \
-              --pattern 'shotkit-node-*' --dir "$RUNNER_TEMP/runtimes"
-          done
-
-      - run: npm ci
+          names=()
+          for os in windows linux macos; do for arch in x64 arm64; do names+=(--name "engine-node-$os-$arch-$FP"); done; done
+          node scripts/ci/artifacts.mjs download --require-all "${names[@]}" --dir "$RUNNER_TEMP/runtimes"
 
       - name: Stage runtimes into platform packages
         shell: bash
@@ -246,7 +144,7 @@ jobs:
           while IFS= read -r addon; do
             runtime_dir="$(dirname "$addon")"
             name="$(basename "$runtime_dir")"
-            if [[ ! "$name" =~ ^shotkit-node-(windows|linux|macos)-(x64|arm64)$ ]]; then
+            if [[ ! "$name" =~ ^engine-node-(windows|linux|macos)-(x64|arm64)-[0-9a-f]{16}$ ]]; then
               echo "unrecognized native runtime directory: $name" >&2
               exit 1
             fi
@@ -355,7 +253,7 @@ jobs:
   # bindings usable without npm. This is a separate job on purpose: the publish
   # job holds id-token: write for OIDC and should not also hold contents: write.
   assets:
-    needs: [resolve, windows, linux, macos, publish]
+    needs: [resolve, build, publish]
     if: >-
       always()
       && needs.resolve.outputs.tag != ''
@@ -369,56 +267,31 @@ jobs:
       contents: write # attach archives to the release and rewrite its body
       actions: read # gh run download, on the artifact reuse path
     steps:
+      # At the release commit, not the branch the dispatch ran from: the
+      # notes script is part of the release.
       - name: Checkout the release tooling
         uses: actions/checkout@v7
         with:
+          ref: ${{ needs.resolve.outputs.release-sha }}
           fetch-depth: 1
           sparse-checkout-cone-mode: false
           sparse-checkout: |
             /scripts/release-notes.mjs
+            /scripts/ci/
 
       - uses: actions/setup-node@v4
         with:
           node-version: 24
 
-      - name: Download Windows CLI archives from this run
-        if: needs.resolve.outputs.reuse != 'true'
-        uses: actions/download-artifact@v7
-        with:
-          path: ${{ runner.temp }}/runtimes
-          pattern: shotkit-windows-*
-          merge-multiple: true
-
-      - name: Download Linux CLI archives from this run
-        if: needs.resolve.outputs.reuse != 'true'
-        uses: actions/download-artifact@v7
-        with:
-          path: ${{ runner.temp }}/runtimes
-          pattern: shotkit-linux-*
-          merge-multiple: true
-
-      - name: Download macOS CLI archives from this run
-        if: needs.resolve.outputs.reuse != 'true'
-        uses: actions/download-artifact@v7
-        with:
-          path: ${{ runner.temp }}/runtimes
-          pattern: shotkit-macos-*
-          merge-multiple: true
-
-      - name: Download runtime archives from the tagged commit's builds
-        if: needs.resolve.outputs.reuse == 'true'
+      - name: Fetch the release archives at this fingerprint
         shell: bash
         env:
           GH_TOKEN: ${{ github.token }}
-          RUN_IDS: ${{ needs.resolve.outputs.run-ids }}
+          FP: ${{ needs.build.outputs.fingerprint }}
         run: |
-          mkdir -p "$RUNNER_TEMP/runtimes"
-          for id in $RUN_IDS; do
-            for pattern in 'shotkit-windows-*' 'shotkit-linux-*' 'shotkit-macos-*'; do
-              gh run download "$id" --repo "$GITHUB_REPOSITORY" \
-                --pattern "$pattern" --dir "$RUNNER_TEMP/runtimes"
-            done
-          done
+          names=()
+          for os in windows linux macos; do for arch in x64 arm64; do names+=(--name "engine-$os-$arch-$FP"); done; done
+          node scripts/ci/artifacts.mjs download --require-all --merge "${names[@]}" --dir "$RUNNER_TEMP/runtimes"
 
       # The build workflows name archives shotkit-<os>-<arch> with no version, so
       # every archive unpacks into a stable directory. Stamp the tag onto the file

@@ -4,9 +4,7 @@
 
 [![npm](https://img.shields.io/npm/v/@pixel.js/shotkit?logo=npm)](https://www.npmjs.com/package/@pixel.js/shotkit)
 [![node](https://img.shields.io/node/v/@pixel.js/shotkit)](https://www.npmjs.com/package/@pixel.js/shotkit)
-[![Windows](https://github.com/sj817/shotkit/actions/workflows/windows.yml/badge.svg)](https://github.com/sj817/shotkit/actions/workflows/windows.yml)
-[![Linux](https://github.com/sj817/shotkit/actions/workflows/linux.yml/badge.svg)](https://github.com/sj817/shotkit/actions/workflows/linux.yml)
-[![macOS](https://github.com/sj817/shotkit/actions/workflows/macos.yml/badge.svg)](https://github.com/sj817/shotkit/actions/workflows/macos.yml)
+[![build](https://github.com/sj817/shotkit/actions/workflows/build.yml/badge.svg?branch=main)](https://github.com/sj817/shotkit/actions/workflows/build.yml)
 
 [English](ReadMe.md) · **简体中文**
 

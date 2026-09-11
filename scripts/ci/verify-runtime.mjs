@@ -67,7 +67,7 @@ function sizeAbove(file, minimum) {
   return size;
 }
 
-// The artifact layout download-artifact leaves: <engine-dir>/<artifact name>/...
+// The layout artifacts.mjs download leaves: <engine-dir>/<artifact name>/...
 function artifactDirectory(prefix) {
   const candidates = readdirSync(engineDir, { withFileTypes: true })
     .filter((entry) => entry.isDirectory() && entry.name.startsWith(prefix))
@@ -92,10 +92,20 @@ if (buildDir) {
   const archive = path.join(archiveDir, `shotkit-${platformOs}-${arch}.tar.xz`);
   if (!existsSync(archive)) throw new Error(`no release archive at ${archive}`);
   stage(`extract ${path.basename(archive)}`);
-  // Windows' own bsdtar reads .tar.xz and understands D:\ paths; the GNU
-  // tar a Git Bash puts first on PATH reads `D:` as a remote host.
-  const tar = windows ? path.join(process.env.SystemRoot ?? 'C:\\Windows', 'System32', 'tar.exe') : 'tar';
-  run(tar, ['-xf', archive, '-C', temporary]);
+  if (windows) {
+    // Not tar: the GNU tar a Git Bash puts first on PATH reads `D:` as a
+    // remote host, and Windows Server 2022's own tar.exe never returns from
+    // a .tar.xz (the Windows 11 build on the arm64 runners reads it fine).
+    // 7-Zip is on every hosted Windows image; it takes the xz off in one
+    // pass and the tar apart in another.
+    const programFiles = path.join(process.env.ProgramFiles ?? 'C:\\Program Files', '7-Zip', '7z.exe');
+    const sevenZip = existsSync(programFiles) ? programFiles : '7z';
+    const quiet = { stdio: ['ignore', 'ignore', 'inherit'] };
+    run(sevenZip, ['x', '-y', `-o${temporary}`, archive], quiet);
+    run(sevenZip, ['x', '-y', `-o${temporary}`, path.join(temporary, path.basename(archive, '.xz'))], quiet);
+  } else {
+    run('tar', ['-xf', archive, '-C', temporary]);
+  }
   const extracted = path.join(temporary, `shotkit-${platformOs}-${arch}`);
   // Windows keeps the CLI and its DLL closure flat; the others use bin/ and lib/.
   shotcli = windows ? path.join(extracted, 'shotcli.exe') : path.join(extracted, 'bin', 'shotcli');
