@@ -105,20 +105,11 @@ jobs:
       # The vcpkg binary cache, persisted as the vcpkg-<triplet> artifact for
       # the same reasons as the compiler cache below: 16 minutes of building
       # dependencies whenever the Actions cache had evicted them.
-      - name: Find the vcpkg binary cache
-        id: vcpkg-find
+      - name: Restore the vcpkg binary cache
         shell: bash
         env:
           GH_TOKEN: ${{ github.token }}
-        run: node scripts/ci/artifacts.mjs find --name vcpkg-${{ matrix.triplet }}
-
-      - name: Restore the vcpkg binary cache
-        if: steps.vcpkg-find.outputs.found == 'true'
-        uses: actions/download-artifact@v7
-        with:
-          artifact-ids: ${{ steps.vcpkg-find.outputs.ids }}
-          path: ${{ runner.temp }}/vcpkg-dl
-          github-token: ${{ github.token }}
+        run: node scripts/ci/artifacts.mjs download --name vcpkg-${{ matrix.triplet }} --dir "$RUNNER_TEMP/vcpkg-dl"
 
       - name: Unpack the vcpkg binary cache
         shell: pwsh
@@ -151,20 +142,11 @@ jobs:
           $bin = Join-Path $env:RUNNER_TEMP "ccache-bin\ccache-4.14-windows-$arch"
           $bin | Out-File -FilePath $env:GITHUB_PATH -Encoding utf8 -Append
           & (Join-Path $bin 'ccache.exe') --version | Select-Object -First 1
-      - name: Find the compiler cache
-        id: ccache-find
+      - name: Restore the compiler cache
         shell: bash
         env:
           GH_TOKEN: ${{ github.token }}
-        run: node scripts/ci/artifacts.mjs find --name ccache-windows-${{ matrix.arch }}
-
-      - name: Restore the compiler cache
-        if: steps.ccache-find.outputs.found == 'true'
-        uses: actions/download-artifact@v7
-        with:
-          artifact-ids: ${{ steps.ccache-find.outputs.ids }}
-          path: ${{ runner.temp }}/ccache-dl
-          github-token: ${{ github.token }}
+        run: node scripts/ci/artifacts.mjs download --name ccache-windows-${{ matrix.arch }} --dir "$RUNNER_TEMP/ccache-dl"
 
       - name: Unpack the compiler cache
         shell: bash

@@ -111,20 +111,11 @@ jobs:
           ninja --version
           ccache --version | head -1
 
-      - name: Find the compiler cache
-        id: ccache-find
+      - name: Restore the compiler cache
         shell: bash
         env:
           GH_TOKEN: ${{ github.token }}
-        run: node scripts/ci/artifacts.mjs find --name ccache-linux-${{ matrix.arch }}
-
-      - name: Restore the compiler cache
-        if: steps.ccache-find.outputs.found == 'true'
-        uses: actions/download-artifact@v7
-        with:
-          artifact-ids: ${{ steps.ccache-find.outputs.ids }}
-          path: ${{ runner.temp }}/ccache-dl
-          github-token: ${{ github.token }}
+        run: node scripts/ci/artifacts.mjs download --name ccache-linux-${{ matrix.arch }} --dir "$RUNNER_TEMP/ccache-dl"
 
       - name: Unpack the compiler cache
         shell: bash

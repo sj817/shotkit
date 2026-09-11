@@ -11,13 +11,22 @@
 // one.
 //
 //   node scripts/ci/artifacts.mjs find --name <n> [--name <n2> ...] [--require-all]
+//   node scripts/ci/artifacts.mjs download --name <n> [--name <n2> ...] --dir <dir> [--merge] [--require-all]
 //   node scripts/ci/artifacts.mjs plan --fingerprint <fp> [--force]
 //   node scripts/ci/artifacts.mjs newest --prefix <p>
+//
+// `download` is `find` plus the fetch, one `gh run download` per artifact
+// from the run that uploaded it. actions/download-artifact cannot do this:
+// given artifact ids it only looks inside one run (the current one unless
+// told otherwise), and a set found by fingerprint may span several runs
+// after a partial rebuild. Each artifact lands in <dir>/<name>/, or
+// straight in <dir> with --merge, the two layouts download-artifact has.
 //
 // Every subcommand writes its result to $GITHUB_OUTPUT when set, and `find`
 // and `plan` add a table to $GITHUB_STEP_SUMMARY. Environment:
 // GITHUB_TOKEN (or GH_TOKEN), GITHUB_REPOSITORY, GITHUB_RUN_ID.
 
+import { spawnSync } from 'node:child_process';
 import { appendFileSync } from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -98,6 +107,12 @@ export async function plan(api, fingerprint, force, currentRunId) {
   return { fingerprint, build, present, missing, complete: missing.length === 0 };
 }
 
+// The gh invocation that fetches one artifact into `dest`: the run id pins
+// the lookup to the uploading run, which is what download-artifact lacks.
+export function downloadArguments(repo, record, name, dest) {
+  return ['run', 'download', String(record.workflow_run.id), '-R', repo, '-n', name, '-D', dest];
+}
+
 export function planOutputs(result) {
   const lines = [`fingerprint=${result.fingerprint}`];
   for (const os of OSES) lines.push(`${os}=${JSON.stringify(result.build[os])}`);
@@ -150,9 +165,11 @@ function values(flag) {
 async function main() {
   const command = process.argv[2];
   const { repo, api, currentRunId } = environment();
-  if (command === 'find') {
+  if (command === 'find' || command === 'download') {
     const wanted = values('name');
-    if (wanted.length === 0) throw new Error('find needs at least one --name');
+    if (wanted.length === 0) throw new Error(`${command} needs at least one --name`);
+    const dir = values('dir')[0];
+    if (command === 'download' && !dir) throw new Error('download needs --dir');
     const found = [];
     const missing = [];
     for (const name of wanted) {
@@ -168,6 +185,15 @@ async function main() {
       return `| ${name} | ${hit ? `[run ${hit.record.workflow_run.id}](https://github.com/${repo}/actions/runs/${hit.record.workflow_run.id})` : 'not found'} |`;
     }).join('\n')}\n\n`);
     if (missing.length > 0 && process.argv.includes('--require-all')) throw new Error(`missing artifacts: ${missing.join(', ')}`);
+    if (command === 'download') {
+      for (const { name, record } of found) {
+        const dest = process.argv.includes('--merge') ? path.resolve(dir) : path.resolve(dir, name);
+        const result = spawnSync('gh', downloadArguments(repo, record, name, dest), { stdio: 'inherit' });
+        if (result.error) throw new Error(`gh could not start: ${result.error.message}`);
+        if (result.status !== 0) throw new Error(`gh run download failed for ${name} from run ${record.workflow_run.id}`);
+        console.log(`${name}: downloaded to ${dest}`);
+      }
+    }
     return;
   }
   if (command === 'plan') {
@@ -201,7 +227,7 @@ async function main() {
     output(`name=${record.name}\nid=${record.id}\nrun_id=${record.workflow_run.id}\n`);
     return;
   }
-  throw new Error('usage: artifacts.mjs <find|plan|newest> ...');
+  throw new Error('usage: artifacts.mjs <find|download|plan|newest> ...');
 }
 
 if (process.argv[1] && path.resolve(process.argv[1]) === fileURLToPath(import.meta.url)) {
