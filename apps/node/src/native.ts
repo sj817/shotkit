@@ -39,7 +39,7 @@ export const platformKey = `${process.platform}-${process.arch}`;
 
 function installedPlatformDirectory(requireFromPackage: NodeJS.Require): string | undefined {
   try {
-    return path.dirname(requireFromPackage.resolve(`@shotkit/${platformKey}/package.json`));
+    return path.dirname(requireFromPackage.resolve(`@pixel.js/shotkit-${platformKey}/package.json`));
   } catch {
     return undefined;
   }
@@ -73,14 +73,14 @@ export function resolveNativeAddon(): string {
     if (existsSync(candidate))
       return candidate;
   }
-  throw new ShotKitError(`shot.node not found for ${platformKey}; install @shotkit/${platformKey} or set SHOTKIT_NATIVE_PATH`);
+  throw new ShotKitError(`shot.node not found for ${platformKey}; install @pixel.js/shotkit-${platformKey} or set SHOTKIT_NATIVE_PATH`);
 }
 
 let cachedBinding: NativeBinding | undefined;
 
 export function loadNativeBinding(): NativeBinding {
   if (!isMainThread)
-    throw new ShotKitError('@shotkit/node 0.2 only supports the main Node environment; worker_threads are not supported');
+    throw new ShotKitError('@pixel.js/shotkit only supports the main Node environment; worker_threads are not supported');
   if (cachedBinding)
     return cachedBinding;
   const requireFromPackage = createRequire(path.join(packageDirectory, 'package.json'));

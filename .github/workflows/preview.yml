@@ -1,7 +1,7 @@
 name: PR Native Preview
 
 # PRs build the six native runtimes once, then publish an installable preview
-# for @shotkit/node and every optional platform package. Keeping orchestration
+# for @pixel.js/shotkit and every optional platform package. Keeping orchestration
 # here avoids running the standalone platform workflows a second time.
 on:
   pull_request:

@@ -1,5 +1,5 @@
 {
-  "name": "@shotkit/darwin-arm64",
+  "name": "@pixel.js/shotkit-darwin-arm64",
   "version": "0.1.0",
   "description": "ShotKit native Node addon for macOS arm64",
   "repository": {

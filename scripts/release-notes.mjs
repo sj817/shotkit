@@ -25,12 +25,12 @@ const changes = changesFile ? (await readFile(changesFile, 'utf8')).trim() : '';
 
 // Archive names end in -<os>-<arch>; everything else about them is free-form.
 const LABELS = {
-  'windows-x64': { os: 'Windows', arch: 'x64', pkg: '@shotkit/win32-x64' },
-  'windows-arm64': { os: 'Windows', arch: 'arm64', pkg: '@shotkit/win32-arm64' },
-  'linux-x64': { os: 'Linux', arch: 'x64', pkg: '@shotkit/linux-x64' },
-  'linux-arm64': { os: 'Linux', arch: 'arm64', pkg: '@shotkit/linux-arm64' },
-  'macos-x64': { os: 'macOS', arch: 'x64 (Intel)', pkg: '@shotkit/darwin-x64' },
-  'macos-arm64': { os: 'macOS', arch: 'arm64 (Apple silicon)', pkg: '@shotkit/darwin-arm64' },
+  'windows-x64': { os: 'Windows', arch: 'x64', pkg: '@pixel.js/shotkit-win32-x64' },
+  'windows-arm64': { os: 'Windows', arch: 'arm64', pkg: '@pixel.js/shotkit-win32-arm64' },
+  'linux-x64': { os: 'Linux', arch: 'x64', pkg: '@pixel.js/shotkit-linux-x64' },
+  'linux-arm64': { os: 'Linux', arch: 'arm64', pkg: '@pixel.js/shotkit-linux-arm64' },
+  'macos-x64': { os: 'macOS', arch: 'x64 (Intel)', pkg: '@pixel.js/shotkit-darwin-x64' },
+  'macos-arm64': { os: 'macOS', arch: 'arm64 (Apple silicon)', pkg: '@pixel.js/shotkit-darwin-arm64' },
 };
 const ORDER = Object.keys(LABELS);
 
@@ -102,7 +102,7 @@ process.stdout.write(`<div align="center">
 
 **Turn HTML into PNG / WebP — without a browser.**
 
-[![npm](https://img.shields.io/npm/v/@shotkit/node?logo=npm&label=%40shotkit%2Fnode)](https://www.npmjs.com/package/@shotkit/node)
+[![npm](https://img.shields.io/npm/v/@pixel.js/shotkit?logo=npm&label=%40pixel.js%2Fshotkit)](https://www.npmjs.com/package/@pixel.js/shotkit)
 [![docs](https://img.shields.io/badge/docs-README-blue)](https://github.com/${repository}#readme)
 [![中文](https://img.shields.io/badge/文档-简体中文-red)](https://github.com/${repository}/blob/${tag}/README.zh-CN.md)
 
@@ -111,7 +111,7 @@ process.stdout.write(`<div align="center">
 ${changesSection}## Install
 
 \`\`\`bash
-npm install @shotkit/node
+npm install @pixel.js/shotkit
 \`\`\`
 
 > [!TIP]
@@ -123,7 +123,7 @@ npm install @shotkit/node
 
 \`\`\`bash
 # Node.js API
-node -e "const {launch}=require('@shotkit/node');launch().then(async s=>{await s.screenshotURL('https://example.com',{outputPath:'a.png'});await s.close()})"
+node -e "const {launch}=require('@pixel.js/shotkit');launch().then(async s=>{await s.screenshotURL('https://example.com',{outputPath:'a.png'});await s.close()})"
 
 # Standalone CLI: download the matching GitHub Release archive below.
 ./shotkit-linux-x64/bin/shotcli --url https://example.com --out shot.png
@@ -177,14 +177,14 @@ long-lived token is involved.
 ### 安装
 
 \`\`\`bash
-npm install @shotkit/node
+npm install @pixel.js/shotkit
 \`\`\`
 
 npm 只会为当前平台装下唯一匹配的预编译运行时——不需要 node-gyp，不需要编译器，也没有安装后下载。
 
 \`\`\`bash
 # Node.js API
-node -e "const {launch}=require('@shotkit/node');launch().then(async s=>{await s.screenshotURL('https://example.com',{outputPath:'a.png'});await s.close()})"
+node -e "const {launch}=require('@pixel.js/shotkit');launch().then(async s=>{await s.screenshotURL('https://example.com',{outputPath:'a.png'});await s.close()})"
 
 # 独立 CLI 请下载下方对应平台的 GitHub Release 归档
 ./shotkit-linux-x64/bin/shotcli --url https://example.com --out shot.png

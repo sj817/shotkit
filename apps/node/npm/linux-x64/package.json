@@ -1,5 +1,5 @@
 {
-  "name": "@shotkit/linux-x64",
+  "name": "@pixel.js/shotkit-linux-x64",
   "version": "0.1.0",
   "description": "ShotKit native Node addon for Linux x64",
   "repository": {
