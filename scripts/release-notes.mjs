@@ -117,6 +117,9 @@ npm install @pixel.js/shotkit
 > [!TIP]
 > npm resolves exactly one prebuilt runtime for your platform. No node-gyp, no
 > compiler, and no post-install download.
+>
+> Also published as \`@shotkit/node@${version}\`, the previous name: a compatibility
+> alias that depends on this package. Existing installs keep updating unchanged.
 
 <details open>
 <summary><b>Other ways to run it</b></summary>
@@ -181,6 +184,7 @@ npm install @pixel.js/shotkit
 \`\`\`
 
 npm 只会为当前平台装下唯一匹配的预编译运行时——不需要 node-gyp，不需要编译器，也没有安装后下载。
+同时以旧包名 \`@shotkit/node@${version}\` 发布为兼容别名包，依赖本包；已有项目无需改动。
 
 \`\`\`bash
 # Node.js API
