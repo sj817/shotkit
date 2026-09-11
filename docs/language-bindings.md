@@ -5,9 +5,11 @@ ShotKit 提供两层稳定入口：
 1. `shot.dll` / `libshot.so` / `libshot.dylib` 的 C ABI，适合 Python ctypes/cffi、Go cgo、Rust FFI 等进程内绑定；
 2. `shotcli --serve` 的 JSONL 常驻协议，适合不希望处理原生链接和主线程约束的语言。
 
-Node.js 优先使用 `apps/node/` 的 `@pixel.js/shotkit`。从 0.2 起它加载静态汇入内核与 C API 的
-`shot.node`，在进程内专用线程维护一个 FIFO renderer，返回 Promise 与零临时文件 Buffer，
-同时支持 ESM 和 CommonJS。CLI/JSONL 仍是独立、可隔离的通用入口，npm SDK 不再启动它。
+Node.js 优先使用 `apps/node/` 的 `@pixel.js/shotkit`。它加载薄插件 `shot.node`（动态链接
+`libshot`），在进程内专用线程维护一个 FIFO renderer，返回 Promise 与零临时文件 Buffer，
+同时支持 ESM 和 CommonJS；0.4.0 起 API 与 `@pixel.js/shotium` 同形（`screenshot` /
+`start` / `status` / `stop`），见 `apps/node/README.md`。CLI/JSONL 仍是独立、可隔离的通用入口，
+npm SDK 不再启动它。
 
 ## JSONL 常驻协议
 
@@ -109,6 +111,6 @@ p.wait()
 `nullptr`）。`shot_render_options_default`、`shot_image_free`/`shot_png_free` 可在任意线程调用。
 
 JSONL 把约束隔离在 `shotcli` 进程内；Node SDK 则封装在宿主进程内唯一的原生专用线程和
-FIFO 队列里，不阻塞 Node 事件循环。多个 `ShotKit` handle 共享队列，`close()` 只等待当前
-handle 已提交的请求；底层线程保留到环境清理。0.2 不支持从 `worker_threads` 加载。
+FIFO 队列里，不阻塞 Node 事件循环。`stop()` 只等在途截图完成，底层线程保留到环境清理，
+下一次 `screenshot()` 直接复用。不支持从 `worker_threads` 加载。
 需要故障隔离或真正并行时启动多个 CLI 进程，不要并发调用同一 C ABI renderer。

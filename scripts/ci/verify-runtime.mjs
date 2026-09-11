@@ -160,11 +160,10 @@ if (flag('xslt')) {
   sizeAbove(xslt, 100);
   // The SDK call is inline so that the API it exercises is spelled once,
   // here, and changes with the SDK.
-  const snippet = `import {launch} from ${JSON.stringify(pathToFileURL(path.join(sdk, 'dist', 'index.mjs')).href)};
-    const s = await launch();
-    const r = await s.screenshotURL(${JSON.stringify(`${base}/document.xml`)}, {mimeType: 'application/xml', timeoutMs: 5000});
-    if (r.bytes < 100) throw new Error('native CFNetwork/XML output too small');
-    await s.close();`;
+  const snippet = `import {screenshot, stop} from ${JSON.stringify(pathToFileURL(path.join(sdk, 'dist', 'index.mjs')).href)};
+    const r = await screenshot({file: ${JSON.stringify(`${base}/document.xml`)}, pageGotoParams: {timeout: 5000}});
+    if (r.stats.bytes < 100) throw new Error('native CFNetwork/XML output too small');
+    await stop();`;
   run(process.execPath, ['--input-type=module', '-e', snippet], { cwd: root, env });
 }
 

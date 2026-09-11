@@ -30,7 +30,7 @@
   "scripts": {
     "build": "tsdown",
     "typecheck": "tsc --noEmit",
-    "test": "npm run build && node --test test/*.test.mjs test/*.test.cjs",
+    "test": "npm run build && node --import tsx --test test/*.test.mjs test/*.test.cjs",
     "stage": "tsx tools/stage-platform.ts",
     "stage:win": "tsx tools/stage-platform.ts win32-x64",
     "sync-versions": "tsx tools/sync-versions.ts"

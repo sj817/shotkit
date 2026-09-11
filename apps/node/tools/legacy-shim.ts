@@ -87,15 +87,17 @@ export function shimManifest(primary: PrimaryManifest): Record<string, unknown> 
 
 const BANNER = `// ${LEGACY} is the previous name of ${PRIMARY}. Everything here is that package.\n`;
 
-// src/index.ts has named exports only, so `export *` is the whole surface;
-// a default export would need its own line, because `export *` skips it.
+// `export *` skips the default export, and src/index.ts has one (the
+// shotium-shaped object), so it gets its own line. The CJS bundle exposes
+// it as `default` on module.exports, which `module.exports = require(...)`
+// carries over as is.
 export function shimFiles(primary: PrimaryManifest): Record<string, string> {
   return {
     'package.json': `${JSON.stringify(shimManifest(primary), null, 2)}\n`,
-    'index.mjs': `${BANNER}export * from '${PRIMARY}';\n`,
+    'index.mjs': `${BANNER}export * from '${PRIMARY}';\nexport { default } from '${PRIMARY}';\n`,
     'index.cjs': `${BANNER}module.exports = require('${PRIMARY}');\n`,
-    'index.d.mts': `export * from '${PRIMARY}';\n`,
-    'index.d.cts': `export * from '${PRIMARY}';\n`,
+    'index.d.mts': `export * from '${PRIMARY}';\nexport { default } from '${PRIMARY}';\n`,
+    'index.d.cts': `export * from '${PRIMARY}';\nexport { default } from '${PRIMARY}';\n`,
     'README.md': readme(primary.version),
   };
 }
@@ -116,8 +118,8 @@ npm install ${PRIMARY}
 \`\`\`
 
 \`\`\`diff
-- import { launch } from '${LEGACY}';
-+ import { launch } from '${PRIMARY}';
+- import { screenshot } from '${LEGACY}';
++ import { screenshot } from '${PRIMARY}';
 \`\`\`
 
 The six \`@shotkit/<os>-<arch>\` platform packages are no longer published; the runtime now arrives as \`${PRIMARY}-<os>-<arch>\`, which npm resolves on the next install.

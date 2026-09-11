@@ -9,10 +9,9 @@ npm install @pixel.js/shotkit
 ```
 
 ```js
-import { launch } from '@pixel.js/shotkit';
+import { screenshot } from '@pixel.js/shotkit';
 
-const shot = await launch();
-const result = await shot.screenshotHTML('<h1>Hello</h1>', { outputPath: 'shot.png' });
+const result = await screenshot({ html: '<h1>Hello</h1>', path: 'shot.png' });
 console.log(result.bytes, result.durationMs, result.elapsedMs);
 await shot.close();
 ```

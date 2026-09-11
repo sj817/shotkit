@@ -1,17 +1,16 @@
 import assert from 'node:assert/strict';
 
-import { launch } from '../dist/index.mjs';
+import { screenshot, stop } from '../dist/index.mjs';
 
-const shot = await launch();
 try {
-  const result = await shot.screenshotHTML(
-    '<!doctype html><style>body{margin:0;background:#246;color:white}</style><h1>N-API v8</h1>',
-    { width: 240, height: 120 },
-  );
-  assert.deepEqual([...result.data.subarray(0, 4)], [0x89, 0x50, 0x4e, 0x47]);
-  assert.equal(result.bytes, result.data.length);
+  const result = await screenshot({
+    html: '<!doctype html><style>body{margin:0;background:#246;color:white}</style><h1>N-API v8</h1>',
+    viewport: { width: 240, height: 120 },
+  });
+  assert.deepEqual([...result.image.subarray(0, 4)], [0x89, 0x50, 0x4e, 0x47]);
+  assert.equal(result.stats.bytes, result.image.length);
 } finally {
-  await shot.close();
+  await stop();
 }
 
 console.log(`Node ${process.version}: native N-API smoke passed`);
